@@ -1,2 +1,2 @@
-BlockChainAlgo.md
-RustAlgo.md
+git rm -r --cached Documentation/
+git add Documentation/README.md
