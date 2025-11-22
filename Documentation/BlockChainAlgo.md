@@ -402,7 +402,7 @@ graph LR
 
 ---
 
-## 💡 Why This Matters for Your Blockchain
+## 💡 Why This Matters for Blockchain
 
 ### The Core Efficiency Principle
 
