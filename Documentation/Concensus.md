@@ -139,7 +139,7 @@ pub struct ConsensusMessage {
     pub block_hash: String,              // SHA256
     pub current_view: u64,
     pub sequence_number: u64,
-    pub proposed_block: Option<Block>,   // Only in PrePrepare
+    pub proposed_block: Option<Block>,   // Only in PrePrepare (see Block Schema below)
     
     // METADATA (optional, not signed)
     #[serde(skip_serializing)]
@@ -155,6 +155,31 @@ pub enum ConsensusPhase {
     Commit = 2,      // Validators commit to block
 }
 ```
+
+### Block Schema
+
+```rust
+/// BLOCK STRUCTURE
+/// Full specification in: docs/architecture/block-schema.md
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Block {
+    pub block_number: u64,               // Sequential block height
+    pub parent_hash: String,             // SHA256 of parent block
+    pub timestamp: u64,                  // Unix seconds
+    pub validator_index: u32,            // Proposing validator index
+    pub transactions: Vec<Transaction>,  // See: docs/architecture/transaction-schema.md
+    pub state_root: String,              // Merkle root of account state
+    pub block_hash: String,              // SHA256(block_number || parent_hash || state_root)
+}
+
+pub type ValidatorId = String;           // Public key identifier
+pub type Ed25519Signature = Vec<u8>;     // 64 bytes signature
+```
+
+**Cross-References**:
+- Block structure details: `docs/architecture/block-schema.md`
+- Transaction format: `docs/architecture/transaction-schema.md`
+- State root calculation: `docs/architecture/state-management.md#merkle-trees`
 
 ### Input Contract Constraints
 
@@ -213,6 +238,21 @@ STAGE 8: Resource Constraints (Sync)
 ├─ Check: Queue depth, memory %, rate limits
 └─ Reject: Code 5001/5002 | Severity: High/Low
 ```
+
+### Rejection Code Reference
+
+| Code | Stage | Severity | Reason | Corrective Action |
+|------|-------|----------|--------|-------------------|
+| 1001 | Message Structure | Medium | Invalid format, oversized, wrong protocol version | Verify message encoding, check sender implementation |
+| 1002 | Signature Verification | High | Invalid signature or sender not in validator set | Check public key, verify validator registration |
+| 1004 | Timestamp Validation | Low | Message too old or clock skew detected | Sync NTP clocks, check network latency |
+| 2001 | Sequence Validation | Low | Sequence number < current (stale message) | Resync validator state, may indicate missed messages |
+| 2004 | Sequence Validation | Medium | Large sequence gap (> 1000 blocks ahead) | Resync blockchain, check for network partition |
+| 2002 | Replay Detection | Low | Duplicate message already processed | Check for routing loops or replay attacks |
+| 3001 | Phase Validation | Medium | Message phase doesn't match state machine | Verify consensus state, check for desync |
+| 4003 | Equivocation Detection | **CRITICAL** | Byzantine validator voting for conflicting blocks | **ALERT OPERATOR**: Prepare slashing evidence |
+| 5001 | Resource Constraints | High | Queue full or memory pressure | Scale resources, investigate DoS, increase capacity |
+| 5002 | Resource Constraints | Low | Peer rate limit exceeded | Adjust rate limits, investigate peer behavior |
 
 ### Layered Architecture
 
@@ -283,20 +323,75 @@ pub enum ConsensusState {
 }
 ```
 
-### State Transitions
+### State Transitions (Visual Diagram)
 
 ```
-Idle
-  ↓ (PrePrepare received)
-WaitingForPrepares
-  ↓ (2f+1 Prepare votes)
-Prepared
-  ↓ (Advance to Commit phase)
-WaitingForCommits
-  ↓ (2f+1 Commit votes)
-Committed
-  ↓ (Finality checkpointed)
-Idle (next round)
+                    ┌──────────────────┐
+                    │                  │
+                    │      IDLE        │
+                    │  (Ready for new  │
+                    │   consensus)     │
+                    │                  │
+                    └────────┬─────────┘
+                             │
+                    (PrePrepare received)
+                             │
+                             ▼
+              ┌──────────────────────────┐
+              │                          │
+              │  WAITING_FOR_PREPARES    │
+              │  (Need 2f+1 Prepare      │
+              │   votes from validators) │
+              │  Timeout: 5s             │
+              │                          │
+              └─────────┬────────────────┘
+                        │
+              (2f+1 Prepare votes received)
+                        │
+                        ▼
+                ┌───────────────┐
+                │               │
+                │   PREPARED    │
+                │  (Prepare     │
+                │   phase done) │
+                │               │
+                └───────┬───────┘
+                        │
+              (Advance to Commit phase)
+                        │
+                        ▼
+              ┌──────────────────────────┐
+              │                          │
+              │  WAITING_FOR_COMMITS     │
+              │  (Need 2f+1 Commit       │
+              │   votes from validators) │
+              │  Timeout: 5s             │
+              │                          │
+              └─────────┬────────────────┘
+                        │
+              (2f+1 Commit votes received)
+                        │
+                        ▼
+                ┌───────────────┐
+                │               │
+                │  COMMITTED    │
+                │  (Block is    │
+                │   FINALIZED)  │
+                │  IMMUTABLE ✓  │
+                │               │
+                └───────┬───────┘
+                        │
+              (Finality checkpointed)
+                        │
+                        ▼
+                    ┌───────┐
+                    │ IDLE  │ (next round)
+                    └───────┘
+
+      ┌─────────────────────────────────────────┐
+      │  TIMEOUT from any state → View Change   │
+      │  Returns to IDLE with incremented view  │
+      └─────────────────────────────────────────┘
 ```
 
 ### Quorum Requirements (PBFT)
@@ -433,6 +528,27 @@ resources:
   max_cpu_percent: 80
   max_message_queue_memory_mb: 1024
 ```
+
+### Adaptive Configuration Behavior
+
+**What is Auto-Tuned** (no redeploy required):
+
+| Parameter | Auto-Tuned | Trigger Metric | Range |
+|-----------|------------|----------------|-------|
+| `base_timeout_ms` | ✓ | `consensus_latency_p95_ms` | 3000-15000ms |
+| `batch_size` | ✓ | `consensus_message_queue_depth` | 100-1000 |
+| `parallel_workers` | ✓ | `consensus_cpu_usage_percent` | num_cpus to num_cpus*2 |
+| `rate_limit_per_peer` | ✓ | `consensus_messages_rejected_total` (code 5002) | 500-2000 msgs/sec |
+
+**Adaptation Logic**:
+- **Timeout adjustment**: If p95 latency > target (2000ms), increase timeout by 10% (max 15s)
+- **Batch size**: If queue depth > 50%, increase batch by 20% (max 1000)
+- **Worker scaling**: If CPU > 70%, add workers up to num_cpus*2
+- **Rate limit**: If rejection rate > 5%, increase limit by 25%
+
+**Evaluation Interval**: Every 30 seconds (configurable via `adaptive_check_interval_secs`)
+
+**Override**: Set explicit values (non-null) to disable auto-tuning for that parameter
 
 ---
 
