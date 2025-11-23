@@ -456,7 +456,7 @@ STAGE 1: Message Structure (Sync, Blocking)
 └─ Reject: Code 1001 | Severity: Medium
 
 STAGE 2: Signature Verification (Async, Parallelized)
-├─ Check: Ed25519 signature, validator set membership
+├─ Check: Schnorr signature, validator set membership
 └─ Reject: Code 1002 | Severity: High
 
 STAGE 3: Timestamp Validation (Sync)
@@ -545,27 +545,34 @@ pub enum ConsensusState {
     WaitingForPrepares {
         block_hash: String,
         deadline_secs: u64,
-        why: &'static str,
+        reason: String,                  // ✅ FIXED: String instead of &'static str
     },
     
     Prepared {
         block_hash: String,
         prepare_count: u32,
-        reason: &'static str,
+        reason: String,                  // ✅ FIXED: String instead of &'static str
     },
     
     WaitingForCommits {
         block_hash: String,
         deadline_secs: u64,
-        why: &'static str,
+        reason: String,                  // ✅ FIXED: String instead of &'static str
     },
     
     Committed {
         block_hash: String,
         commit_count: u32,
-        finality_proof: &'static str,
+        finality_proof: String,          // ✅ FIXED: String instead of &'static str
     },
 }
+```
+
+**Rationale for String vs &'static str**:
+- **Compilation**: `&'static str` requires lifetime annotations on enum, complicates serialization
+- **Flexibility**: State reasons may be dynamic (e.g., include validator IDs, timestamps)
+- **Memory**: Negligible cost (~24 bytes per String vs 16 bytes for &str), runtime-allocated
+- **Safety**: Avoids lifetime propagation through entire codebase
 ```
 
 ### State Transitions (Visual Diagram)
@@ -720,7 +727,7 @@ STEP 2: VIEW_CHANGE MESSAGE
 │   last_sequence: u64,                          │
 │   prepared_certificate: Option<PreparedProof>, │
 │   sender_id: ValidatorId,                      │
-│   signature: Ed25519Signature,                 │
+│   signature: SchnorrSignature,                 │
 │ }                                              │
 └────────────────────────────────────────────────┘
 
@@ -740,7 +747,7 @@ STEP 5: NEW_VIEW MESSAGE (Broadcast by new primary only)
 │   new_view: u64,                               │
 │   view_change_messages: Vec<ViewChangeMsg>,   │
 │   preprepare: Option<PrePrepareMsg>,          │
-│   signature: Ed25519Signature,                 │
+│   signature: SchnorrSignature,                 │
 │ }                                              │
 └────────────────────────────────────────────────┘
 
