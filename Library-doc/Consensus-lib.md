@@ -57,13 +57,13 @@ This document specifies the **modular library implementation** for the Consensus
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    APPLICATION LAYER                     │
-│              (Blockchain Node / Service)                 │
+│                    APPLICATION LAYER                    │
+│              (Blockchain Node / Service)                │
 └─────────────────────┬───────────────────────────────────┘
                       │
                       ▼
 ┌─────────────────────────────────────────────────────────┐
-│                   INTEGRATION LAYER                      │
+│                   INTEGRATION LAYER                     │
 │  • ConsensusEngine (main orchestrator)                  │
 │  • Module registry and dependency injection             │
 │  • Configuration management                             │
@@ -79,12 +79,12 @@ This document specifies the **modular library implementation** for the Consensus
 │ • Validation │ │ • Vote   │ │ • Storage    │
 │ • Priority   │ │ • State  │ │ • Metrics    │
 └──────┬───────┘ └────┬─────┘ └──────┬───────┘
-       │              │               │
-       └──────────────┼───────────────┘
+       │              │              │
+       └──────────────┼──────────────┘
                       │
                       ▼
         ┌─────────────────────────────┐
-        │     CORE ALGORITHM MODULES   │
+        │     CORE ALGORITHM MODULES  │
         │  • Schnorr cryptography     │
         │  • Quorum calculation       │
         │  • Sequence validation      │
@@ -94,7 +94,7 @@ This document specifies the **modular library implementation** for the Consensus
                        │
                        ▼
         ┌─────────────────────────────┐
-        │      UTILITY MODULES         │
+        │      UTILITY MODULES        │
         │  • Serialization            │
         │  • Logging                  │
         │  • Time utilities           │
@@ -152,14 +152,14 @@ consensus-validation-lib/
 ├── ARCHITECTURE.md                     # This document
 │
 ├── src/
-│   ├── lib.rs                          # Library root, re-exports public API
+│   ├── lib.rs                       # Library root, re-exports public API
 │   │
-│   ├── types/                          # Core data types (shared across modules)
+│   ├── types/                   # Core data types (shared across modules)
 │   │   ├── mod.rs                      # Module root
 │   │   ├── message.rs                  # ConsensusMessage, message types
 │   │   ├── block.rs                    # Block structure
 │   │   ├── validator.rs                # ValidatorId, ValidatorSet
-│   │   ├── signature.rs                # SchnorrSignature, SchnorrPublicKey
+│   │   ├── signature.rs              # SchnorrSignature, SchnorrPublicKey
 │   │   ├── state.rs                    # ConsensusState enum
 │   │   └── error.rs                    # Error types, ValidationError
 │   │
@@ -211,7 +211,7 @@ consensus-validation-lib/
 │   │   │
 │   │   ├── validator/                  # Signature validation engine
 │   │   │   ├── mod.rs
-│   │   │   ├── verifier.rs             # Signature verification orchestrator
+│   │   │   ├── verifier.rs          #Signature verification orchestrator
 │   │   │   └── cache.rs                # Public key cache
 │   │   │
 │   │   └── byzantine/                  # Byzantine detection engine
@@ -245,7 +245,7 @@ consensus-validation-lib/
 │   │       ├── stage_7_equivocation.rs # Stage 7: Equivocation detection
 │   │       └── stage_8_resources.rs    # Stage 8: Resource constraints
 │   │
-│   ├── output/                         # Output modules (async, non-blocking)
+│   ├── output/                    # Output modules (async, non-blocking)
 │   │   ├── mod.rs
 │   │   │
 │   │   ├── broadcast/                  # Message broadcasting
@@ -255,7 +255,7 @@ consensus-validation-lib/
 │   │   │
 │   │   ├── storage/                    # Block persistence
 │   │   │   ├── mod.rs
-│   │   │   ├── writer.rs               # Async block writer (stub interface)
+│   │   │   ├── writer.rs            # Async block writer (stub interface)
 │   │   │   └── encoder.rs              # Block serialization
 │   │   │
 │   │   └── metrics/                    # Metrics export
@@ -286,7 +286,7 @@ consensus-validation-lib/
 │   │
 │   └── integration/                    # Integration layer (glue)
 │       ├── mod.rs
-│       ├── engine.rs                   # ConsensusEngine (main orchestrator)
+│       ├── engine.rs                # ConsensusEngine (main orchestrator)
 │       ├── registry.rs                 # Module registry
 │       └── lifecycle.rs                # Startup/shutdown logic
 │
@@ -664,7 +664,7 @@ mod tests {
 ```rust
 /// Message structure validation (Stage 1)
 
-use crate::types::message::ConsensusMessage;
+use crate::types::message::{ConsensusMessage, Block};
 use crate::types::error::ValidationError;
 
 /// Validate message structure
@@ -673,10 +673,9 @@ use crate::types::error::ValidationError;
 /// 1. message_id is valid UUID
 /// 2. protocol_version == 1
 /// 3. sender_validator_id is valid format
-/// 4. timestamp within acceptable range
-/// 5. signature is 64 bytes
-/// 6. block_hash is 64 hex characters
-/// 7. block structure (if present)
+/// 4. signature is 64 bytes
+/// 5. block_hash is 64 hex characters
+/// 6. block structure (if present)
 ///
 /// # Performance
 /// * ~1μs per message (no I/O)
@@ -728,4 +727,497 @@ fn validate_sender_id(id: &str) -> Result<(), ValidationError> {
 
 fn validate_block_hash(hash: &str) -> Result<(), ValidationError> {
     // Must be 64 hex characters (SHA256)
-    if hash.len() != 6
+    if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(ValidationError::InvalidBlockHash);
+    }
+    Ok(())
+}
+
+/// Validate block structure (delegates to block schema validation)
+fn validate_block_structure(block: &Block) -> Result<(), ValidationError> {
+    // This function would contain detailed checks on the block's fields
+    // as specified in `docs/architecture/block-schema.md`.
+    
+    // Example check: block hash must match its contents
+    if block.block_hash != calculate_block_hash(block) {
+        return Err(ValidationError::InvalidBlockStructure("Block hash mismatch".to_string()));
+    }
+    
+    if block.parent_hash.len() != 64 {
+        return Err(ValidationError::InvalidBlockStructure("Invalid parent hash".to_string()));
+    }
+    
+    // ... more checks on transactions, state_root, etc.
+    
+    Ok(())
+}
+
+// Helper function (would be in a hashing utility module)
+fn calculate_block_hash(block: &Block) -> String {
+    // Placeholder for SHA256(block_number || parent_hash || state_root)
+    // In a real implementation, this would use the `util/serialization/hash.rs` module.
+    block.block_hash.clone() // Assume it's correct for this validation stub
+}
+```
+
+#### `timestamp.rs`
+
+```rust
+/// Message timestamp validation (Stage 3)
+
+use crate::types::error::ValidationError;
+use crate::util::time::Clock;
+
+/// Validate message timestamp
+///
+/// Checks:
+/// 1. Not too old (< 1 hour)
+/// 2. Not in the future (< 60 seconds)
+///
+/// # Arguments
+/// * `timestamp_secs` - The timestamp from the message
+/// * `clock` - A clock abstraction for testability
+///
+/// # Returns
+/// * Ok(()) if valid
+/// * Err(ValidationError) with specific code
+pub fn validate_timestamp(
+    timestamp_secs: u64,
+    clock: &dyn Clock,
+) -> Result<(), ValidationError> {
+    let now_secs = clock.now_unix_secs();
+    
+    // 1. Check if timestamp is too far in the future
+    if timestamp_secs > now_secs + 60 {
+        return Err(ValidationError::TimestampTooFarFuture);
+    }
+    
+    // 2. Check if message is too old
+    if now_secs.saturating_sub(timestamp_secs) > 3600 {
+        return Err(ValidationError::MessageTooOld);
+    }
+    
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::util::time::MockClock;
+    
+    #[test]
+    fn test_valid_timestamp() {
+        let clock = MockClock::new(10000);
+        assert!(validate_timestamp(10000, &clock).is_ok()); // Exactly now
+        assert!(validate_timestamp(9980, &clock).is_ok());  // 20s old
+        assert!(validate_timestamp(10050, &clock).is_ok()); // 50s in future
+    }
+    
+    #[test]
+    fn test_timestamp_too_old() {
+        let clock = MockClock::new(10000);
+        // 3601 seconds old
+        let result = validate_timestamp(10000 - 3601, &clock);
+        assert!(matches!(result, Err(ValidationError::MessageTooOld)));
+    }
+    
+    #[test]
+    fn test_timestamp_in_future() {
+        let clock = MockClock::new(10000);
+        // 61 seconds in the future
+        let result = validate_timestamp(10000 + 61, &clock);
+        assert!(matches!(result, Err(ValidationError::TimestampTooFarFuture)));
+    }
+}
+```
+
+#### `sequence.rs`
+
+```rust
+/// Message sequence validation (Stage 4)
+
+use crate::types::error::ValidationError;
+
+/// Validate message sequence number
+///
+/// Checks:
+/// 1. Sequence is not stale (not < current sequence)
+/// 2. Sequence is not too far in the future (no large gaps)
+///
+/// # Arguments
+/// * `sequence` - The sequence number from the message
+/// * `current_sequence` - The current sequence number of the node
+///
+/// # Returns
+/// * Ok(()) if valid
+/// * Err(ValidationError) with specific code
+pub fn validate_sequence(
+    sequence: u64,
+    current_sequence: u64,
+) -> Result<(), ValidationError> {
+    // 1. Check for stale message
+    if sequence < current_sequence {
+        return Err(ValidationError::SequenceNumberTooLow);
+    }
+    
+    // 2. Check for large gap
+    if sequence > current_sequence + 1000 {
+        return Err(ValidationError::SequenceNumberGapTooLarge);
+    }
+    
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_valid_sequence() {
+        assert!(validate_sequence(100, 100).is_ok()); // Same sequence
+        assert!(validate_sequence(101, 100).is_ok()); // Next sequence
+        assert!(validate_sequence(1100, 100).is_ok()); // Within gap limit
+    }
+    
+    #[test]
+    fn test_sequence_too_low() {
+        let result = validate_sequence(99, 100);
+        assert!(matches!(result, Err(ValidationError::SequenceNumberTooLow)));
+    }
+    
+    #[test]
+    fn test_sequence_gap_too_large() {
+        let result = validate_sequence(1101, 100);
+        assert!(matches!(result, Err(ValidationError::SequenceNumberGapTooLarge)));
+    }
+}
+```
+
+---
+
+### 4. Equivocation Detection Module
+
+**Location**: `src/algorithm/equivocation/`
+
+**Purpose**: Detect Byzantine validators voting for conflicting blocks.
+
+#### `detector.rs`
+
+```rust
+/// Equivocation detection algorithm (Stage 7)
+
+use crate::types::message::ConsensusMessage;
+use crate::types::validator::ValidatorId;
+use std::collections::HashMap;
+
+/// Represents a vote cast by a validator for a specific sequence.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VoteRecord {
+    pub block_hash: String,
+    pub view: u64,
+}
+
+/// Tracks votes per validator to detect equivocation.
+/// Key: ValidatorId, Value: (Key: sequence number, Value: VoteRecord)
+pub type VoteHistory = HashMap<ValidatorId, HashMap<u64, VoteRecord>>;
+
+/// Detect if a new message constitutes equivocation.
+///
+/// Equivocation is defined as a validator signing two different block hashes
+/// for the same sequence number and view.
+///
+/// # Arguments
+/// * `msg` - The incoming consensus message
+/// * `history` - The historical record of votes from all validators
+///
+/// # Returns
+/// * `Ok(())` if no equivocation is detected
+/// * `Err(EquivocationEvidence)` if equivocation is detected
+pub fn detect_equivocation(
+    msg: &ConsensusMessage,
+    history: &VoteHistory,
+) -> Result<(), EquivocationEvidence> {
+    let validator_id = &msg.sender_validator_id;
+    let sequence = msg.sequence_number;
+    
+    if let Some(validator_history) = history.get(validator_id) {
+        if let Some(previous_vote) = validator_history.get(&sequence) {
+            // A vote for this sequence already exists. Check if it's equivocation.
+            let is_equivocation = previous_vote.view == msg.current_view &&
+                                  previous_vote.block_hash != msg.block_hash &&
+                                  !msg.block_hash.is_empty();
+                                  
+            if is_equivocation {
+                return Err(EquivocationEvidence {
+                    validator_id: validator_id.clone(),
+                    sequence,
+                    vote_a: previous_vote.clone(),
+                    vote_b: VoteRecord {
+                        block_hash: msg.block_hash.clone(),
+                        view: msg.current_view,
+                    },
+                });
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+/// Evidence of a validator equivocating.
+#[derive(Debug, Clone)]
+pub struct EquivocationEvidence {
+    pub validator_id: ValidatorId,
+    pub sequence: u64,
+    pub vote_a: VoteRecord,
+    pub vote_b: VoteRecord,
+}
+```
+
+#### `evidence.rs`
+
+```rust
+/// Equivocation evidence collection and formatting.
+
+use crate::types::message::ConsensusMessage;
+use crate::types::validator::ValidatorId;
+
+/// A self-contained, verifiable proof of equivocation for slashing.
+#[derive(Debug, Clone)]
+pub struct SlashingProof {
+    pub offender: ValidatorId,
+    pub sequence: u64,
+    pub message1: ConsensusMessage,
+    pub message2: ConsensusMessage,
+}
+
+impl SlashingProof {
+    /// Verify that the proof is valid and self-consistent.
+    ///
+    /// Checks:
+    /// 1. Both messages are from the same sender.
+    /// 2. Both messages are for the same sequence and view.
+    /// 3. The block hashes are different and non-empty.
+    /// 4. Both signatures are cryptographically valid (external check).
+    pub fn verify_consistency(&self) -> bool {
+        // Messages must be from the same offender
+        if self.message1.sender_validator_id != self.offender ||
+           self.message2.sender_validator_id != self.offender {
+            return false;
+        }
+        
+        // Must be for the same sequence and view
+        if self.message1.sequence_number != self.sequence ||
+           self.message2.sequence_number != self.sequence ||
+           self.message1.current_view != self.message2.current_view {
+            return false;
+        }
+        
+        // Block hashes must be different and not empty
+        if self.message1.block_hash.is_empty() ||
+           self.message2.block_hash.is_empty() ||
+           self.message1.block_hash == self.message2.block_hash {
+            return false;
+        }
+        
+        true
+    }
+}
+
+/// Formats equivocation evidence into a slashable artifact.
+///
+/// # Arguments
+/// * `msg1` - The first consensus message (retrieved from history).
+/// * `msg2` - The second (conflicting) consensus message.
+///
+/// # Returns
+/// * A `SlashingProof` struct ready for submission.
+pub fn prepare_slashing_proof(
+    msg1: &ConsensusMessage,
+    msg2: &ConsensusMessage,
+) -> Option<SlashingProof> {
+    if msg1.sender_validator_id != msg2.sender_validator_id { return None; }
+
+    let proof = SlashingProof {
+        offender: msg1.sender_validator_id.clone(),
+        sequence: msg1.sequence_number,
+        message1: msg1.clone(),
+        message2: msg2.clone(),
+    };
+
+    if proof.verify_consistency() {
+        Some(proof)
+    } else {
+        None
+    }
+}
+```
+
+---
+
+### 5. View Change Algorithm Module
+
+**Location**: `src/algorithm/view_change/`
+
+**Purpose**: Implement deterministic primary election and adaptive timeouts.
+
+#### `primary_election.rs`
+
+```rust
+/// Deterministic primary election algorithm.
+
+use crate::types::validator::ValidatorId;
+
+/// Select the primary validator for a given view.
+///
+/// All nodes MUST use this identical formula to prevent a fork.
+///
+/// # Formula
+/// `Primary_Index = View_Number mod N`
+/// where N is the number of validators.
+///
+/// # Arguments
+/// * `view` - The view number for which to select a primary.
+/// * `validator_set` - The ordered list of active validators.
+///
+/// # Returns
+/// * The `ValidatorId` of the elected primary.
+/// * `None` if the validator set is empty.
+pub fn get_primary_for_view(
+    view: u64,
+    validator_set: &[ValidatorId],
+) -> Option<ValidatorId> {
+    if validator_set.is_empty() {
+        return None;
+    }
+    let n = validator_set.len() as u64;
+    let primary_index = (view % n) as usize;
+    Some(validator_set[primary_index].clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_primary_election() {
+        let validators: Vec<ValidatorId> = vec![
+            "V0".to_string(), "V1".to_string(), "V2".to_string(), "V3".to_string(),
+        ];
+        
+        assert_eq!(get_primary_for_view(0, &validators), Some("V0".to_string()));
+        assert_eq!(get_primary_for_view(1, &validators), Some("V1".to_string()));
+        assert_eq!(get_primary_for_view(4, &validators), Some("V0".to_string())); // Wraps
+    }
+    
+    #[test]
+    fn test_empty_validator_set() {
+        assert_eq!(get_primary_for_view(0, &[]), None);
+    }
+}
+```
+
+#### `timeout.rs`
+
+```rust
+/// Adaptive timeout calculation for view changes.
+
+/// Calculate the consensus timeout with exponential backoff.
+///
+/// The timeout increases with consecutive view changes to prevent thrashing
+/// during periods of network instability.
+///
+/// # Formula
+/// `timeout = base_timeout * 2^consecutive_view_changes` (capped at 16x)
+///
+/// # Arguments
+/// * `base_timeout_ms` - The baseline timeout in milliseconds.
+/// * `consecutive_view_changes` - The number of consecutive failed views.
+///
+/// # Returns
+/// * The calculated timeout in milliseconds.
+pub fn calculate_adaptive_timeout(
+    base_timeout_ms: u64,
+    consecutive_view_changes: u32,
+) -> u64 {
+    // Cap the exponent to prevent overflow and excessively long timeouts.
+    // 2^4 = 16x multiplier cap.
+    let exponent = consecutive_view_changes.min(4);
+    let multiplier = 2u64.pow(exponent);
+    base_timeout_ms.saturating_mul(multiplier)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_adaptive_timeout() {
+        let base = 5000;
+        assert_eq!(calculate_adaptive_timeout(base, 0), 5000);  // No failures
+        assert_eq!(calculate_adaptive_timeout(base, 1), 10000); // 1 failure
+        assert_eq!(calculate_adaptive_timeout(base, 2), 20000); // 2 failures
+        assert_eq!(calculate_adaptive_timeout(base, 4), 80000); // 4 failures (cap)
+        assert_eq!(calculate_adaptive_timeout(base, 5), 80000); // Stays at cap
+    }
+}
+```
+
+#### `certificate.rs`
+
+```rust
+/// Prepared Certificate validation for view changes.
+
+use crate::types::message::PreparedCertificate;
+use crate::algorithm::quorum::is_quorum_reached;
+
+/// Validate a PreparedCertificate received during a view change.
+///
+/// A valid certificate proves that 2f+1 validators had reached the PREPARE
+/// phase for a specific block before the view change was initiated.
+///
+/// Checks:
+/// 1. The certificate contains 2f+1 valid PREPARE messages.
+/// 2. All PREPARE messages are for the same view, sequence, and block_hash.
+/// 3. All signatures on the PREPARE messages are valid (external check).
+///
+/// # Arguments
+/// * `cert` - The prepared certificate to validate.
+/// * `total_validators` - The total number of validators in the set.
+///
+/// # Returns
+/// * `Ok(())` if the certificate is valid.
+/// * `Err(CertificateError)` if invalid.
+pub fn validate_prepared_certificate(
+    cert: &PreparedCertificate,
+    total_validators: usize,
+) -> Result<(), CertificateError> {
+    // 1. Check for quorum of PREPARE messages
+    if !is_quorum_reached(cert.prepare_messages.len(), total_validators) {
+        return Err(CertificateError::InsufficientMessages);
+    }
+    
+    // 2. Check for message consistency
+    for prepare_msg in &cert.prepare_messages {
+        if prepare_msg.view != cert.view ||
+           prepare_msg.sequence != cert.sequence ||
+           prepare_msg.block_hash != cert.block_hash {
+            return Err(CertificateError::InconsistentMessages);
+        }
+    }
+    
+    // 3. Cryptographic verification of all signatures would be done here
+    // by the signature validation engine, likely using batch verification.
+    // For this pure algorithm module, we assume the signatures are valid
+    // if they reach this point.
+    
+    Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum CertificateError {
+    InsufficientMessages,
+    InconsistentMessages,
+    InvalidSignatures,
+}
+```
