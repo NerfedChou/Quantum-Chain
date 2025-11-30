@@ -1,90 +1,654 @@
-ALL BLOCKCHAIN FUNCTIONS & THEIR ALGORITHMS
-1. CONSENSUS & VALIDATION
+# BLOCKCHAIN SUBSYSTEMS: STANDALONE ARCHITECTURE
+## Each subsystem defined with Main Algorithm, Supporting Algorithms, Dependencies, and Security
 
-Function: Agree on valid blocks across network
-Algorithms: PBFT, PoW, PoS, DPoS, PoA, PoC
-Winner: PBFT for private, PoS for public
+---
 
-2. TRANSACTION VERIFICATION
+## SUBSYSTEM 1: PEER DISCOVERY & ROUTING
+**Purpose:** Find and connect to other nodes in the network
 
-Function: Prove transaction is in block
-Algorithm: Merkle Trees
-Why: O(log n) vs O(n)
+### Main Algorithm: Kademlia DHT
+**Why:** O(log n) node lookup complexity, self-organizing, resilient to node churn
 
-3. STATE MANAGEMENT
+### Supporting Algorithms:
+1. **XOR Distance Metric** - Calculate node proximity in 160-bit ID space
+2. **k-Bucket Management** - Organize known peers by distance (k=20 typical)
+3. **Iterative Node Lookup** - Query α closest nodes iteratively (α=3 typical)
+4. **STUN/TURN Protocol** - NAT traversal for nodes behind firewalls
 
-Function: Store account balances, smart contracts
-Algorithm: Patricia Merkle Trie
-Why: Efficient state lookups
+### Dependencies:
+- **None** (Bootstrap node addresses required for initial network entry)
 
-4. PEER DISCOVERY
+### Security & Robustness:
+**Attack Vectors:**
+- Sybil attacks where attackers create numerous fake peers to take over routing
+- Eclipse attacks isolating nodes from the honest network
+- Routing table poisoning with malicious node IDs
 
-Function: Find other nodes in network
-Algorithm: Kademlia DHT
-Why: O(log n) network hops
+**Defenses:**
+1. **Proof of Work for Node IDs** - Require computational effort to generate valid node IDs
+2. **IP Address Diversity** - Limit nodes per /24 subnet in routing table
+3. **Reputation Scoring** - Track successful vs failed interactions per peer
+4. **Random Peer Selection** - Mix deterministic routing with random peer connections
+5. **Bootstrap Node Diversity** - Use multiple bootstrap nodes from different entities
 
-5. TRANSACTION FILTERING
+**Robustness Measures:**
+- Periodic bucket refresh (every 1 hour)
+- Redundant peer storage (k peers per bucket)
+- Graceful degradation when peers go offline
 
-Function: Quick membership tests
-Algorithm: Bloom Filters
-Why: Probabilistic O(1) checks
+---
 
-6. CRYPTOGRAPHIC SIGNING
+## SUBSYSTEM 2: BLOCK STORAGE ENGINE
+**Purpose:** Persist blockchain data to disk efficiently
 
-Function: Verify signatures in batch
-Algorithm: Batch Verification (Schnorr)
-Why: Verify multiple signatures at once
+### Main Algorithm: LSM Tree (Log-Structured Merge Tree)
+**Why:** Optimized for write-heavy workloads, fast sequential writes, good compression
 
-7. DATA STORAGE
+### Supporting Algorithms:
+1. **Memtable (Skip List)** - In-memory buffer for recent writes, O(log n) operations
+2. **SSTable Compaction** - Merge sorted string tables, eliminate tombstones
+3. **Bloom Filter** - Quick key existence checks before disk read, 1% false positive rate
+4. **Snappy Compression** - Fast compression/decompression (~250 MB/s)
 
-Function: Store blockchain data efficiently
-Algorithm: RocksDB/LevelDB (LSM Trees)
-Why: Fast writes, compressed storage
+### Dependencies:
+- **Subsystem 3** (Transaction Indexing) - Provides Merkle roots to store
+- **Subsystem 4** (State Management) - Provides state roots to store
 
-8. BLOCK PROPAGATION
+### Security & Robustness:
+**Attack Vectors:**
+- Disk space exhaustion (blockchain bloat)
+- Data corruption from hardware failures
+- Malicious transactions causing crashes that halt all nodes
 
-Function: Spread blocks across network
-Algorithm: Gossip Protocol
-Why: O(log n) message complexity
+**Defenses:**
+1. **Write-Ahead Logging (WAL)** - Survive crashes mid-write
+2. **Checksums on Every Block** - Detect corruption using CRC32C
+3. **Disk Space Monitoring** - Alert when 85% full, reject writes at 95%
+4. **Database Versioning** - Snapshot every 10,000 blocks for recovery
+5. **Atomic Writes** - Either full block write or rollback
 
-9. TRANSACTION ORDERING
+**Robustness Measures:**
+- Background compaction to prevent read amplification
+- LRU cache for hot blocks (default 256 MB)
+- Separate data/metadata storage paths
 
-Function: Sequence transactions correctly
-Algorithm: Topological Sort (for DAGs)
-Why: Parallel processing possible
+---
 
-10. SMART CONTRACT EXECUTION
+## SUBSYSTEM 3: TRANSACTION INDEXING
+**Purpose:** Efficiently prove transaction inclusion in blocks
 
-Function: Execute code deterministically
-Algorithm: VM with Gas Metering
-Why: Prevent infinite loops
+### Main Algorithm: Merkle Tree (Binary Hash Tree)
+**Why:** O(log n) proof size, cryptographically secure inclusion proofs
 
-11. SHARDING
+### Supporting Algorithms:
+1. **SHA-256 / Keccak-256** - Cryptographic hash function for nodes
+2. **Bottom-Up Tree Construction** - Build tree from leaves to root
+3. **Merkle Proof Generation** - Extract sibling path from leaf to root
+4. **Proof Verification** - Recompute root from leaf + proof path
 
-Function: Split chain for scalability
-Algorithm: Consistent Hashing
-Why: Balanced load distribution
+### Dependencies:
+- **Subsystem 10** (Signature Verification) - Validates transactions before indexing
+- **Subsystem 2** (Block Storage) - Stores the Merkle root
 
-12. LIGHT CLIENT SYNC
+### Security & Robustness:
+**Attack Vectors:**
+- Second preimage attacks (find different transaction with same hash)
+- Hash collision vulnerabilities if using weak algorithms like MD5 or SHA-1
+- Malformed proof attacks
 
-Function: Sync without full chain
-Algorithm: Simplified Payment Verification (SPV)
-Why: Only download headers + proofs
+**Defenses:**
+1. **Strong Hash Functions** - Use SHA-256 (Bitcoin) or Keccak-256 (Ethereum), avoid MD5/SHA-1
+2. **Proof Size Limits** - Max depth 20 (1M transactions per block)
+3. **Canonical Serialization** - Deterministic transaction encoding before hashing
+4. **Duplicate Transaction Prevention** - Reject identical transaction hashes in same block
+5. **Root Verification** - Always verify computed root matches stored root
 
-13. FINALITY
+**Robustness Measures:**
+- Cache frequently accessed proofs
+- Parallel proof generation for large blocks
+- Proof compression for SPV clients
 
-Function: Guarantee transaction won't revert
-Algorithm: BFT Finality (Casper FFG)
-Why: Faster finality than probabilistic
+---
 
-14. CROSS-CHAIN COMMUNICATION
+## SUBSYSTEM 4: STATE MANAGEMENT
+**Purpose:** Store current account balances and smart contract state
 
-Function: Transfer between blockchains
-Algorithm: Hash Time-Locked Contracts (HTLC)
-Why: Atomic swaps without trust
+### Main Algorithm: Patricia Merkle Trie (Modified Merkle Patricia Trie)
+**Why:** Efficient state lookups O(log n), cryptographic proof of state, path compression
 
-15. MEMPOOL MANAGEMENT
+### Supporting Algorithms:
+1. **Radix Tree Structure** - Path compression reduces tree depth
+2. **RLP Encoding** - Recursive Length Prefix serialization for Ethereum
+3. **Node Type Handling** - Branch (16 children), Extension (path compression), Leaf (value)
+4. **State Root Calculation** - Hash all nodes to produce single root hash
 
-Function: Prioritize pending transactions
-Algorithm: Priority Queue (Heap)
-Why: O(log n) insertion/removal
+### Dependencies:
+- **Subsystem 11** (Smart Contract Execution) - Updates state after transactions
+- **Subsystem 2** (Block Storage) - Persists trie nodes
+
+### Security & Robustness:
+**Attack Vectors:**
+- State bloat attacks (create many accounts/storage slots)
+- Logic errors processing negative balances or incorrect values
+- Trie poisoning (malicious state roots)
+
+**Defenses:**
+1. **Gas Fees for State Changes** - Charge for creating accounts/storage (EIP-2929)
+2. **State Rent** - Charge ongoing fees for state storage (proposed)
+3. **Balance Validation** - Reject negative balances, check overflow
+4. **State Root Checkpoints** - Verify state root against consensus
+5. **Pruning Old State** - Keep only recent N states (archive nodes keep all)
+
+**Robustness Measures:**
+- State snapshots every 128 blocks
+- Incremental state sync for fast node startup
+- Separate trie for accounts vs contract storage
+
+---
+
+## SUBSYSTEM 5: BLOCK PROPAGATION
+**Purpose:** Distribute new blocks to all network nodes quickly
+
+### Main Algorithm: Gossip Protocol (Epidemic Broadcast)
+**Why:** O(log n) message complexity, resilient to node failures, scalable
+
+### Supporting Algorithms:
+1. **Random Peer Selection** - Choose random subset of peers (fan-out = 8)
+2. **Message Deduplication** - Track seen block hashes using Bloom filter
+3. **Fan-out Control** - Tune infection rate vs bandwidth
+4. **Compact Block Relay** - Send block header + short transaction IDs (BIP152)
+
+### Dependencies:
+- **Subsystem 1** (Peer Discovery) - Provides list of connected peers
+- **Subsystem 8** (Consensus) - Validates block before propagation
+
+### Security & Robustness:
+**Attack Vectors:**
+- DDoS attacks on blockchain network and exchanges
+- Selfish mining (delay block propagation)
+- Eclipse attacks (isolate nodes)
+
+**Defenses:**
+1. **Rate Limiting** - Max 1 block announcement per peer per second
+2. **Block Priority Queue** - Process higher difficulty blocks first
+3. **Peer Reputation** - Track timely vs delayed blocks per peer
+4. **Multiple Propagation Paths** - Send to both random and high-reputation peers
+5. **Header-First Propagation** - Validate header before requesting full block
+
+**Robustness Measures:**
+- Retry failed sends up to 3 times
+- Adaptive fan-out based on network conditions
+- Compact blocks reduce bandwidth 90%
+
+---
+
+## SUBSYSTEM 6: TRANSACTION POOL (MEMPOOL)
+**Purpose:** Queue and prioritize unconfirmed transactions
+
+### Main Algorithm: Priority Queue (Binary Min/Max Heap)
+**Why:** O(log n) insert/extract, efficient priority-based ordering
+
+### Supporting Algorithms:
+1. **Gas Price Sorting** - Order by transaction fee (higher = higher priority)
+2. **Nonce Tracking** - Maintain sequential order per account
+3. **LRU Eviction Policy** - Remove lowest fee transactions when full
+4. **Replace-by-Fee (RBF)** - Allow higher-fee transaction to replace existing
+
+### Dependencies:
+- **Subsystem 10** (Signature Verification) - Validates transactions before mempool entry
+- **Subsystem 4** (State Management) - Checks account balance/nonce
+
+### Security & Robustness:
+**Attack Vectors:**
+- Mempool spam (flood with low-fee transactions)
+- Nonce gap attacks (block transactions with missing nonces)
+- Front-running attacks by reordering transactions
+
+**Defenses:**
+1. **Minimum Gas Price** - Reject transactions below threshold (e.g., 1 gwei)
+2. **Per-Account Limits** - Max 16 pending transactions per account
+3. **Mempool Size Cap** - Max 5000 transactions (configurable)
+4. **Nonce Gap Timeout** - Drop transactions with nonce gaps after 10 minutes
+5. **Private Mempools** - Flashbots-style private transaction ordering
+
+**Robustness Measures:**
+- Periodic mempool cleanup (every 5 minutes)
+- Concurrent transaction validation
+- Separate pools for high/low fee transactions
+
+---
+
+## SUBSYSTEM 7: TRANSACTION FILTERING (SPV)
+**Purpose:** Allow light clients to check transaction relevance without full blockchain
+
+### Main Algorithm: Bloom Filter
+**Why:** O(1) probabilistic membership test, compact size, false positives acceptable
+
+### Supporting Algorithms:
+1. **Multiple Hash Functions** - k=3 to 7 independent hash functions
+2. **Bit Array Operations** - Set/test bits in m-bit array
+3. **False Positive Rate Calculation** - FPR = (1 - e^(-kn/m))^k, tune m and k
+4. **Dynamic Filter Resizing** - Adjust size based on watched addresses
+
+### Dependencies:
+- **Subsystem 3** (Transaction Indexing) - Provides transaction hashes to test
+- **Subsystem 1** (Peer Discovery) - Connects to full nodes for filtered data
+
+### Security & Robustness:
+**Attack Vectors:**
+- Privacy leakage (filter reveals watched addresses)
+- Attackers dictionary-attack filters to uncover watched addresses
+- Filter stuffing (send many false positives)
+
+**Defenses:**
+1. **Random False Positives** - Add random addresses to filter
+2. **Filter Rotation** - Change filters periodically (every 100 blocks)
+3. **Multiple Filters** - Use different filters with different full nodes
+4. **Client-Side Filtering** - Download more than needed, filter locally
+5. **Rate Limit Filter Updates** - Max 1 filter update per 10 blocks
+
+**Robustness Measures:**
+- Graceful degradation with higher FPR
+- Backup full nodes if primary fails
+- Filter caching to reduce recomputation
+
+---
+
+## SUBSYSTEM 8: CONSENSUS MECHANISM
+**Purpose:** Achieve agreement on valid blocks across all nodes
+
+### Main Algorithm: Proof of Stake (Gasper) OR PBFT
+**Why:** PoS for public chains (energy efficient, finality), PBFT for private chains
+
+### Supporting Algorithms (PoS):
+1. **Stake-Weighted Randomness** - Select validators proportional to stake using VRF
+2. **LMD-GHOST Fork Choice** - Choose heaviest subtree for canonical chain
+3. **Attestation Aggregation** - Combine BLS signatures from validators
+4. **Slashing Conditions** - Penalize double-signing and surround voting
+5. **Epoch Transitions** - Rotate validator committees every 32 slots (6.4 minutes)
+
+### Supporting Algorithms (PBFT):
+1. **Pre-Prepare Phase** - Leader broadcasts block proposal
+2. **Prepare Phase** - Nodes broadcast agreement, wait for 2f+1 prepares
+3. **Commit Phase** - Nodes broadcast commit, execute after 2f+1 commits
+4. **View Change** - Leader rotation if timeout (Byzantine leader detected)
+
+### Dependencies:
+- **Subsystem 3** (Transaction Indexing) - Validates block transaction Merkle root
+- **Subsystem 4** (State Management) - Validates state root transitions
+- **Subsystem 10** (Signature Verification) - Validates block signatures
+
+### Security & Robustness:
+**Attack Vectors:**
+- 51% attack where single entity dominates staking or computational power
+- Long-range attack forking and altering chain history
+- Nothing-at-stake problem (validators sign multiple chains)
+- Sybil attacks where attacker controls many dishonest nodes in PBFT
+
+**Defenses (PoS):**
+1. **Slashing** - Burn 1 ETH minimum for provable misbehavior
+2. **Weak Subjectivity Checkpoints** - Nodes must sync from recent checkpoint
+3. **Finality Gadget (Casper FFG)** - Economic finality after 2 epochs
+4. **Validator Set Limits** - Cap individual stake at 5% total
+5. **Inactivity Leak** - Penalize offline validators during chain split
+
+**Defenses (PBFT):**
+1. **Node Authentication** - PKI-based identity verification
+2. **Message Signing** - Every message signed to prevent tampering
+3. **Byzantine Fault Tolerance** - Tolerate f Byzantine nodes where n > 3f
+4. **View Change Timeout** - Replace leader after 30 seconds of inactivity
+5. **Cryptographic Commitments** - Bind nodes to their votes
+
+**Robustness Measures:**
+- PBFT handles high throughput but struggles with scalability as nodes increase
+- Validator diversity (geographic, client, hardware)
+- Parallel block proposal for higher throughput
+- Graceful degradation under 33% faults (PoS) or 33% Byzantine (PBFT)
+
+---
+
+## SUBSYSTEM 9: FINALITY MECHANISM
+**Purpose:** Guarantee transactions won't be reverted (economic finality)
+
+### Main Algorithm: Casper FFG (Friendly Finality Gadget)
+**Why:** Provides explicit finality, unlike probabilistic PoW finality
+
+### Supporting Algorithms:
+1. **Checkpoint System** - Mark epoch boundaries (every 32 blocks)
+2. **Justification Logic** - 2/3+ validators attest to checkpoint
+3. **Finalization Logic** - Two consecutive justified checkpoints finalize first
+4. **Accountable Safety** - Slashing for provable equivocations
+
+### Dependencies:
+- **Subsystem 8** (Consensus) - Uses PoS attestations for finality votes
+- **Subsystem 10** (Signature Verification) - Validates finality signatures
+
+### Security & Robustness:
+**Attack Vectors:**
+- Finality reversion (fork after finalized block)
+- Validators refusing to finalize due to censorship
+- Supermajority collusion
+
+**Defenses:**
+1. **Slashing for Double Finality** - Burn all stake if validator finalizes conflicting chains
+2. **Minimum Deposit** - 32 ETH to become validator (skin in the game)
+3. **Inactivity Leak** - Bleed stake from offline validators during no-finality
+4. **Social Consensus** - Community coordination for extreme scenarios
+5. **Fork Choice Rule** - Always follow finalized chain
+
+**Robustness Measures:**
+- Finality delay up to 2 epochs acceptable
+- Graceful recovery from <33% participation
+- Automatic fork pruning of non-finalized chains
+
+---
+
+## SUBSYSTEM 10: SIGNATURE VERIFICATION
+**Purpose:** Verify transaction authenticity using cryptographic signatures
+
+### Main Algorithm: ECDSA (Elliptic Curve Digital Signature Algorithm)
+**Why:** Industry standard, 256-bit security with 64-byte signatures
+
+### Supporting Algorithms:
+1. **secp256k1 Curve** - Bitcoin/Ethereum curve parameters
+2. **Signature Generation** - Sign(message, private_key) → (r, s, v)
+3. **Public Key Recovery** - Recover public key from signature + message
+4. **Batch Verification (Schnorr)** - Verify n signatures in one operation
+
+### Dependencies:
+- **None** (Pure cryptographic operation)
+
+### Security & Robustness:
+**Attack Vectors:**
+- Private key prediction through brute-force or dictionary attacks
+- Insufficient entropy in key generation causing duplicate keys
+- Length extension attacks on hash functions
+
+**Defenses:**
+1. **CSPRNG for Key Generation** - Use cryptographically secure random number generator
+2. **RFC6979 Deterministic Nonces** - Prevent nonce reuse attacks
+3. **Public Key Hashing** - Use addresses (hash of pubkey), not raw pubkeys
+4. **Multi-Signature Wallets** - Require m-of-n signatures (e.g., 2-of-3)
+5. **Hardware Security Modules** - Store keys in tamper-proof hardware
+
+**Robustness Measures:**
+- Signature malleability prevention (EIP-2)
+- Batch verification for throughput (100x faster)
+- Pre-computed tables for faster verification
+
+---
+
+## SUBSYSTEM 11: SMART CONTRACT EXECUTION
+**Purpose:** Execute deterministic code for programmable transactions
+
+### Main Algorithm: Virtual Machine (EVM / WASM)
+**Why:** Sandboxed execution, Turing-complete, deterministic
+
+### Supporting Algorithms:
+1. **Stack Machine Operations** - PUSH, POP, DUP, SWAP, arithmetic, logic
+2. **Gas Metering** - Charge gas per opcode to prevent infinite loops
+3. **Memory Management** - Expandable byte array with quadratic cost
+4. **Storage Operations** - Persistent key-value store, SLOAD/SSTORE
+5. **Message Calls** - CALL, DELEGATECALL, STATICCALL between contracts
+
+### Dependencies:
+- **Subsystem 4** (State Management) - Reads/writes contract storage
+- **Subsystem 10** (Signature Verification) - Verifies transaction sender
+
+### Security & Robustness:
+**Attack Vectors:**
+- Reentrancy attacks where contract calls untrusted external contract
+- Integer overflow vulnerabilities in Solidity code
+- Gas griefing (out-of-gas in sub-call)
+- Unverified return value vulnerabilities
+
+**Defenses:**
+1. **Checks-Effects-Interactions Pattern** - Update state before external calls
+2. **Reentrancy Guards** - Mutex locks on sensitive functions
+3. **SafeMath Libraries** - Overflow/underflow protection (Solidity 0.8+ built-in)
+4. **Gas Stipends** - Limit forwarded gas (2300 for transfers)
+5. **Static Analysis Tools** - Slither, Mythril for vulnerability detection
+6. **Formal Verification** - Mathematical proof of correctness
+
+**Robustness Measures:**
+- Execution timeout (block gas limit)
+- Memory/storage limits per contract
+- Precompiled contracts for expensive operations (ecrecover, sha256)
+
+---
+
+## SUBSYSTEM 12: TRANSACTION ORDERING (DAG-based)
+**Purpose:** Order transactions correctly for parallel execution in DAG chains
+
+### Main Algorithm: Topological Sort (Kahn's Algorithm)
+**Why:** O(V + E) complexity, detects cycles, enables parallelism
+
+### Supporting Algorithms:
+1. **Dependency Graph Construction** - Build directed graph from transaction reads/writes
+2. **Zero In-Degree Selection** - Pick transactions with no dependencies
+3. **Conflict Resolution** - Determine order for conflicting transactions (timestamp, fee)
+4. **Parallel Execution Scheduling** - Assign independent transactions to threads
+
+### Dependencies:
+- **Subsystem 11** (Smart Contract Execution) - Executes ordered transactions
+- **Subsystem 4** (State Management) - Detects read/write conflicts
+
+### Security & Robustness:
+**Attack Vectors:**
+- Dependency manipulation (create false dependencies)
+- Front-running through transaction reordering
+- Cycle creation (deadlock)
+
+**Defenses:**
+1. **Automatic Conflict Detection** - Analyze storage access patterns
+2. **Deterministic Ordering** - Timestamp + hash for tie-breaking
+3. **Cycle Detection** - Reject transactions creating cycles
+4. **Execution Isolation** - Each thread operates on separate state fork
+5. **Rollback on Conflict** - Re-execute conflicting transactions sequentially
+
+**Robustness Measures:**
+- Fallback to sequential execution if conflicts exceed threshold
+- Speculative execution with rollback
+- Parallel validation for independent transactions
+
+---
+
+## SUBSYSTEM 13: LIGHT CLIENT SYNC
+**Purpose:** Verify blockchain without downloading full chain data
+
+### Main Algorithm: SPV (Simplified Payment Verification)
+**Why:** Download only headers (~80 bytes/block), verify via Merkle proofs
+
+### Supporting Algorithms:
+1. **Header Chain Sync** - Download and verify block headers only
+2. **Merkle Proof Verification** - Validate transaction inclusion using proofs
+3. **Bloom Filter Setup** - Request filtered transactions matching addresses
+4. **Checkpoint Verification** - Trust recent hardcoded checkpoints
+
+### Dependencies:
+- **Subsystem 1** (Peer Discovery) - Connect to full nodes
+- **Subsystem 3** (Transaction Indexing) - Provides Merkle proofs
+- **Subsystem 7** (Bloom Filters) - Filters relevant transactions
+
+### Security & Robustness:
+**Attack Vectors:**
+- Malicious full nodes lying about chain state
+- Eclipse attacks (connect only to attacker nodes)
+- Invalid Merkle proofs
+
+**Defenses:**
+1. **Multiple Full Node Connections** - Query 3+ independent nodes
+2. **Proof Verification** - Validate every Merkle proof cryptographically
+3. **Checkpoint System** - Trust checkpoints from multiple sources
+4. **Fraud Proofs** - Full nodes can prove invalid state transitions
+5. **Random Peer Selection** - Avoid relying on single full node
+
+**Robustness Measures:**
+- Header download parallelization
+- Graceful fallback to full sync if SPV fails
+- Local proof caching
+
+---
+
+## SUBSYSTEM 14: SHARDING (ADVANCED)
+**Purpose:** Split blockchain state across multiple shards for horizontal scaling
+
+### Main Algorithm: Consistent Hashing (Rendezvous Hashing)
+**Why:** Minimal data movement on shard addition/removal, load balancing
+
+### Supporting Algorithms:
+1. **Shard Assignment** - Hash(account) % num_shards determines shard
+2. **Cross-Shard Transactions** - Two-phase commit protocol
+3. **Beacon Chain Coordination** - Central chain manages shard metadata
+4. **Validator Rotation** - Random shuffling prevents shard takeover
+
+### Dependencies:
+- **Subsystem 8** (Consensus) - Each shard runs own consensus
+- **Subsystem 4** (State Management) - Partitioned state across shards
+
+### Security & Robustness:
+**Attack Vectors:**
+- Shard takeover (1% attack, not 51%)
+- Cross-shard fraud
+- Data availability attacks hiding shard data
+
+**Defenses:**
+1. **Validator Shuffling** - Random rotation every epoch
+2. **Cross-Links** - Beacon chain validates shard block headers
+3. **Data Availability Sampling** - Random chunk verification
+4. **Fraud Proofs** - Challenge invalid cross-shard transactions
+5. **Minimum Shard Size** - Require 128+ validators per shard
+
+**Robustness Measures:**
+- Shard rebalancing on load imbalance
+- Emergency shard merging if validator count drops
+- Redundant shard storage (erasure coding)
+
+---
+
+## SUBSYSTEM 15: CROSS-CHAIN COMMUNICATION
+**Purpose:** Enable asset transfers between independent blockchains
+
+### Main Algorithm: HTLC (Hash Time-Locked Contracts)
+**Why:** Trustless atomic swaps, no third-party escrow
+
+### Supporting Algorithms:
+1. **Hashlock Creation** - Alice generates secret S, shares H(S) with Bob
+2. **Timelock Setup** - Set refund deadlines (24 hours typical)
+3. **Atomic Swap Protocol** - Either both chains execute or both refund
+4. **Secret Reveal** - Alice claims Bob's chain by revealing S
+
+### Dependencies:
+- **Subsystem 11** (Smart Contracts) - Implements HTLC logic on each chain
+- **Subsystem 8** (Consensus) - Finalizes transactions on both chains
+
+### Security & Robustness:
+**Attack Vectors:**
+- Timing attacks (claim on one chain, let other timeout)
+- Hash collision (find S' where H(S) = H(S'))
+- Relay censorship (prevent secret reveal transaction)
+
+**Defenses:**
+1. **Timelock Margins** - Chain A timeout > Chain B timeout + 6 hours
+2. **Strong Hash Functions** - Use SHA-256, avoid weak hashes
+3. **Monitoring Services** - Watch for timeouts, auto-refund
+4. **Multiple Relay Paths** - Redundant transaction submission
+5. **Proof of Secret Reveal** - Incentivize relayers to publish secret
+
+**Robustness Measures:**
+- Grace period before timelock expiration
+- Automatic refund execution
+- Cross-chain state verification
+
+---
+
+## DEPENDENCY GRAPH
+
+```
+SUBSYSTEM 1: Peer Discovery
+    └── No Dependencies (Requires bootstrap nodes)
+
+SUBSYSTEM 2: Block Storage
+    ├── Depends on: Subsystem 3 (Merkle roots)
+    └── Depends on: Subsystem 4 (State roots)
+
+SUBSYSTEM 3: Transaction Indexing
+    ├── Depends on: Subsystem 10 (Signature verification)
+    └── Depends on: Subsystem 2 (Storage)
+
+SUBSYSTEM 4: State Management
+    ├── Depends on: Subsystem 11 (State updates)
+    └── Depends on: Subsystem 2 (Persistence)
+
+SUBSYSTEM 5: Block Propagation
+    ├── Depends on: Subsystem 1 (Peer list)
+    └── Depends on: Subsystem 8 (Block validation)
+
+SUBSYSTEM 6: Mempool
+    ├── Depends on: Subsystem 10 (Signature check)
+    └── Depends on: Subsystem 4 (Balance/nonce check)
+
+SUBSYSTEM 7: Bloom Filters
+    ├── Depends on: Subsystem 3 (Transaction hashes)
+    └── Depends on: Subsystem 1 (Full node connections)
+
+SUBSYSTEM 8: Consensus
+    ├── Depends on: Subsystem 3 (Merkle verification)
+    ├── Depends on: Subsystem 4 (State verification)
+    └── Depends on: Subsystem 10 (Signature verification)
+
+SUBSYSTEM 9: Finality
+    ├── Depends on: Subsystem 8 (PoS attestations)
+    └── Depends on: Subsystem 10 (Signature verification)
+
+SUBSYSTEM 10: Signature Verification
+    └── No Dependencies (Pure crypto)
+
+SUBSYSTEM 11: Smart Contracts
+    ├── Depends on: Subsystem 4 (State read/write)
+    └── Depends on: Subsystem 10 (Sender verification)
+
+SUBSYSTEM 12: Transaction Ordering
+    ├── Depends on: Subsystem 11 (Execution)
+    └── Depends on: Subsystem 4 (Conflict detection)
+
+SUBSYSTEM 13: Light Clients
+    ├── Depends on: Subsystem 1 (Full node connections)
+    ├── Depends on: Subsystem 3 (Merkle proofs)
+    └── Depends on: Subsystem 7 (Bloom filters)
+
+SUBSYSTEM 14: Sharding
+    ├── Depends on: Subsystem 8 (Per-shard consensus)
+    └── Depends on: Subsystem 4 (Partitioned state)
+
+SUBSYSTEM 15: Cross-Chain
+    ├── Depends on: Subsystem 11 (HTLC contracts)
+    └── Depends on: Subsystem 8 (Finality on both chains)
+```
+
+---
+
+## IMPLEMENTATION PRIORITY
+
+**Phase 1 (Core - Weeks 1-4):**
+- Subsystem 10 (Signatures) - No dependencies
+- Subsystem 1 (Peer Discovery) - No dependencies
+- Subsystem 2 (Storage) - Needs 3, 4
+- Subsystem 3 (Merkle Trees) - Needs 10
+- Subsystem 6 (Mempool) - Needs 10, 4
+
+**Phase 2 (Consensus - Weeks 5-8):**
+- Subsystem 4 (State) - Needs 2
+- Subsystem 8 (Consensus) - Needs 3, 4, 10
+- Subsystem 5 (Propagation) - Needs 1, 8
+- Subsystem 9 (Finality) - Needs 8, 10
+
+**Phase 3 (Advanced - Weeks 9-12):**
+- Subsystem 11 (Smart Contracts) - Needs 4, 10
+- Subsystem 7 (Bloom Filters) - Needs 3, 1
+- Subsystem 13 (Light Clients) - Needs 1, 3, 7
+- Subsystem 12 (Ordering) - Optional, needs 11, 4
+
+**Phase 4 (Optional - Weeks 13+):**
+- Subsystem 14 (Sharding) - Needs 8, 4
+- Subsystem 15 (Cross-Chain) - Needs 11, 8

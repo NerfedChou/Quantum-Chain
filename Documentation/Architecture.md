@@ -1,0 +1,852 @@
+# ARCHITECTURE.md
+## Modular Blockchain - Hybrid Architecture Specification
+
+**Version:** 1.0  
+**Project:** Rust-based Modular Blockchain  
+**Enforcement Level:** STRICT / ZERO TOLERANCE  
+**Architecture Patterns:** DDD + Hexagonal + EDA + TDD
+
+---
+
+## TABLE OF CONTENTS
+
+1. [Executive Summary](#1-executive-summary)
+2. [Architectural Principles](#2-architectural-principles)
+3. [System Topology](#3-system-topology)
+4. [Subsystem Catalog](#4-subsystem-catalog)
+5. [Communication Protocol](#5-communication-protocol)
+6. [Development Workflow](#6-development-workflow)
+7. [Security Architecture](#7-security-architecture)
+8. [Testing Strategy](#8-testing-strategy)
+9. [Deployment Model](#9-deployment-model)
+
+---
+
+## 1. EXECUTIVE SUMMARY
+
+### 1.1 Vision
+
+This blockchain system is architected as a **fortress of isolated subsystems**, each representing a distinct business capability (Bounded Context). The system achieves:
+
+- **Modularity:** Each subsystem is a standalone Rust library crate
+- **Security:** Compartmentalized design prevents cascade failures
+- **Maintainability:** Pure domain logic separated from infrastructure
+- **Testability:** Test-driven development enforced at every layer
+
+### 1.2 Core Architecture Decision
+
+We employ a **Hybrid Architecture** combining:
+
+1. **Domain-Driven Design (DDD)** - Business logic as first-class citizens
+2. **Hexagonal Architecture** - Dependency inversion via Ports & Adapters
+3. **Event-Driven Architecture (EDA)** - Asynchronous, decoupled communication
+4. **Test-Driven Development (TDD)** - Design validated by tests first
+
+### 1.3 Key Constraints
+
+```
+RULE #1: Libraries have ZERO knowledge of the binary/CLI/Docker
+RULE #2: Direct subsystem-to-subsystem calls are FORBIDDEN
+RULE #3: Implementation code CANNOT be written without tests first
+RULE #4: All inter-subsystem communication via Shared Bus ONLY
+```
+
+---
+
+## 2. ARCHITECTURAL PRINCIPLES
+
+### 2.1 Domain-Driven Design (DDD)
+
+#### Bounded Contexts = Physical Crates
+
+**Principle:** Each business capability is isolated into its own Rust crate.
+
+```
+crates/
+├── peer-discovery/          # Subsystem 1
+├── block-storage/           # Subsystem 2
+├── transaction-indexing/    # Subsystem 3
+├── state-management/        # Subsystem 4
+├── block-propagation/       # Subsystem 5
+├── mempool/                 # Subsystem 6
+├── bloom-filters/           # Subsystem 7
+├── consensus/               # Subsystem 8
+├── finality/                # Subsystem 9
+├── signature-verification/  # Subsystem 10
+├── smart-contracts/         # Subsystem 11
+├── transaction-ordering/    # Subsystem 12 (optional)
+├── light-client/            # Subsystem 13 (optional)
+├── sharding/                # Subsystem 14 (optional)
+├── cross-chain/             # Subsystem 15 (optional)
+└── shared-bus/              # Event communication layer
+```
+
+#### Ubiquitous Language
+
+**Principle:** Code structure mirrors business language exactly.
+
+```rust
+// ✅ CORRECT: Matches business terminology
+struct Block { ... }
+struct Transaction { ... }
+struct Validator { ... }
+
+// ❌ WRONG: Implementation details leak into domain
+struct BlockDataSchema { ... }
+struct TxRecord { ... }
+struct ValidatorNode { ... }
+```
+
+**Constraint:** Every struct, enum, and function name must be understandable by a blockchain domain expert without programming knowledge.
+
+---
+
+### 2.2 Hexagonal Architecture (Ports & Adapters)
+
+#### Layer Hierarchy
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    OUTER LAYER                          │
+│              (Adapters - Infrastructure)                │
+│  RocksDB, LibP2P, Tokio, HTTP Server, CLI              │
+└─────────────────────────────────────────────────────────┘
+                         ↑ depends on ↑
+┌─────────────────────────────────────────────────────────┐
+│                   MIDDLE LAYER                          │
+│               (Ports - Interfaces/Traits)               │
+│  trait BlockPersister, trait NetworkSocket              │
+└─────────────────────────────────────────────────────────┘
+                         ↑ depends on ↑
+┌─────────────────────────────────────────────────────────┐
+│                    INNER LAYER                          │
+│              (Domain - Pure Business Logic)             │
+│  struct Block, fn validate_block(), enum State          │
+│  NO I/O, NO Async, NO External Dependencies             │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### Dependency Rule
+
+**CRITICAL:** Dependencies point INWARD ONLY.
+
+```rust
+// ✅ ALLOWED: Adapter depends on Port
+impl BlockPersister for RocksDBAdapter { ... }
+
+// ✅ ALLOWED: Port defined by Domain
+trait BlockPersister {
+    fn save(&self, block: Block) -> Result<()>;
+}
+
+// ❌ FORBIDDEN: Domain depends on Adapter
+struct Block {
+    db: RocksDB,  // ← VIOLATION! Domain knows about infrastructure
+}
+```
+
+#### Port Types
+
+**Driving Ports (API - Inbound):**
+- Functions the subsystem exposes to the application
+- Example: `fn find_peer(id: PeerId) -> Option<PeerInfo>`
+
+**Driven Ports (SPI - Outbound):**
+- Interfaces the subsystem needs from external systems
+- Example: `trait Storage { fn write(&self, data: &[u8]) -> Result<()>; }`
+
+---
+
+### 2.3 Event-Driven Architecture (EDA)
+
+#### The Shared Bus Pattern
+
+**Principle:** Subsystems communicate ONLY via asynchronous events through a shared bus.
+
+```rust
+// Shared Bus Definition (crates/shared-bus/src/lib.rs)
+pub enum BlockchainEvent {
+    // From Subsystem 1: Peer Discovery
+    PeerDiscovered(PeerInfo),
+    PeerDisconnected(PeerId),
+    
+    // From Subsystem 8: Consensus
+    BlockValidated(ValidatedBlock),
+    BlockRejected { hash: Hash, reason: String },
+    
+    // From Subsystem 10: Signature Verification
+    TransactionVerified(VerifiedTransaction),
+    TransactionInvalid { hash: Hash, reason: String },
+}
+
+pub trait EventPublisher {
+    fn publish(&self, event: BlockchainEvent);
+}
+
+pub trait EventSubscriber {
+    fn subscribe(&self, filter: EventFilter) -> EventStream;
+}
+```
+
+#### Communication Rules
+
+```
+┌──────────────┐                    ┌──────────────┐
+│ Subsystem A  │                    │ Subsystem B  │
+│              │                    │              │
+│              │  ❌ FORBIDDEN      │              │
+│              │ ────────────────→  │              │
+│              │  Direct Call       │              │
+└──────────────┘                    └──────────────┘
+
+         ✅ REQUIRED PATTERN
+
+┌──────────────┐                    ┌──────────────┐
+│ Subsystem A  │                    │ Subsystem B  │
+│              │    publish()       │              │
+│              │ ──────┐            │              │
+└──────────────┘       │            └──────────────┘
+                       ↓                    ↑
+                 ┌──────────────┐          │
+                 │ Shared Bus   │          │
+                 │              │          │
+                 │  Event Queue │  subscribe()
+                 └──────────────┘
+```
+
+#### Benefits
+
+1. **Loose Coupling:** Subsystem A crashes → Subsystem B continues running
+2. **Scalability:** Events can be processed in parallel
+3. **Auditability:** Every action is an event with timestamp
+4. **Replay:** Events can be stored and replayed for debugging
+
+---
+
+### 2.4 Test-Driven Development (TDD)
+
+#### Strict TDD Workflow
+
+**ENFORCEMENT:** The AI/Developer is **FORBIDDEN** from writing implementation code without first writing a failing test.
+
+```
+Phase 1: RED
+├─ Write a test that fails
+├─ Example: test_block_hash_validation_fails_on_empty_data()
+└─ Run: cargo test → FAIL
+
+Phase 2: GREEN
+├─ Write MINIMUM code to pass the test
+├─ No optimization, no extras
+└─ Run: cargo test → PASS
+
+Phase 3: REFACTOR
+├─ Clean up code while keeping tests green
+├─ Extract functions, improve names
+└─ Run: cargo test → PASS (still)
+```
+
+#### Example TDD Cycle
+
+```rust
+// Step 1: RED - Write failing test
+#[test]
+fn test_block_validation_rejects_invalid_merkle_root() {
+    let block = Block {
+        merkle_root: [0u8; 32],  // Invalid
+        transactions: vec![tx1, tx2],
+    };
+    
+    assert!(validate_block(&block).is_err());  // ← FAILS (no validate_block yet)
+}
+
+// Step 2: GREEN - Minimum implementation
+pub fn validate_block(block: &Block) -> Result<(), ValidationError> {
+    let computed_root = compute_merkle_root(&block.transactions);
+    if computed_root != block.merkle_root {
+        return Err(ValidationError::InvalidMerkleRoot);
+    }
+    Ok(())
+}
+
+// Step 3: REFACTOR - Extract logic
+pub fn validate_block(block: &Block) -> Result<(), ValidationError> {
+    verify_merkle_root(block)?;
+    verify_state_transitions(block)?;
+    verify_signatures(block)?;
+    Ok(())
+}
+```
+
+---
+
+## 3. SYSTEM TOPOLOGY
+
+### 3.1 Subsystem Dependency Graph
+
+**Reference:** See previous conversation for complete IPC Matrix.
+
+```
+Dependency Flow (A → B means "A depends on B"):
+
+LEVEL 0 (No Dependencies):
+├─ [1] Peer Discovery
+└─ [10] Signature Verification
+
+LEVEL 1 (Depends on Level 0):
+├─ [6] Mempool → [10]
+├─ [7] Bloom Filters → [1]
+└─ [13] Light Clients → [1]
+
+LEVEL 2 (Depends on Level 0-1):
+├─ [3] Transaction Indexing → [10]
+├─ [5] Block Propagation → [1]
+└─ [4] State Management (partial)
+
+LEVEL 3 (Depends on Level 0-2):
+├─ [2] Block Storage → [3, 4]
+├─ [8] Consensus → [3, 4, 5, 6, 10]
+└─ [11] Smart Contracts → [4, 10]
+
+LEVEL 4 (Depends on Level 0-3):
+├─ [9] Finality → [8, 10]
+├─ [12] Transaction Ordering → [4, 11]
+└─ [14] Sharding → [4, 8]
+
+LEVEL 5 (Depends on Level 0-4):
+└─ [15] Cross-Chain → [8, 9, 11]
+```
+
+### 3.2 Message Flow Architecture
+
+**Reference:** See IPC Matrix document for complete message type definitions.
+
+**Key Principle:** Every message has:
+1. **Sender ID** (which subsystem sent it)
+2. **Recipient ID** (which subsystem should receive it)
+3. **Payload** (strictly typed struct)
+4. **Timestamp** (for replay prevention)
+5. **Signature** (HMAC for authentication)
+
+```rust
+// Every inter-subsystem message follows this pattern
+struct AuthenticatedMessage<T> {
+    sender_id: SubsystemId,
+    recipient_id: SubsystemId,
+    payload: T,
+    timestamp: u64,
+    nonce: u64,
+    signature: [u8; 32],  // HMAC-SHA256
+}
+```
+
+---
+
+## 4. SUBSYSTEM CATALOG
+
+### 4.1 Core Subsystems (Required)
+
+| ID | Name | Bounded Context | Primary Responsibility |
+|----|------|----------------|----------------------|
+| 1 | Peer Discovery | Network Topology | Find and maintain peer connections |
+| 2 | Block Storage | Persistence | Store blockchain data efficiently |
+| 3 | Transaction Indexing | Data Retrieval | Provide O(log n) transaction proofs |
+| 4 | State Management | Account State | Track balances, nonces, storage |
+| 5 | Block Propagation | Network Broadcast | Distribute blocks across network |
+| 6 | Mempool | Transaction Queue | Prioritize pending transactions |
+| 8 | Consensus | Agreement | Achieve network-wide agreement |
+| 10 | Signature Verification | Cryptography | Validate ECDSA/Schnorr signatures |
+
+### 4.2 Optional Subsystems (Advanced Features)
+
+| ID | Name | Bounded Context | Primary Responsibility |
+|----|------|----------------|----------------------|
+| 7 | Bloom Filters | Light Client Support | Fast probabilistic membership tests |
+| 9 | Finality | Economic Security | Guarantee transaction irreversibility |
+| 11 | Smart Contracts | Programmability | Execute deterministic code |
+| 12 | Transaction Ordering | Parallel Execution | Order transactions via DAG |
+| 13 | Light Clients | Resource Efficiency | Sync without full chain download |
+| 14 | Sharding | Horizontal Scaling | Split state across shards |
+| 15 | Cross-Chain | Interoperability | Atomic swaps via HTLC |
+
+### 4.3 Infrastructure Crates
+
+```
+crates/
+├── shared-bus/          # Event bus for inter-subsystem communication
+├── shared-types/        # Common types (Hash, Address, Signature)
+├── crypto/              # Cryptographic primitives (wrapper around libsecp256k1)
+└── node-runtime/        # Application binary that wires everything together
+```
+
+---
+
+## 5. COMMUNICATION PROTOCOL
+
+### 5.1 Event Schema Design
+
+**Reference:** See IPC Matrix for complete message type catalog.
+
+**Example: Block Validation Flow**
+
+```rust
+// Step 1: Block Propagation receives block from network
+// ↓ publishes to bus
+BlockchainEvent::BlockReceived {
+    block: Block,
+    source_peer: PeerId,
+}
+
+// Step 2: Consensus subscribes to BlockReceived
+// ↓ validates block
+// ↓ publishes result
+BlockchainEvent::BlockValidated {
+    block: ValidatedBlock,
+    consensus_proof: ConsensusProof,
+}
+
+// Step 3: Multiple subsystems react:
+// - Block Storage saves it
+// - Transaction Indexing builds Merkle tree
+// - State Management updates account balances
+// - Finality checks if epoch boundary reached
+```
+
+### 5.2 Security Boundaries
+
+**Reference:** See IPC Matrix Section "Security Boundaries" for each subsystem.
+
+**Key Rules:**
+1. Only whitelisted subsystems can send specific message types
+2. Every message must be signed (HMAC-SHA256)
+3. Timestamps must be within 60-second window
+4. Nonces prevent replay attacks
+5. Rate limiting per subsystem (e.g., max 100 msgs/sec)
+
+**Example:**
+
+```rust
+// Mempool can ONLY accept transactions from Signature Verification
+impl Mempool {
+    fn handle_message(&mut self, msg: AuthenticatedMessage<AddTransactionRequest>) 
+        -> Result<(), SecurityError> 
+    {
+        // Security check 1: Verify sender
+        if msg.sender_id != SubsystemId::SignatureVerification {
+            return Err(SecurityError::UnauthorizedSender);
+        }
+        
+        // Security check 2: Verify signature
+        msg.verify_hmac(&self.shared_secret)?;
+        
+        // Security check 3: Check timestamp
+        if now() - msg.timestamp > 60 {
+            return Err(SecurityError::MessageTooOld);
+        }
+        
+        // Security check 4: Verify payload
+        if !msg.payload.signature_valid {
+            return Err(SecurityError::UnverifiedTransaction);
+        }
+        
+        // Now safe to process
+        self.add_transaction(msg.payload.transaction)?;
+        Ok(())
+    }
+}
+```
+
+---
+
+## 6. DEVELOPMENT WORKFLOW
+
+### 6.1 Specification-First Approach
+
+**RULE:** No implementation code before the specification document exists.
+
+**Workflow:**
+
+```
+Step 1: Write Specification
+├─ Create SPEC-[ID]-[NAME].md
+├─ Define Domain Model (structs, enums)
+├─ Define Ports (traits)
+├─ Define Events
+└─ Define TDD Strategy
+
+Step 2: Write Tests (Red Phase)
+├─ Implement tests from TDD Strategy section
+├─ All tests must fail (no implementation yet)
+└─ Run: cargo test → FAIL
+
+Step 3: Implement Domain (Green Phase)
+├─ Write MINIMUM code to pass tests
+├─ Pure domain logic only
+└─ Run: cargo test → PASS
+
+Step 4: Implement Ports (Hexagonal)
+├─ Define trait signatures
+├─ No concrete implementations yet
+└─ Traits live in the library crate
+
+Step 5: Implement Adapters (Outer Layer)
+├─ Create adapter crate (e.g., peer-discovery-libp2p)
+├─ Implement traits using external dependencies
+└─ Wire into node-runtime binary
+
+Step 6: Integration Testing
+├─ Test subsystem via events
+├─ Mock other subsystems
+└─ Verify event emissions
+```
+
+### 6.2 Crate Structure Template
+
+Every subsystem follows this structure:
+
+```
+crates/subsystem-name/
+├── Cargo.toml
+├── SPEC-[ID]-[NAME].md          # ← The specification
+├── src/
+│   ├── lib.rs                   # Public API
+│   ├── domain/                  # Inner layer (pure logic)
+│   │   ├── mod.rs
+│   │   ├── entities.rs          # Core structs
+│   │   ├── value_objects.rs     # Immutable data
+│   │   └── services.rs          # Business logic functions
+│   ├── ports/                   # Middle layer (traits)
+│   │   ├── mod.rs
+│   │   ├── inbound.rs           # Driving ports (API)
+│   │   └── outbound.rs          # Driven ports (SPI)
+│   └── events.rs                # Event definitions for shared bus
+└── tests/
+    ├── unit/                    # Domain logic tests
+    ├── integration/             # Port contract tests
+    └── fixtures/                # Test data
+```
+
+### 6.3 AI Development Rules
+
+When acting as the implementation assistant:
+
+1. **Design Phase:**
+    - ✅ Generate specification documents
+    - ✅ Define domain models (struct definitions)
+    - ✅ Define port traits (no implementations)
+    - ❌ FORBIDDEN: Write impl blocks, write function bodies
+
+2. **Test Phase:**
+    - ✅ Write failing unit tests
+    - ✅ Define test fixtures
+    - ❌ FORBIDDEN: Write passing tests before implementation
+
+3. **Implementation Phase:**
+    - ✅ Write minimum code to pass tests
+    - ✅ Refactor while keeping tests green
+    - ❌ FORBIDDEN: Add features not covered by tests
+
+---
+
+## 7. SECURITY ARCHITECTURE
+
+### 7.1 Defense in Depth
+
+**Reference:** See IPC Matrix "Defense in Depth Summary" section.
+
+**8 Security Layers:**
+
+```
+Layer 8: Social Layer (Community governance)
+Layer 7: Application Logic (Smart contract safety)
+Layer 6: Consensus Rules (51% attack prevention)
+Layer 5: Network Security (DDoS mitigation)
+Layer 4: Cryptographic Security (Signature verification)
+Layer 3: IPC Security (Message authentication)
+Layer 2: Memory Safety (Rust borrow checker)
+Layer 1: Hardware Security (TEE, SGX - optional)
+```
+
+### 7.2 Compartmentalization
+
+**Principle:** Compromising one subsystem CANNOT compromise others.
+
+**Attack Scenario Example:**
+
+```
+Scenario: Attacker gains full control of Mempool (Subsystem 6)
+
+Attacker attempts:
+1. Inject malicious transaction into Consensus
+   → ❌ BLOCKED: Consensus only accepts from Signature Verification
+   
+2. Modify state directly
+   → ❌ BLOCKED: State Management rejects writes from Mempool
+   
+3. Read private keys
+   → ❌ BLOCKED: Keys stored in separate process (not in Mempool)
+   
+4. Flood network with spam
+   → ✅ PARTIAL SUCCESS: Can spam mempool
+   → ⚠️ CONTAINED: Rate limiting prevents network flood
+   
+Result: Attack contained to Mempool subsystem
+```
+
+### 7.3 Critical Security Invariants
+
+Each subsystem must maintain invariants documented in its specification:
+
+```rust
+// Example: Mempool invariants
+invariant!(pending_transactions.len() <= MAX_MEMPOOL_SIZE);
+invariant!(all_transactions_have_valid_signatures());
+invariant!(total_gas_does_not_exceed_block_limit());
+```
+
+**Enforcement:**
+
+```rust
+#[cfg(debug_assertions)]
+fn check_invariants(&self) {
+    assert!(self.pending_transactions.len() <= MAX_MEMPOOL_SIZE);
+    // ... other checks
+}
+
+// Called after every state mutation
+fn add_transaction(&mut self, tx: Transaction) -> Result<()> {
+    // ... add logic
+    #[cfg(debug_assertions)]
+    self.check_invariants();
+    Ok(())
+}
+```
+
+---
+
+## 8. TESTING STRATEGY
+
+### 8.1 Test Pyramid
+
+```
+                    ┌────────────────┐
+                    │  E2E Tests     │  ← Few (expensive, slow)
+                    │  (10 tests)    │
+                    └────────────────┘
+                ┌──────────────────────┐
+                │ Integration Tests    │  ← Some (moderate cost)
+                │ (50 tests)           │
+                └──────────────────────┘
+        ┌──────────────────────────────────┐
+        │      Unit Tests                  │  ← Many (cheap, fast)
+        │      (500+ tests)                │
+        └──────────────────────────────────┘
+```
+
+### 8.2 Unit Testing (Domain Layer)
+
+**Target:** Pure domain logic, no I/O
+
+```rust
+// Example: Transaction Indexing domain tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_merkle_tree_rejects_empty_transactions() {
+        let result = MerkleTree::build(&[]);
+        assert!(result.is_err());
+    }
+    
+    #[test]
+    fn test_merkle_tree_produces_correct_root() {
+        let txs = vec![tx1, tx2, tx3];
+        let tree = MerkleTree::build(&txs).unwrap();
+        assert_eq!(tree.root(), expected_root);
+    }
+    
+    #[test]
+    fn test_merkle_proof_verification() {
+        let tree = MerkleTree::build(&txs).unwrap();
+        let proof = tree.generate_proof(tx_hash);
+        assert!(tree.verify_proof(&proof));
+    }
+}
+```
+
+### 8.3 Integration Testing (Port Layer)
+
+**Target:** Verify adapters satisfy port contracts
+
+```rust
+// Test that RocksDB adapter implements BlockPersister correctly
+#[cfg(test)]
+mod integration_tests {
+    #[test]
+    fn test_rocksdb_adapter_persists_blocks() {
+        let adapter = RocksDBAdapter::new_in_memory();
+        let block = create_test_block();
+        
+        adapter.save(&block).unwrap();
+        let loaded = adapter.load(block.hash()).unwrap();
+        
+        assert_eq!(block, loaded);
+    }
+    
+    #[test]
+    fn test_rocksdb_adapter_handles_disk_full() {
+        let adapter = RocksDBAdapter::with_limit(1024); // 1KB limit
+        let large_block = create_block_of_size(2048);
+        
+        let result = adapter.save(&large_block);
+        assert!(matches!(result, Err(StorageError::DiskFull)));
+    }
+}
+```
+
+### 8.4 End-to-End Testing
+
+**Target:** Full system behavior via event bus
+
+```rust
+#[tokio::test]
+async fn test_block_validation_pipeline() {
+    // Setup full node with all subsystems
+    let node = TestNode::new().await;
+    
+    // Inject block from network
+    node.inject_block(create_test_block()).await;
+    
+    // Verify events emitted in correct order
+    let events = node.collect_events().await;
+    assert_eq!(events[0], BlockchainEvent::BlockReceived { .. });
+    assert_eq!(events[1], BlockchainEvent::BlockValidated { .. });
+    assert_eq!(events[2], BlockchainEvent::BlockStored { .. });
+}
+```
+
+---
+
+## 9. DEPLOYMENT MODEL
+
+### 9.1 Single-Binary Architecture
+
+Despite the modular design, we compile to a **single binary** for production:
+
+```
+node-runtime (binary)
+├─ Links all subsystem libraries
+├─ Wires adapters to ports
+├─ Configures shared bus
+└─ Starts async runtime (Tokio)
+```
+
+**Why not microservices?**
+- Lower latency (in-process communication)
+- Simpler deployment (single binary)
+- Easier debugging
+- Can scale to microservices later if needed
+
+### 9.2 Configuration
+
+```toml
+# config.toml
+[peer_discovery]
+bootstrap_nodes = ["node1.example.com:30303"]
+max_peers = 50
+
+[consensus]
+type = "pos"  # or "pbft"
+validator_key = "path/to/key.pem"
+
+[storage]
+backend = "rocksdb"
+data_dir = "/var/blockchain/data"
+max_size_gb = 500
+
+[mempool]
+max_transactions = 5000
+min_gas_price = "1gwei"
+```
+
+### 9.3 Monitoring & Observability
+
+Each subsystem emits metrics:
+
+```rust
+// Every subsystem implements
+trait Metrics {
+    fn report_metrics(&self) -> SubsystemMetrics;
+}
+
+struct SubsystemMetrics {
+    subsystem_id: SubsystemId,
+    uptime_seconds: u64,
+    events_processed: u64,
+    errors_count: u64,
+    custom_metrics: HashMap<String, f64>,
+}
+```
+
+---
+
+## 10. REFERENCES
+
+### 10.1 Related Documents
+
+1. **IPC Matrix** (`IPC-MATRIX.md`) - Complete message type catalog and security boundaries
+2. **Subsystem Specifications** (`SPEC-[ID]-[NAME].md`) - Individual subsystem designs
+3. **Dependency Graph** - See Section 3.1 and previous conversation
+
+### 10.2 External Resources
+
+- **Domain-Driven Design:** Eric Evans, "Domain-Driven Design: Tackling Complexity"
+- **Hexagonal Architecture:** Alistair Cockburn, "Hexagonal Architecture"
+- **Event-Driven Architecture:** Martin Fowler, "Event Sourcing"
+- **Rust Patterns:** https://rust-unofficial.github.io/patterns/
+
+### 10.3 Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | 2024-11-30 | Initial architecture document |
+
+---
+
+## APPENDIX A: QUICK START GUIDE
+
+### For New Developers
+
+1. **Read this document** (you are here)
+2. **Review IPC Matrix** to understand subsystem communication
+3. **Pick a subsystem** from the catalog (start with #10 Signature Verification - no dependencies)
+4. **Read its SPEC document** (or create one if missing)
+5. **Write tests first** (TDD Phase 1: Red)
+6. **Implement domain logic** (TDD Phase 2: Green)
+7. **Refactor** (TDD Phase 3: Clean)
+
+### For AI Assistants
+
+```
+if (task == "design new subsystem") {
+    output = generate_specification_document();
+    verify(output.has_domain_model);
+    verify(output.has_ports);
+    verify(output.has_events);
+    verify(output.has_tdd_strategy);
+} else if (task == "implement subsystem") {
+    verify(specification_exists);
+    write_failing_tests();
+    wait_for_approval();
+    write_minimum_implementation();
+} else {
+    error("Unknown task");
+}
+```
+
+---
+
+**END OF ARCHITECTURE.md**
+
+*This document is the constitution of the codebase. All code must conform to these principles.*
