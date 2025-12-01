@@ -322,23 +322,158 @@ LEVEL 5 (Depends on Level 0-4):
 **Reference:** See IPC Matrix document for complete message type definitions.
 
 **Key Principle:** Every message has:
-1. **Sender ID** (which subsystem sent it)
-2. **Recipient ID** (which subsystem should receive it)
-3. **Payload** (strictly typed struct)
-4. **Timestamp** (for replay prevention)
-5. **Signature** (HMAC for authentication)
+1. **Version** (protocol version for forward/backward compatibility)
+2. **Sender ID** (which subsystem sent it)
+3. **Recipient ID** (which subsystem should receive it)
+4. **Correlation ID** (unique identifier for request/response mapping)
+5. **Reply-To Topic** (where responses should be published)
+6. **Payload** (strictly typed struct)
+7. **Timestamp** (for replay prevention)
+8. **Signature** (HMAC for authentication)
 
 ```rust
 // Every inter-subsystem message follows this pattern
 struct AuthenticatedMessage<T> {
+    // === HEADER (MANDATORY) ===
+    version: u16,                    // Protocol version - MUST be checked before deserialization
     sender_id: SubsystemId,
     recipient_id: SubsystemId,
-    payload: T,
+    correlation_id: [u8; 16],        // UUID v4 for request/response correlation
+    reply_to: Option<Topic>,         // Topic for async response delivery
     timestamp: u64,
     nonce: u64,
-    signature: [u8; 32],  // HMAC-SHA256
+    signature: [u8; 32],             // HMAC-SHA256
+    
+    // === PAYLOAD ===
+    payload: T,
+}
+
+// Topic definition for reply routing
+struct Topic {
+    subsystem_id: SubsystemId,
+    channel: String,                 // e.g., "responses", "dlq.errors"
 }
 ```
+
+### 3.3 Request/Response Correlation Pattern
+
+**CRITICAL:** All request/response flows MUST use the correlation ID pattern to maintain EDA principles while enabling stateful conversations.
+
+```
+┌──────────────┐                         ┌──────────────┐
+│ Subsystem A  │                         │ Subsystem B  │
+│ (Requester)  │                         │ (Responder)  │
+│              │                         │              │
+│ 1. Generate  │                         │              │
+│    UUID      │                         │              │
+│              │    2. Publish Request   │              │
+│              │ ─────────────────────→  │              │
+│              │    correlation_id: X    │              │
+│              │    reply_to: A.responses│              │
+│              │                         │              │
+│ 3. Continue  │                         │ 4. Process   │
+│    other work│                         │    request   │
+│    (NON-     │                         │              │
+│    BLOCKING) │                         │              │
+│              │    5. Publish Response  │              │
+│              │ ←─────────────────────  │              │
+│              │    correlation_id: X    │              │
+│              │    to: A.responses      │              │
+│              │                         │              │
+│ 6. Match X   │                         │              │
+│    to pending│                         │              │
+│    request   │                         │              │
+└──────────────┘                         └──────────────┘
+```
+
+**Rules:**
+1. **NEVER BLOCK** - Requester publishes and immediately continues processing
+2. **ALWAYS CORRELATE** - Every response MUST include the original `correlation_id`
+3. **TIMEOUT HANDLING** - Requester MUST implement timeout for pending requests (default: 30s)
+4. **ORPHAN CLEANUP** - Pending request map MUST be garbage-collected periodically
+
+```rust
+// Requester implementation pattern
+impl Subsystem {
+    async fn request_peer_list(&self) -> Result<(), Error> {
+        let correlation_id = Uuid::new_v4();
+        
+        // Store pending request with timeout
+        self.pending_requests.insert(correlation_id, PendingRequest {
+            created_at: Instant::now(),
+            timeout: Duration::from_secs(30),
+        });
+        
+        // Publish request (NON-BLOCKING)
+        self.bus.publish(AuthenticatedMessage {
+            version: PROTOCOL_VERSION,
+            correlation_id: correlation_id.as_bytes(),
+            reply_to: Some(Topic { 
+                subsystem_id: SubsystemId::BlockPropagation,
+                channel: "responses".into(),
+            }),
+            // ... other fields
+        });
+        
+        // Return immediately - DO NOT AWAIT RESPONSE HERE
+        Ok(())
+    }
+    
+    // Separate handler for responses
+    async fn handle_response(&self, msg: AuthenticatedMessage<PeerListResponse>) {
+        if let Some(pending) = self.pending_requests.remove(&msg.correlation_id) {
+            // Process the response
+        }
+        // Ignore orphaned responses (request already timed out)
+    }
+}
+```
+
+### 3.4 Message Versioning Protocol
+
+**CRITICAL:** All messages MUST include a version field to enable rolling upgrades and prevent deserialization attacks.
+
+**Version Handling Rules:**
+
+```rust
+const CURRENT_VERSION: u16 = 1;
+const MIN_SUPPORTED_VERSION: u16 = 1;
+const MAX_SUPPORTED_VERSION: u16 = 2;
+
+fn deserialize_message<T>(bytes: &[u8]) -> Result<AuthenticatedMessage<T>, Error> {
+    // Step 1: Read version FIRST (always at offset 0, always 2 bytes)
+    let version = u16::from_be_bytes([bytes[0], bytes[1]]);
+    
+    // Step 2: Version gate BEFORE any payload deserialization
+    if version < MIN_SUPPORTED_VERSION {
+        return Err(Error::VersionTooOld { 
+            received: version, 
+            minimum: MIN_SUPPORTED_VERSION 
+        });
+    }
+    if version > MAX_SUPPORTED_VERSION {
+        return Err(Error::VersionTooNew { 
+            received: version, 
+            maximum: MAX_SUPPORTED_VERSION 
+        });
+    }
+    
+    // Step 3: Version-specific deserialization
+    match version {
+        1 => deserialize_v1(bytes),
+        2 => deserialize_v2(bytes),
+        _ => unreachable!(), // Guarded by checks above
+    }
+}
+```
+
+**Upgrade Strategy:**
+| Scenario | Action |
+|----------|--------|
+| Adding optional field | Bump minor version, old deserializers ignore new field |
+| Adding required field | Bump major version, maintain V1 deserializer for 2 epochs |
+| Removing field | Bump major version, deprecate for 4 epochs before removal |
+| Changing field type | FORBIDDEN - create new field, deprecate old |
 
 ---
 
@@ -422,6 +557,7 @@ BlockchainEvent::BlockValidated {
 3. Timestamps must be within 60-second window
 4. Nonces prevent replay attacks
 5. Rate limiting per subsystem (e.g., max 100 msgs/sec)
+6. **Version field MUST be validated before payload deserialization**
 
 **Example:**
 
@@ -431,6 +567,11 @@ impl Mempool {
     fn handle_message(&mut self, msg: AuthenticatedMessage<AddTransactionRequest>) 
         -> Result<(), SecurityError> 
     {
+        // Security check 0: Verify protocol version FIRST
+        if msg.version < MIN_SUPPORTED_VERSION || msg.version > MAX_SUPPORTED_VERSION {
+            return Err(SecurityError::UnsupportedVersion);
+        }
+        
         // Security check 1: Verify sender
         if msg.sender_id != SubsystemId::SignatureVerification {
             return Err(SecurityError::UnauthorizedSender);
@@ -454,6 +595,144 @@ impl Mempool {
         Ok(())
     }
 }
+```
+
+### 5.3 Dead Letter Queue (DLQ) Strategy
+
+**CRITICAL:** At-most-once delivery is UNACCEPTABLE for critical blockchain state. Failed events MUST NOT be dropped.
+
+**DLQ Architecture:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     EVENT BUS                                 │
+├──────────────────────────────────────────────────────────────┤
+│                                                               │
+│   ┌─────────────┐      ┌─────────────┐      ┌─────────────┐  │
+│   │ Main Topic  │      │ Main Topic  │      │ Main Topic  │  │
+│   │ block.      │      │ state.      │      │ tx.         │  │
+│   │ validated   │      │ updated     │      │ verified    │  │
+│   └──────┬──────┘      └──────┬──────┘      └──────┬──────┘  │
+│          │                    │                    │          │
+│          ↓                    ↓                    ↓          │
+│   ┌──────────────────────────────────────────────────────┐   │
+│   │              Consumer Processing                      │   │
+│   │  ┌─────────┐  ┌─────────┐  ┌─────────┐              │   │
+│   │  │ Success │  │ Retry   │  │ Failure │              │   │
+│   │  │   ✓     │  │ (3x)    │  │   ✗     │              │   │
+│   │  └────┬────┘  └────┬────┘  └────┬────┘              │   │
+│   │       │            │            │                    │   │
+│   │       ↓            ↓            ↓                    │   │
+│   │   [Commit]    [Backoff]   [Dead Letter]             │   │
+│   └──────────────────────────────────────────────────────┘   │
+│                                      │                        │
+│                                      ↓                        │
+│   ┌──────────────────────────────────────────────────────┐   │
+│   │                  DLQ Topics                           │   │
+│   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │   │
+│   │  │ dlq.block.  │  │ dlq.state.  │  │ dlq.tx.     │   │   │
+│   │  │ validated   │  │ updated     │  │ verified    │   │   │
+│   │  └─────────────┘  └─────────────┘  └─────────────┘   │   │
+│   └──────────────────────────────────────────────────────┘   │
+│                                                               │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**DLQ Processing Rules:**
+
+| Event Criticality | Retry Count | Backoff Strategy | DLQ Action |
+|-------------------|-------------|------------------|------------|
+| CRITICAL (Block Storage, State Write) | 5 | Exponential (1s, 2s, 4s, 8s, 16s) | Alert + Manual Review Required |
+| HIGH (Consensus, Finality) | 3 | Exponential (1s, 2s, 4s) | Alert + Auto-Retry after 1 hour |
+| MEDIUM (Mempool, Propagation) | 2 | Linear (1s, 2s) | Log + Auto-Discard after 24 hours |
+| LOW (Metrics, Logging) | 0 | None | Discard immediately |
+
+**DLQ Message Format:**
+
+```rust
+struct DeadLetterMessage<T> {
+    // Original message (preserved exactly)
+    original_message: AuthenticatedMessage<T>,
+    
+    // DLQ metadata
+    dlq_metadata: DLQMetadata,
+}
+
+struct DLQMetadata {
+    original_topic: String,
+    failure_reason: FailureReason,
+    failure_timestamp: u64,
+    retry_count: u8,
+    last_error: String,
+    stack_trace: Option<String>,
+    consumer_id: SubsystemId,
+}
+
+enum FailureReason {
+    DeserializationError,
+    ValidationError,
+    StorageError,
+    TimeoutError,
+    UnknownError,
+}
+```
+
+**Consumer Implementation Pattern:**
+
+```rust
+impl EventConsumer for BlockStorage {
+    async fn consume(&mut self, msg: AuthenticatedMessage<BlockValidated>) -> Result<(), Error> {
+        let mut retry_count = 0;
+        let max_retries = 5;
+        
+        loop {
+            match self.process_block(&msg.payload) {
+                Ok(()) => {
+                    // Success - commit offset
+                    self.commit_offset(msg.offset)?;
+                    return Ok(());
+                }
+                Err(e) if retry_count < max_retries => {
+                    // Transient failure - retry with backoff
+                    retry_count += 1;
+                    let backoff = Duration::from_secs(2_u64.pow(retry_count));
+                    tokio::time::sleep(backoff).await;
+                    continue;
+                }
+                Err(e) => {
+                    // Permanent failure - send to DLQ
+                    self.publish_to_dlq(DeadLetterMessage {
+                        original_message: msg,
+                        dlq_metadata: DLQMetadata {
+                            original_topic: "block.validated".into(),
+                            failure_reason: FailureReason::StorageError,
+                            failure_timestamp: now(),
+                            retry_count,
+                            last_error: e.to_string(),
+                            stack_trace: Some(e.backtrace().to_string()),
+                            consumer_id: SubsystemId::BlockStorage,
+                        },
+                    }).await?;
+                    
+                    // Alert operations team for CRITICAL events
+                    self.alert_ops("Block storage failed after 5 retries", &e)?;
+                    
+                    // Commit offset to prevent infinite loop
+                    // The message is now safely in DLQ for manual review
+                    self.commit_offset(msg.offset)?;
+                    return Err(e);
+                }
+            }
+        }
+    }
+}
+```
+
+**DLQ Monitoring Requirements:**
+- DLQ depth MUST be monitored with alerting threshold (>10 messages = WARN, >100 = CRITICAL)
+- DLQ age MUST be monitored (oldest message >1 hour = WARN, >24 hours = CRITICAL)
+- DLQ replay tooling MUST be provided for manual intervention
+- DLQ messages MUST be retained for minimum 7 days
 ```
 
 ---

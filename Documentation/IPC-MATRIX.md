@@ -698,15 +698,33 @@ struct Attestation {
 - **Subsystem 8 (Consensus)** - Send verified validator signatures
 
 ### Who Is Allowed To Talk To Me:
-- **External Network** - Receive signed transactions
+- **External Network** - Receive signed transactions (via P2P gateway)
+- **Subsystem 5 (Block Propagation)** - Verify block signatures from network peers
+- **Subsystem 6 (Mempool)** - Verify transaction signatures before pool entry
 - **Subsystem 8 (Consensus)** - Verify block/validator signatures
 - **Subsystem 9 (Finality)** - Verify attestation signatures
+
+### FORBIDDEN Consumers (Principle of Least Privilege):
+The following subsystems are EXPLICITLY FORBIDDEN from accessing SignatureVerification:
+- ❌ Subsystem 1 (Peer Discovery) - No cryptographic verification needs
+- ❌ Subsystem 2 (Block Storage) - Storage only, receives pre-verified data
+- ❌ Subsystem 3 (Transaction Indexing) - Indexing only, receives pre-verified data
+- ❌ Subsystem 4 (State Management) - State only, receives pre-verified data
+- ❌ Subsystem 7 (Bloom Filters) - Filtering only, no signature needs
+- ❌ Subsystem 11 (Smart Contracts) - Execution only, receives pre-verified transactions
+- ❌ Subsystem 12 (Transaction Ordering) - Ordering only, receives pre-verified data
+- ❌ Subsystem 13 (Light Clients) - Receives proofs, does not verify signatures directly
+- ❌ Subsystem 14 (Sharding) - Coordination only, uses Consensus for verification
+- ❌ Subsystem 15 (Cross-Chain) - Uses Finality proofs, not direct signature verification
+
+**Security Rationale:** Restricting access to SignatureVerification minimizes the attack surface. If a low-priority subsystem (e.g., BloomFilters) is compromised, the attacker cannot use it as a vector to DoS the signature verification service. Only transaction ingestion points (P2P, Mempool) and consensus-critical paths have access.
 
 ### Strict Message Types:
 
 **OUTGOING:**
 ```rust
 struct VerifiedTransaction {
+    version: u16,                    // Protocol version
     transaction: SignedTransaction,
     signer_address: [u8; 20],
     signature_valid: bool,
@@ -714,6 +732,7 @@ struct VerifiedTransaction {
 }
 
 struct VerifiedSignature {
+    version: u16,                    // Protocol version
     message_hash: [u8; 32],
     signature: Signature,
     signer: [u8; 20],
@@ -722,8 +741,10 @@ struct VerifiedSignature {
 }
 
 struct BatchVerificationResult {
+    version: u16,                    // Protocol version
     request_id: u64,
-    results: Vec<bool>,  // One per signature
+    correlation_id: [u8; 16],        // Maps to original request
+    results: Vec<bool>,              // One per signature
     total_valid: u32,
     total_invalid: u32,
 }
@@ -732,7 +753,10 @@ struct BatchVerificationResult {
 **INCOMING:**
 ```rust
 struct VerifyTransactionRequest {
-    requester_id: SubsystemId,         // Any subsystem
+    version: u16,                      // Protocol version - MUST be validated first
+    requester_id: SubsystemId,         // MUST be 5, 6, 8, or 9 ONLY
+    correlation_id: [u8; 16],          // For async response correlation
+    reply_to: Topic,                   // Where to send response
     transaction: SignedTransaction,
     expected_signer: Option<[u8; 20]>,
 }
@@ -754,26 +778,34 @@ struct Signature {
 }
 
 struct VerifySignatureRequest {
-    requester_id: SubsystemId,         // Must be 8 or 9
+    version: u16,                      // Protocol version - MUST be validated first
+    requester_id: SubsystemId,         // MUST be 5, 8, or 9 ONLY
+    correlation_id: [u8; 16],          // For async response correlation
+    reply_to: Topic,                   // Where to send response
     message_hash: [u8; 32],
     signature: Signature,
     expected_signer: [u8; 20],
 }
 
 struct BatchVerifyRequest {
-    requester_id: SubsystemId,         // Must be 8
+    version: u16,                      // Protocol version - MUST be validated first
+    requester_id: SubsystemId,         // MUST be 8 ONLY
+    correlation_id: [u8; 16],          // For async response correlation
+    reply_to: Topic,                   // Where to send response
     signatures: Vec<(MessageHash, Signature, ExpectedSigner)>,
 }
 ```
 
 ### Security Boundaries:
-- ✅ Accept: VerifyTransactionRequest from any subsystem
-- ✅ Accept: VerifySignatureRequest from Subsystems 8, 9 only
-- ✅ Accept: BatchVerifyRequest from Subsystem 8 only
+- ✅ Accept: VerifyTransactionRequest from Subsystems 5, 6, 8, 9 ONLY
+- ✅ Accept: VerifySignatureRequest from Subsystems 5, 8, 9 ONLY
+- ✅ Accept: BatchVerifyRequest from Subsystem 8 ONLY
+- ❌ **REJECT: ALL requests from Subsystems 1, 2, 3, 4, 7, 11, 12, 13, 14, 15**
 - ❌ Reject: Signatures with low s value (malleability)
 - ❌ Reject: Signatures with v ∉ {27, 28}
 - ❌ Reject: Batch verification with >1000 signatures (DoS risk)
 - ❌ Reject: Invalid ECDSA points
+- ❌ Reject: Messages with unsupported version field
 
 ---
 
@@ -1298,12 +1330,12 @@ enum CrossChainMessageType {
 | 2 (Block Storage) | 3, 4, 8, 9 | None (responses only) | Write permissions enforced |
 | 3 (Transaction Indexing) | 7, 8, 13 | 2, 7, 13 | Only validated transactions |
 | 4 (State Management) | 6, 11, 12, 14 | 2, 6, 11, 12 | Only Subsystem 11 can write |
-| 5 (Block Propagation) | 8, External Peers | 1, External Peers | ConsensusProof required |
-| 6 (Mempool) | 8, 10 | 4, 8 | Only pre-verified transactions |
+| 5 (Block Propagation) | 8, External Peers | 1, 10, External Peers | ConsensusProof required |
+| 6 (Mempool) | 8, 10 | 4, 8, 10 | Only pre-verified transactions |
 | 7 (Bloom Filters) | 3, 13 | 1, 13 | FPR limits, address count limits |
-| 8 (Consensus) | 5, 10, External | 2, 3, 5, 6, 9, 12, 14, 15 | Signature validation, >67% threshold |
-| 9 (Finality) | 8 | 2, 15 | Supermajority (>2/3) required |
-| 10 (Signature Verification) | Any, External | 6, 8 | Cryptographic validation |
+| 8 (Consensus) | 5, 10, External | 2, 3, 5, 6, 9, 10, 12, 14, 15 | Signature validation, >67% threshold |
+| 9 (Finality) | 8 | 2, 10, 15 | Supermajority (>2/3) required |
+| 10 (Signature Verification) | **5, 6, 8, 9 ONLY** | 6, 8 | **Least Privilege: 11 subsystems FORBIDDEN** |
 | 11 (Smart Contracts) | 8, 12 | 4, 15 | Gas limits, depth limits |
 | 12 (Transaction Ordering) | 8 | 4, 11 | Cycle detection |
 | 13 (Light Clients) | 1, 3, 7, External | 1, 7 | Merkle proof validation |
@@ -1418,16 +1450,41 @@ Every message between subsystems must include:
 
 ```rust
 struct AuthenticatedMessage<T> {
+    // === VERSION (MANDATORY - MUST BE FIRST) ===
+    version: u16,                    // Protocol version - deserialize and validate FIRST
+    
+    // === ROUTING ===
     sender_id: SubsystemId,
     recipient_id: SubsystemId,
+    
+    // === CORRELATION (FOR REQUEST/RESPONSE) ===
+    correlation_id: [u8; 16],        // UUID v4 for request/response mapping
+    reply_to: Option<Topic>,         // Topic for async response delivery
+    
+    // === PAYLOAD ===
     payload: T,
+    
+    // === SECURITY ===
     timestamp: u64,
     nonce: u64,
-    signature: Signature,  // HMAC-SHA256 with shared secret
+    signature: [u8; 32],             // HMAC-SHA256 with shared secret
+}
+
+struct Topic {
+    subsystem_id: SubsystemId,
+    channel: String,                 // e.g., "responses", "dlq.errors"
 }
 
 impl<T> AuthenticatedMessage<T> {
     fn verify(&self, expected_sender: SubsystemId, shared_secret: &[u8]) -> Result<(), AuthError> {
+        // 0. Check version FIRST (before any deserialization of payload)
+        if self.version < MIN_SUPPORTED_VERSION || self.version > MAX_SUPPORTED_VERSION {
+            return Err(AuthError::UnsupportedVersion { 
+                received: self.version,
+                supported_range: (MIN_SUPPORTED_VERSION, MAX_SUPPORTED_VERSION),
+            });
+        }
+        
         // 1. Check sender_id matches expected
         if self.sender_id != expected_sender {
             return Err(AuthError::InvalidSender);
@@ -1467,5 +1524,9 @@ impl<T> AuthenticatedMessage<T> {
 6. **Nonce Tracking** - Prevents replay attacks
 7. **Timestamp Validation** - Prevents old message replay
 8. **Compartmentalization** - Breaching one subsystem doesn't compromise others
+9. **Version Validation** - Protocol version checked BEFORE payload deserialization
+10. **Correlation IDs** - Enables non-blocking request/response without deadlocks
+11. **Dead Letter Queues** - Critical events never lost, always recoverable
+12. **Principle of Least Privilege** - SignatureVerification restricted to 4 subsystems only
 
-**Result:** Even if an attacker fully compromises one subsystem, they are trapped in that compartment and cannot spread to others without breaking multiple layers of authentication.
+**Result:** Even if an attacker fully compromises one subsystem, they are trapped in that compartment and cannot spread to others without breaking multiple layers of authentication. Additionally, the system is resilient to cascading failures through non-blocking patterns and recoverable from data loss through DLQ infrastructure.
