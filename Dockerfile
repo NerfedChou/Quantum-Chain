@@ -1,52 +1,125 @@
 # ==============================================================================
-# STAGE 1: Build Stage
-#
-# This stage uses the full Rust toolchain to compile the application with
-# all necessary build dependencies. It is optimized for caching.
+# Quantum-Chain Node Dockerfile
 # ==============================================================================
-# Use a more recent version of Rust to match modern lockfile formats
-FROM rust:1.90 as builder
+# Multi-stage build for the Quantum-Chain blockchain node.
+# Architecture Reference: Documentation/Architecture.md V2.3
+#
+# Design Principles:
+#   - Single-binary architecture (all 15 subsystems compiled into one binary)
+#   - Minimal final image (~50MB)
+#   - Non-root user for security
+#   - Reproducible builds
+#
+# Usage:
+#   docker build -t quantum-chain:latest .
+#   docker run -p 30303:30303 -p 8545:8545 quantum-chain:latest
+# ==============================================================================
 
-# Create a new, empty workspace so we can cache dependencies efficiently
+# ==============================================================================
+# STAGE 1: Build Stage
+# ==============================================================================
+ARG RUST_VERSION=1.75
+FROM rust:${RUST_VERSION}-slim-bookworm AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create workspace directory
 WORKDIR /usr/src/quantum-chain
-COPY ./Cargo.toml ./Cargo.lock* ./
 
-# Create dummy crates to cache dependencies before copying source code
-# This is more robust for workspace projects.
+# Copy dependency manifests first for better caching
+COPY Cargo.toml Cargo.lock ./
+
+# Create dummy crates to cache dependencies
+# This layer is cached and only re-runs if Cargo.toml changes
 RUN mkdir -p crates/node-runtime/src && echo "fn main() {}" > crates/node-runtime/src/main.rs
 RUN mkdir -p crates/shared-types/src && echo "" > crates/shared-types/src/lib.rs
 
-# Build dependencies. This layer is cached and only re-runs if Cargo.toml changes.
-# This will build all dependencies for all crates in the workspace.
-# The "|| true" is a failsafe for the initial dummy build.
-RUN cargo build --release --verbose 2>&1 || true
+# Create dummy subsystem crates
+RUN for i in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15; do \
+    mkdir -p crates/qc-$i-*/src 2>/dev/null || true; \
+    done
 
-# Now, copy the actual source code
+# Copy all Cargo.toml files for proper dependency resolution
+COPY crates/node-runtime/Cargo.toml crates/node-runtime/
+COPY crates/shared-types/Cargo.toml crates/shared-types/
+COPY crates/qc-*/Cargo.toml crates/
+
+# Build dependencies (cached layer)
+RUN cargo fetch
+
+# Copy actual source code
 COPY . .
 
-# Build the final binary, leveraging the cached dependencies
-# This will be much faster as dependencies are already built.
-# We specify the binary for our main node runtime.
-RUN cargo build --release --verbose --bin node-runtime
+# Build the release binary
+# All 15 subsystems are compiled into a single binary
+RUN cargo build --release --bin node-runtime
 
 # ==============================================================================
-# STAGE 2: Final Stage
-#
-# This stage creates the final, minimal production image. It copies ONLY the
-# compiled binary from the build stage, resulting in a small and secure image.
+# STAGE 2: Runtime Stage
 # ==============================================================================
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim AS runtime
 
-# Set up a non-root user for security
-RUN useradd -ms /bin/bash appuser
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy the compiled binary from the builder stage
-# The binary is located in the target/release directory of the workspace
-COPY --from=builder /usr/src/quantum-chain/target/release/node-runtime /usr/local/bin/quantum-chain-node
+# Create non-root user for security
+RUN useradd -ms /bin/bash -u 1000 quantum
 
-# Set the user and expose the default port
-USER appuser
-EXPOSE 30303
+# Create data directories
+RUN mkdir -p /var/quantum-chain/data \
+    && mkdir -p /var/quantum-chain/config \
+    && chown -R quantum:quantum /var/quantum-chain
 
-# Set the entrypoint for the container
-ENTRYPOINT ["/usr/local/bin/quantum-chain-node"]
+# Copy the compiled binary from builder
+COPY --from=builder /usr/src/quantum-chain/target/release/node-runtime /usr/local/bin/quantum-chain
+
+# Set ownership
+RUN chown quantum:quantum /usr/local/bin/quantum-chain
+
+# Switch to non-root user
+USER quantum
+
+# Set working directory
+WORKDIR /var/quantum-chain
+
+# Expose ports
+# P2P port for peer discovery and block propagation
+EXPOSE 30303/tcp
+EXPOSE 30303/udp
+# RPC port for API access
+EXPOSE 8545/tcp
+# WebSocket port
+EXPOSE 8546/tcp
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD /usr/local/bin/quantum-chain health || exit 1
+
+# Environment variables
+ENV QC_DATA_DIR=/var/quantum-chain/data
+ENV QC_CONFIG_DIR=/var/quantum-chain/config
+ENV QC_LOG_LEVEL=info
+ENV RUST_BACKTRACE=1
+
+# Volume for persistent data
+VOLUME ["/var/quantum-chain/data", "/var/quantum-chain/config"]
+
+# Labels
+LABEL org.opencontainers.image.title="Quantum-Chain"
+LABEL org.opencontainers.image.description="Modular Blockchain with Quantum-Inspired Architecture"
+LABEL org.opencontainers.image.vendor="Quantum-Chain Contributors"
+LABEL org.opencontainers.image.source="https://github.com/NerfedChou/Quantum-Chain"
+LABEL org.opencontainers.image.documentation="https://github.com/NerfedChou/Quantum-Chain#readme"
+
+# Entrypoint
+ENTRYPOINT ["/usr/local/bin/quantum-chain"]
+
+# Default command (can be overridden)
+CMD ["--data-dir", "/var/quantum-chain/data"]

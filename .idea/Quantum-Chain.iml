@@ -4,6 +4,21 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/crates/node-runtime/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/shared-types/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-01-peer-discovery/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-02-block-storage/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-03-transaction-indexing/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-04-state-management/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-05-block-propagation/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-06-mempool/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-07-bloom-filters/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-08-consensus/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-09-finality/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-10-signature-verification/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-11-smart-contracts/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-12-transaction-ordering/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-13-light-client-sync/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-14-sharding/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-15-cross-chain/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

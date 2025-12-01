@@ -445,6 +445,66 @@ dependencies = [
 ]
 
 [[package]]
+name = "qc-01-peer-discovery"
+version = "0.1.0"
+
+[[package]]
+name = "qc-02-block-storage"
+version = "0.1.0"
+
+[[package]]
+name = "qc-03-transaction-indexing"
+version = "0.1.0"
+
+[[package]]
+name = "qc-04-state-management"
+version = "0.1.0"
+
+[[package]]
+name = "qc-05-block-propagation"
+version = "0.1.0"
+
+[[package]]
+name = "qc-06-mempool"
+version = "0.1.0"
+
+[[package]]
+name = "qc-07-bloom-filters"
+version = "0.1.0"
+
+[[package]]
+name = "qc-08-consensus"
+version = "0.1.0"
+
+[[package]]
+name = "qc-09-finality"
+version = "0.1.0"
+
+[[package]]
+name = "qc-10-signature-verification"
+version = "0.1.0"
+
+[[package]]
+name = "qc-11-smart-contracts"
+version = "0.1.0"
+
+[[package]]
+name = "qc-12-transaction-ordering"
+version = "0.1.0"
+
+[[package]]
+name = "qc-13-light-client-sync"
+version = "0.1.0"
+
+[[package]]
+name = "qc-14-sharding"
+version = "0.1.0"
+
+[[package]]
+name = "qc-15-cross-chain"
+version = "0.1.0"
+
+[[package]]
 name = "quote"
 version = "1.0.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
