@@ -1,0 +1,46 @@
+# ==============================================================================
+# Quantum-Chain Workspace
+# ==============================================================================
+# A Rust-based blockchain system with quantum-inspired architecture.
+# This workspace contains all crates for the node runtime.
+# ==============================================================================
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/node-runtime",
+    "crates/shared-types",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Quantum-Chain Contributors"]
+license = "Unlicense"
+repository = "https://github.com/NerfedChou/Quantum-Chain"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async Runtime
+tokio = { version = "1.34", features = ["full"] }
+
+# Cryptography
+sha2 = "0.10"
+ed25519-dalek = "2.1"
+
+# Unique Identifiers
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error Handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Internal Crates
+shared-types = { path = "crates/shared-types" }

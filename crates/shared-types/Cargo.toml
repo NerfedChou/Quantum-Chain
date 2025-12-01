@@ -1,0 +1,21 @@
+# ==============================================================================
+# Shared Types Crate
+# ==============================================================================
+# Contains all domain entities and IPC message types shared across subsystems.
+# This is the Single Source of Truth for type definitions as mandated by
+# Architecture.md v2.2.
+# ==============================================================================
+
+[package]
+name = "shared-types"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_with = "3.11"
+uuid.workspace = true
+sha2.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,24 @@
+# ==============================================================================
+# Node Runtime Crate
+# ==============================================================================
+# The main executable for the Quantum-Chain node. This crate initializes and
+# orchestrates all subsystems according to the Architecture.md specifications.
+# ==============================================================================
+
+[package]
+name = "node-runtime"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "node-runtime"
+path = "src/main.rs"
+
+[dependencies]
+shared-types.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true

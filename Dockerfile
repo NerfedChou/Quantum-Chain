@@ -4,7 +4,7 @@
 # This stage uses the full Rust toolchain to compile the application with
 # all necessary build dependencies. It is optimized for caching.
 # ==============================================================================
-FROM rust:1.72 as builder
+FROM rust:1.72 AS builder
 
 # Create a new, empty workspace so we can cache dependencies efficiently
 WORKDIR /usr/src/quantum-chain
