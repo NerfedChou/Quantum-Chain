@@ -1,7 +1,7 @@
 # ARCHITECTURE.md
 ## Modular Blockchain - Hybrid Architecture Specification
 
-**Version:** 2.2  
+**Version:** 2.3  
 **Project:** Rust-based Modular Blockchain  
 **Enforcement Level:** STRICT / ZERO TOLERANCE  
 **Architecture Patterns:** DDD + Hexagonal + EDA + TDD
@@ -1169,6 +1169,82 @@ impl BlockAssemblyBuffer {
 | Single bottleneck in Consensus | Parallel independent processing |
 | Consensus = god object | Consensus = validation only |
 | Hidden latency | Observable per-component metrics |
+
+### 5.1.2 Data Retrieval Pattern (V2.3 - Proof Generation)
+
+In addition to the block creation choreography, the architecture supports a 
+**Data Retrieval** workflow for generating Merkle proofs on demand.
+
+**V2.3 Proof Generation Flow:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               PROOF GENERATION: DATA RETRIEVAL PATTERN (V2.3)               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   [Light Client (13)]                                                       │
+│          │                                                                  │
+│          ↓ MerkleProofRequest { tx_hash, reply_to }                         │
+│          │                                                                  │
+│   [Transaction Indexing (3)]                                                │
+│          │                                                                  │
+│          ↓ Check local cache for tx location                                │
+│          │                                                                  │
+│    ┌─────┴─────────────────────────────────────┐                            │
+│    ↓ [Cache Hit]                               ↓ [Cache Miss]               │
+│    │                                           │                            │
+│    │                   GetTransactionHashesRequest { block_hash }           │
+│    │                                           ↓                            │
+│    │                                   [Block Storage (2)]                  │
+│    │                                           │                            │
+│    │                         TransactionHashesResponse { hashes }           │
+│    │                                           ↓                            │
+│    │                                   [Rebuild Merkle Tree]                │
+│    │                                           │                            │
+│    └─────────────────┬─────────────────────────┘                            │
+│                      ↓                                                      │
+│             [Generate Merkle Proof]                                         │
+│                      │                                                      │
+│                      ↓ MerkleProofResponse { proof, merkle_root }           │
+│                      │                                                      │
+│   [Light Client (13)] ←──────────────────────────────────────────           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**V2.3 Data Retrieval Contract (Block Storage → Transaction Indexing):**
+
+```rust
+/// Request for transaction hashes in a specific block
+/// 
+/// SECURITY (Envelope-Only Identity): No requester_id in payload.
+/// Identity derived from AuthenticatedMessage envelope.
+struct GetTransactionHashesRequest {
+    version: u16,
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    block_hash: [u8; 32],
+    signature: Signature,
+}
+
+/// Response containing transaction hashes for a block
+struct GetTransactionHashesResponse {
+    version: u16,
+    correlation_id: [u8; 16],
+    block_hash: [u8; 32],
+    transaction_hashes: Vec<[u8; 32]>,
+    merkle_root: [u8; 32],  // Cached for verification
+    signature: Signature,
+}
+```
+
+**Why This Pattern is Necessary (V2.3 Amendment):**
+
+| Requirement | Without V2.3 | With V2.3 |
+|-------------|--------------|-----------|
+| Proof for old transaction | Tx Indexing must store ALL tx hashes forever | Query Block Storage on cache miss |
+| Memory usage | Unbounded growth | Bounded cache, cold storage fallback |
+| Architectural consistency | Missing read path in dependency graph | Complete bidirectional contract |
 
 ### 5.2 Security Boundaries
 

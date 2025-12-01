@@ -104,16 +104,19 @@ If identity_valid == true:  Add to routing table
 ## SUBSYSTEM 2: BLOCK STORAGE ENGINE
 
 ### I Am Allowed To Talk To:
+- **Subsystem 3 (Transaction Indexing)** - Respond to transaction location queries for Merkle proof generation
 - **Subsystem 6 (Mempool)** - Send BlockStorageConfirmation after successful block storage
 
 ### Who Is Allowed To Talk To Me:
+- **Subsystem 3 (Transaction Indexing)** - Request transaction locations for Merkle proof generation (V2.3)
 - **Subsystem 8 (Consensus)** - Store validated blocks (COMPLETE PACKAGE with merkle_root and state_root)
 - **Subsystem 9 (Finality)** - Mark blocks as finalized
 
-**CRITICAL DESIGN DECISION (Atomicity Enforcement):**
-Subsystems 3 (Transaction Indexing) and 4 (State Management) do NOT write directly to Block Storage.
-Instead, they provide their roots to Consensus (Subsystem 8), which assembles the complete package
-and sends a single atomic WriteBlockRequest. This prevents partial writes and database corruption.
+**CRITICAL DESIGN DECISION (V2.2 Choreography + V2.3 Transaction Lookup):**
+Block Storage operates as a Stateful Assembler in the V2.2 choreography pattern:
+- Subscribes to BlockValidated, MerkleRootComputed, StateRootComputed events
+- Assembles complete blocks when all three components arrive
+- Transaction Indexing (Subsystem 3) may query stored transaction locations for proof generation
 
 ### Strict Message Types:
 
@@ -144,6 +147,45 @@ struct BlockStorageConfirmation {
     
     // Storage timestamp (for audit trail)
     storage_timestamp: u64,
+    signature: Signature,
+}
+
+/// V2.3: Response to transaction location query from Transaction Indexing
+/// Enables Merkle proof generation by providing transaction position in block
+/// 
+/// SECURITY (Envelope-Only Identity): No requester_id in payload.
+/// Identity derived from AuthenticatedMessage envelope.
+struct TransactionLocationResponse {
+    version: u16,
+    correlation_id: [u8; 16],        // Maps to original request
+    
+    // Query result
+    transaction_hash: [u8; 32],
+    found: bool,
+    
+    // Location data (if found)
+    block_hash: Option<[u8; 32]>,
+    block_height: Option<u64>,
+    transaction_index: Option<usize>,
+    merkle_root: Option<[u8; 32]>,   // Cached for proof generation
+    
+    signature: Signature,
+}
+
+/// V2.3: Response to transaction hashes query from Transaction Indexing
+/// Provides all transaction hashes for Merkle tree reconstruction
+/// 
+/// SECURITY (Envelope-Only Identity): No requester_id in payload.
+struct TransactionHashesResponse {
+    version: u16,
+    correlation_id: [u8; 16],        // Maps to original request
+    
+    block_hash: [u8; 32],
+    /// All transaction hashes in the block, in canonical order
+    transaction_hashes: Vec<[u8; 32]>,
+    /// Cached Merkle root for verification
+    merkle_root: [u8; 32],
+    
     signature: Signature,
 }
 
@@ -222,6 +264,35 @@ struct MarkFinalizedRequest {
     finality_proof: FinalityProof,
     signature: Signature,
 }
+
+/// V2.3: Request for transaction location from Transaction Indexing
+/// Enables Merkle proof generation by querying stored transaction positions
+/// 
+/// SECURITY (Envelope-Only Identity - V2.2):
+/// No requester_id in payload per Architecture.md Section 3.2.1.
+/// Identity is derived from AuthenticatedMessage envelope.sender_id.
+struct GetTransactionLocationRequest {
+    version: u16,
+    // No requester_id per Envelope-Only Identity
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    transaction_hash: [u8; 32],
+    signature: Signature,
+}
+
+/// V2.3: Request for transaction hashes in a block from Transaction Indexing
+/// Enables Merkle tree reconstruction for proof generation on cache miss
+/// 
+/// SECURITY (Envelope-Only Identity):
+/// No requester_id in payload per Architecture.md Section 3.2.1.
+struct GetTransactionHashesRequest {
+    version: u16,
+    // No requester_id per Envelope-Only Identity
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    block_hash: [u8; 32],
+    signature: Signature,
+}
 ```
 
 ### Security Boundaries:
@@ -229,7 +300,11 @@ struct MarkFinalizedRequest {
 - ✅ Accept: MarkFinalizedRequest from Subsystem 9 (Finality) ONLY
 - ✅ Accept: ReadBlockRequest from any authorized subsystem (read-only)
 - ✅ Accept: ReadBlockRangeRequest from any authorized subsystem (read-only)
+- ✅ Accept: GetTransactionLocationRequest from Subsystem 3 (Transaction Indexing) ONLY (V2.3)
+- ✅ Accept: GetTransactionHashesRequest from Subsystem 3 (Transaction Indexing) ONLY (V2.3)
 - ✅ Send: BlockStorageConfirmation to Subsystem 6 (Mempool) after successful write
+- ✅ Send: TransactionLocationResponse to Subsystem 3 (Transaction Indexing) (V2.3)
+- ✅ Send: TransactionHashesResponse to Subsystem 3 (Transaction Indexing) (V2.3)
 - ❌ **REMOVED: WriteMerkleRootRequest (atomicity violation)**
 - ❌ **REMOVED: WriteStateRootRequest (atomicity violation)**
 - ❌ Reject: Write requests without valid Consensus signature
@@ -247,27 +322,52 @@ After successfully writing a block, Block Storage MUST:
 ## SUBSYSTEM 3: TRANSACTION INDEXING
 
 ### I Am Allowed To Talk To:
-- **Subsystem 8 (Consensus)** - Provide merkle_root for block assembly
+- **Subsystem 2 (Block Storage)** - Query transaction locations for Merkle proof generation (V2.3)
 - **Subsystem 7 (Bloom Filters)** - Provide transaction hashes
 - **Subsystem 13 (Light Clients)** - Provide Merkle proofs
+- **Event Bus** - Publish MerkleRootComputed events (V2.2 Choreography)
 
 ### Who Is Allowed To Talk To Me:
-- **Subsystem 8 (Consensus)** - Request Merkle tree construction
+- **Subsystem 8 (Consensus)** - BlockValidated events trigger Merkle tree construction (V2.2 Choreography)
 - **Subsystem 7 (Bloom Filters)** - Request transaction hashes
 - **Subsystem 13 (Light Clients)** - Request Merkle proofs
 
-**Note:** This subsystem provides merkle_root to Consensus, which assembles the
-complete block package. It does NOT write directly to Block Storage.
+**CRITICAL DESIGN DECISION (V2.2 Choreography + V2.3 Transaction Lookup):**
+This subsystem participates in the V2.2 choreography pattern:
+- Subscribes to BlockValidated events from Consensus
+- Computes Merkle tree and publishes MerkleRootComputed to event bus
+- Block Storage consumes MerkleRootComputed as part of Stateful Assembler
+
+For Merkle proof generation, this subsystem may query Block Storage (V2.3):
+- When a Light Client requests a proof for a transaction
+- Transaction Indexing queries Block Storage for transaction location
+- Uses cached location data to generate proof path
 
 ### Strict Message Types:
 
 **OUTGOING:**
 ```rust
-struct MerkleRootStored {
-    block_number: u64,
+/// V2.2: Published to event bus after computing Merkle root
+/// Block Storage's Stateful Assembler consumes this event
+struct MerkleRootComputedEvent {
+    version: u16,
+    block_hash: [u8; 32],
+    block_height: u64,
     merkle_root: [u8; 32],
     transaction_count: u32,
     timestamp: u64,
+    signature: Signature,
+}
+
+/// V2.3: Query to Block Storage for transaction location
+/// SECURITY (Envelope-Only Identity): No requester_id in payload.
+struct GetTransactionLocationRequest {
+    version: u16,
+    // No requester_id per Envelope-Only Identity
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    transaction_hash: [u8; 32],
+    signature: Signature,
 }
 
 struct MerkleProof {
@@ -287,32 +387,57 @@ struct TransactionHashList {
 
 **INCOMING:**
 ```rust
-struct BuildMerkleTreeRequest {
-    requester_id: SubsystemId,     // Must be 8
-    block_number: u64,
-    transactions: Vec<ValidatedTransaction>,
+/// V2.2: Subscribed from event bus (Choreography pattern)
+/// This is the TRIGGER for Merkle tree computation
+struct BlockValidatedEvent {
+    version: u16,
+    sender_id: SubsystemId,        // Must be 8 (Consensus)
+    block: ValidatedBlock,
+    block_hash: [u8; 32],
+    block_height: u64,
+    signature: Signature,
+}
+
+/// V2.3: Response from Block Storage for transaction location
+struct TransactionLocationResponse {
+    version: u16,
+    correlation_id: [u8; 16],
+    transaction_hash: [u8; 32],
+    found: bool,
+    block_hash: Option<[u8; 32]>,
+    block_height: Option<u64>,
+    transaction_index: Option<usize>,
+    merkle_root: Option<[u8; 32]>,
     signature: Signature,
 }
 
 struct MerkleProofRequest {
-    requester_id: SubsystemId,     // Must be 13
+    // SECURITY (Envelope-Only Identity): No requester_id in payload
+    version: u16,
+    correlation_id: [u8; 16],
+    reply_to: Topic,
     transaction_hash: [u8; 32],
-    block_number: u64,
     signature: Signature,
 }
 
 struct TransactionHashRequest {
-    requester_id: SubsystemId,     // Must be 7
+    // SECURITY (Envelope-Only Identity): No requester_id in payload
+    version: u16,
+    correlation_id: [u8; 16],
+    reply_to: Topic,
     block_number: u64,
     signature: Signature,
 }
 ```
 
 ### Security Boundaries:
-- ✅ Accept: BuildMerkleTreeRequest from Subsystem 8 only
-- ✅ Accept: MerkleProofRequest from Subsystem 13 only
-- ✅ Accept: TransactionHashRequest from Subsystem 7 only
-- ❌ Reject: BuildMerkleTreeRequest with transactions from Subsystem 6 (unvalidated)
+- ✅ Accept: BlockValidatedEvent from Subsystem 8 (Consensus) only (V2.2 Choreography)
+- ✅ Accept: MerkleProofRequest from Subsystem 13 (Light Clients) only
+- ✅ Accept: TransactionHashRequest from Subsystem 7 (Bloom Filters) only
+- ✅ Accept: TransactionLocationResponse from Subsystem 2 (Block Storage) only (V2.3)
+- ✅ Send: MerkleRootComputedEvent to Event Bus (V2.2 Choreography)
+- ✅ Send: GetTransactionLocationRequest to Subsystem 2 (Block Storage) (V2.3)
+- ❌ Reject: BlockValidatedEvent from any subsystem other than Consensus
 - ❌ Reject: Requests for non-existent blocks
 - ❌ Reject: Tree depth >20 (1M+ transactions)
 
@@ -1661,18 +1786,18 @@ enum CrossChainMessageType {
 | Subsystem | Allowed Senders | Allowed Recipients | Critical Security Check |
 |-----------|----------------|-------------------|------------------------|
 | 1 (Peer Discovery) | 5, 7, 13, External | 5, 7, 10, 13 | PoW for bootstrap, reputation scoring |
-| 2 (Block Storage) | **8, 9 ONLY** | None (responses only) | **Atomicity enforced: Consensus provides complete package** |
-| 3 (Transaction Indexing) | 7, 8, 13 | 7, 8, 13 | Only validated transactions |
+| 2 (Block Storage) | **3, 8, 9** | **3**, 6 | **V2.2 Choreography + V2.3 Transaction Lookup** |
+| 3 (Transaction Indexing) | **2**, 7, 8, 13 | **2**, 7, 13, Event Bus | **V2.2: Subscribes to BlockValidated, publishes MerkleRootComputed; V2.3: Queries Block Storage for tx locations** |
 | 4 (State Management) | 6, 11, 12, 14 | 6, 8, 11, 12 | Only Subsystem 11 can write |
 | 5 (Block Propagation) | 8, External Peers | 1, 10, External Peers | ConsensusProof required |
-| 6 (Mempool) | 8, 10 | 4, 8, 10 | Only pre-verified transactions |
+| 6 (Mempool) | 2, 8, 10 | 4, 8, 10 | Only pre-verified transactions, Two-Phase Commit |
 | 7 (Bloom Filters) | 3, 13 | 1, 13 | FPR limits, address count limits |
-| 8 (Consensus) | 3, 4, 5, 10, External | 2, 3, 5, 6, 9, 10, 12, 14, 15 | Signature validation, >67% threshold, **assembles complete block package** |
+| 8 (Consensus) | 5, 10, External | 2, 3, 4, 5, 6, 9, 10, 12, 14, 15, Event Bus | **V2.2: Publishes BlockValidated to Event Bus** |
 | 9 (Finality) | 8 | 2, 10, 15 | Supermajority (>2/3) required, **circuit breaker on failure** |
 | 10 (Signature Verification) | **1, 5, 6, 8, 9** | 6, 8 | **DDoS defense: Peer Discovery can verify at edge** |
 | 11 (Smart Contracts) | 8, 12 | 4, 15 | Gas limits, depth limits |
 | 12 (Transaction Ordering) | 8 | 4, 11 | Cycle detection |
-| 13 (Light Clients) | 1, 3, 7, External | 1, 7 | Merkle proof validation |
+| 13 (Light Clients) | 1, 3, 7, External | 1, 3, 7 | Merkle proof validation |
 | 14 (Sharding) | 8 | 4, 8 | Minimum validator count |
 | 15 (Cross-Chain) | 9, 11, External | 8, 11 | Finality proofs, timelock enforcement |
 
@@ -1680,7 +1805,8 @@ enum CrossChainMessageType {
 
 | Fix | Change | Rationale |
 |-----|--------|-----------|
-| **Dual Write Fix** | Subsystem 2 only accepts writes from Subsystem 8 | Atomicity: Complete block package prevents partial writes on power failure |
+| **V2.2 Choreography Fix** | Block Storage is Stateful Assembler, not Consensus orchestrator | Decentralization: No single point of failure in block assembly |
+| **V2.3 Transaction Lookup** | Subsystem 3 can query Subsystem 2 for tx locations | Merkle proof generation requires knowing transaction position in block |
 | **DDoS Defense Fix** | Subsystem 1 can now access Subsystem 10 | Network edge protection: Verify signatures before accepting data into system |
 | **Finality Fix** | See Architecture.md DLQ section | Circuit breaker: Don't retry mathematical impossibilities |
 

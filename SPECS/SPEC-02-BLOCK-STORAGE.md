@@ -6,7 +6,7 @@
 **Crate Name:** `crates/block-storage`  
 **Author:** Systems Architecture Team  
 **Date:** 2024-12-01  
-**Architecture Compliance:** Architecture.md v2.2 (Choreography Pattern, Stateful Assembler, Envelope-Only Identity, Deterministic Failure Awareness)
+**Architecture Compliance:** Architecture.md v2.3 (Choreography Pattern, Stateful Assembler, Envelope-Only Identity, Deterministic Failure Awareness, Transaction Location Lookup)
 
 ---
 
@@ -26,6 +26,7 @@ The **Block Storage Engine** subsystem is the system's authoritative source of t
 - Verify data integrity via checksums on all read operations
 - Monitor disk space and reject writes when capacity is critical
 - Provide efficient batch/range reads for node syncing
+- **V2.3: Provide transaction location lookups for Merkle proof generation**
 
 **Out of Scope:**
 - Block validation or consensus logic (handled by Subsystem 8)
@@ -35,7 +36,7 @@ The **Block Storage Engine** subsystem is the system's authoritative source of t
 - Network I/O or peer communication
 - Any business logic validation on block contents
 
-**CRITICAL DESIGN CONSTRAINT (V2.2 Choreography Pattern):**
+**CRITICAL DESIGN CONSTRAINT (V2.3 Choreography + Transaction Lookup):**
 
 This subsystem operates as a **Stateful Assembler** within an event-driven choreography. 
 It does NOT receive a pre-assembled "complete package" from any orchestrator.
@@ -515,6 +516,53 @@ pub trait BlockStorageApi {
     
     /// Check if a block exists at height
     fn block_exists_at_height(&self, height: u64) -> bool;
+    
+    /// V2.3: Get the location of a transaction by its hash
+    /// 
+    /// This API supports Transaction Indexing (Subsystem 3) for Merkle proof generation.
+    /// Returns the block and position where a transaction is stored.
+    /// 
+    /// # Parameters
+    /// - `transaction_hash`: Hash of the transaction to locate
+    /// 
+    /// # Returns
+    /// - `Ok(TransactionLocation)`: Location data including block_hash, height, and index
+    /// - `Err(TransactionNotFound)`: Transaction not in any stored block
+    fn get_transaction_location(
+        &self,
+        transaction_hash: Hash,
+    ) -> Result<TransactionLocation, StorageError>;
+    
+    /// V2.3: Get ONLY the list of transaction hashes for a given block.
+    /// 
+    /// This is a performance-optimized endpoint for the Transaction Indexing
+    /// subsystem to use for rebuilding Merkle trees for proof generation.
+    /// Returns transaction hashes in canonical order (same order as stored).
+    /// 
+    /// # Parameters
+    /// - `block_hash`: Hash of the block to get transaction hashes for
+    /// 
+    /// # Returns
+    /// - `Ok(Vec<Hash>)`: Transaction hashes in canonical order
+    /// - `Err(BlockNotFound)`: Block with this hash not found
+    fn get_transaction_hashes_for_block(
+        &self,
+        block_hash: Hash,
+    ) -> Result<Vec<Hash>, StorageError>;
+}
+
+/// V2.3: Location of a transaction within a stored block
+/// Used by Transaction Indexing for Merkle proof generation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransactionLocation {
+    /// Hash of the block containing this transaction
+    pub block_hash: Hash,
+    /// Height of the block containing this transaction
+    pub block_height: u64,
+    /// Index of the transaction within the block's transaction list
+    pub transaction_index: usize,
+    /// Cached Merkle root (for efficient proof generation)
+    pub merkle_root: Hash,
 }
 
 /// Errors that can occur during storage operations
@@ -543,6 +591,8 @@ pub enum StorageError {
         requested: u64, 
         current: u64 
     },
+    /// V2.3: Transaction not found in any stored block
+    TransactionNotFound { tx_hash: Hash },
     /// Database I/O error
     DatabaseError { message: String },
     /// Serialization/deserialization error
@@ -739,6 +789,35 @@ pub enum BlockStorageRequestPayload {
     /// Read a range of blocks (for node syncing)
     /// Allowed sender: Any authorized subsystem
     ReadBlockRange(ReadBlockRangeRequestPayload),
+    
+    /// V2.3: Get transaction location for Merkle proof generation
+    /// Allowed sender: Subsystem 3 (Transaction Indexing) ONLY
+    GetTransactionLocation(GetTransactionLocationRequestPayload),
+    
+    /// V2.3: Get transaction hashes for a block (Merkle tree reconstruction)
+    /// Allowed sender: Subsystem 3 (Transaction Indexing) ONLY
+    GetTransactionHashes(GetTransactionHashesRequestPayload),
+}
+
+/// V2.3: Request for transaction location from Transaction Indexing
+/// Enables Merkle proof generation by querying stored transaction positions
+/// 
+/// SECURITY (Envelope-Only Identity): No requester_id in payload.
+/// Identity is derived from AuthenticatedMessage envelope.sender_id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GetTransactionLocationRequestPayload {
+    /// Hash of the transaction to locate
+    pub transaction_hash: Hash,
+}
+
+/// V2.3: Request for transaction hashes in a block from Transaction Indexing
+/// Enables Merkle tree reconstruction for proof generation on cache miss
+/// 
+/// SECURITY (Envelope-Only Identity): No requester_id in payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GetTransactionHashesRequestPayload {
+    /// Hash of the block to get transaction hashes for
+    pub block_hash: Hash,
 }
 
 /// Mark finalized request from Finality subsystem
@@ -824,6 +903,12 @@ pub enum BlockStorageEventPayload {
     /// Response to a read block range request (batch)
     ReadBlockRangeResponse(ReadBlockRangeResponsePayload),
     
+    /// V2.3: Response to transaction location request
+    TransactionLocationResponse(TransactionLocationResponsePayload),
+    
+    /// V2.3: Response to transaction hashes request
+    TransactionHashesResponse(TransactionHashesResponsePayload),
+    
     /// Critical storage error occurred
     StorageCritical(StorageCriticalPayload),
     
@@ -872,6 +957,35 @@ pub struct ReadBlockRangeResponsePayload {
     pub has_more: bool,
 }
 
+/// V2.3: Response to GetTransactionLocationRequest
+/// Enables Transaction Indexing to generate Merkle proofs
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransactionLocationResponsePayload {
+    /// The transaction hash that was queried
+    pub transaction_hash: Hash,
+    /// The result of the location lookup
+    pub result: Result<TransactionLocation, StorageErrorPayload>,
+}
+
+/// V2.3: Response to GetTransactionHashesRequest
+/// Provides all transaction hashes for Merkle tree reconstruction
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransactionHashesResponsePayload {
+    /// The block hash that was queried
+    pub block_hash: Hash,
+    /// Transaction hashes in canonical order, or error
+    pub result: Result<TransactionHashesData, StorageErrorPayload>,
+}
+
+/// V2.3: Transaction hashes data for Merkle tree reconstruction
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransactionHashesData {
+    /// All transaction hashes in the block, in canonical order
+    pub transaction_hashes: Vec<Hash>,
+    /// Cached Merkle root for verification
+    pub merkle_root: Hash,
+}
+
 /// Serializable version of StorageError for IPC
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageErrorPayload {
@@ -887,6 +1001,8 @@ pub enum StorageErrorType {
     HeightNotFound,
     DataCorruption,
     DatabaseError,
+    /// V2.3: Transaction not found in any stored block
+    TransactionNotFound,
 }
 
 /// Critical error that may require DLQ handling
@@ -1838,11 +1954,49 @@ fn test_assembly_rejects_wrong_sender_for_state_root()
 // Assert: Rejected with UnauthorizedSender
 ```
 
+#### Test Group 11: Transaction Data Retrieval (V2.3)
+
+```rust
+#[test]
+fn test_get_transaction_location_returns_correct_position()
+// Verify: Transaction location lookup
+// Setup: Store block with 10 transactions
+// Action: Query location for transaction at index 5
+// Assert: Returns correct block_hash, height, and index
+
+#[test]
+fn test_get_transaction_location_returns_not_found()
+// Verify: Transaction not found error
+// Setup: Store block with known transactions
+// Action: Query location for unknown transaction hash
+// Assert: Returns TransactionNotFound error
+
+#[test]
+fn test_get_transaction_hashes_for_block_returns_ordered_hashes()
+// Verify: Transaction hashes retrieval
+// Setup: Store block with 20 transactions
+// Action: Call get_transaction_hashes_for_block
+// Assert: Returns all 20 hashes in canonical order
+
+#[test]
+fn test_get_transaction_hashes_for_block_not_found()
+// Verify: Block not found error
+// Setup: Empty storage
+// Action: Query transaction hashes for unknown block
+// Assert: Returns BlockNotFound error
+
+#[test]
+fn test_get_transaction_hashes_sender_verification()
+// Verify: Only Transaction Indexing can query
+// Setup: Send GetTransactionHashesRequest with sender_id != TransactionIndexing
+// Assert: Rejected with UnauthorizedSender
+```
+
 ---
 
 ## 6. SECURITY & CONSTRAINTS
 
-### 6.1 Access Control Matrix (V2.2 Choreography Pattern)
+### 6.1 Access Control Matrix (V2.3 Choreography + Data Retrieval)
 
 **Event Subscriptions (Choreography - Block Assembly):**
 
@@ -1859,11 +2013,15 @@ fn test_assembly_rejects_wrong_sender_for_state_root()
 | MarkFinalizedRequest | Subsystem 9 (Finality) ONLY | Log warning + reject |
 | ReadBlockRequest | Any authorized subsystem | N/A (permissive) |
 | ReadBlockRangeRequest | Any authorized subsystem | N/A (permissive) |
+| GetTransactionLocationRequest | Subsystem 3 (Transaction Indexing) ONLY | Log warning + reject |
+| GetTransactionHashesRequest | Subsystem 3 (Transaction Indexing) ONLY | Log warning + reject |
 
-**V2.2 Architecture Mandate:**
-- There is NO `WriteBlockRequest` - the orchestrator pattern is REJECTED
+**V2.3 Architecture Amendments:**
+- **V2.2:** Choreography pattern - Block Storage is Stateful Assembler
+- **V2.3:** Transaction Indexing can query transaction locations AND hashes for Merkle proof generation
+- No `WriteBlockRequest` - the orchestrator pattern is REJECTED
 - Block Storage SUBSCRIBES to three independent events and ASSEMBLES them
-- This decentralized choreography ensures fault isolation and scalability
+- Block Storage PROVIDES transaction data to Transaction Indexing on demand
 
 ### 6.2 Trust Boundary Enforcement
 

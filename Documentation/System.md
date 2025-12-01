@@ -61,9 +61,15 @@ This blocks malicious actors at the network edge, preventing Mempool spam attack
 - **Event Bus** - Subscribes to `BlockValidated`, `MerkleRootComputed`, `StateRootComputed`
 - **Subsystem 9** (Finality) - Marks blocks as finalized
 
-**CRITICAL DESIGN DECISION (v2.2 Stateful Assembler Pattern):**
-Block Storage acts as a **Stateful Assembler** in the choreography pattern:
+### Provides To (V2.3):
+- **Subsystem 3** (Transaction Indexing) - Transaction hashes for Merkle proof generation
+- **Subsystem 6** (Mempool) - BlockStorageConfirmation for Two-Phase Commit
 
+**CRITICAL DESIGN DECISION (v2.3 Stateful Assembler + Data Provider Pattern):**
+Block Storage acts as a **Stateful Assembler** in the choreography pattern AND as
+a **Data Provider** for downstream subsystems:
+
+**Write Path (Choreography):**
 1. Subscribes to three independent events:
    - `BlockValidated` from Consensus (8)
    - `MerkleRootComputed` from Transaction Indexing (3)
@@ -71,6 +77,11 @@ Block Storage acts as a **Stateful Assembler** in the choreography pattern:
 2. Buffers components keyed by `block_hash`
 3. Only writes when ALL THREE components for a block_hash are received
 4. Times out incomplete assemblies after 30 seconds
+
+**Read Path (V2.3 - Data Retrieval):**
+1. Responds to `GetTransactionHashesRequest` from Transaction Indexing (3)
+2. Returns transaction hashes for a given block_hash
+3. Enables Merkle proof generation on cache miss
 
 **Why Choreography, Not Orchestration (v2.2):**
 The previous "Orchestrator" pattern made Consensus a bottleneck and single point of failure.
@@ -119,17 +130,27 @@ occurs when all components are assembled.
 
 ### Dependencies:
 - **Subsystem 10** (Signature Verification) - Validates transactions before indexing
+- **Subsystem 2** (Block Storage) - Transaction hashes for proof generation (V2.3)
 - **Event Bus** - Subscribes to `BlockValidated` events
 
 ### Provides To (via Event Bus):
 - **Event Bus** - Emits `MerkleRootComputed` event (block_hash + merkle_root)
 - **Subsystem 13** (Light Clients) - Provides Merkle proofs for SPV
 
-**v2.2 Choreography Pattern:**
+**v2.3 Choreography + Data Retrieval Pattern:**
+
+**Write Path (Choreography):**
 1. Subscribes to `BlockValidated` events from Event Bus
 2. Computes merkle_root for the block's transactions
 3. Emits `MerkleRootComputed` event with block_hash as key
 4. Block Storage assembles this with other components
+
+**Read Path (V2.3 - Proof Generation):**
+1. Receives `MerkleProofRequest` from Light Clients (13)
+2. Checks local cache for transaction location
+3. On cache miss: Queries Block Storage (2) via `GetTransactionHashesRequest`
+4. Rebuilds Merkle tree from transaction hashes
+5. Generates and returns Merkle proof
 
 ### Security & Robustness:
 **Attack Vectors:**
@@ -718,30 +739,42 @@ increases, 2PC becomes a coordination bottleneck that limits throughput.
 
 ---
 
-## DEPENDENCY GRAPH
+## DEPENDENCY GRAPH (V2.3 - UNIFIED WORKFLOW)
 
-**CRITICAL UPDATE (Atomicity Enforcement):**
-The dependency graph has been updated to reflect that Block Storage (Subsystem 2)
-no longer depends on Subsystems 3 and 4 directly. Consensus (Subsystem 8) is the
-orchestrator that collects roots and sends a complete package to Block Storage.
+**CRITICAL UPDATE (V2.3 - Choreography + Data Retrieval):**
+The dependency graph has been updated to reflect the V2.2 Choreography Pattern AND
+the V2.3 Data Retrieval Path. Block Storage (Subsystem 2) now:
+1. Subscribes to events from Subsystems 3, 4, 8 (Choreography - Write Path)
+2. Provides transaction data to Subsystem 3 (Data Retrieval - Read Path)
 
 ```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                   V2.3 UNIFIED DEPENDENCY GRAPH                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+
 SUBSYSTEM 1: Peer Discovery
     ├── Depends on: Subsystem 10 (DDoS defense - verify node identity at edge)
     └── Provides to: Subsystems 5, 7, 13 (peer lists)
 
-SUBSYSTEM 2: Block Storage
-    ├── Depends on: Subsystem 8 (ONLY - receives complete WriteBlockRequest package)
+SUBSYSTEM 2: Block Storage (Stateful Assembler + Data Provider)
+    ├── Subscribes to: Subsystem 8 (BlockValidated event)
+    ├── Subscribes to: Subsystem 3 (MerkleRootComputed event)
+    ├── Subscribes to: Subsystem 4 (StateRootComputed event)
     ├── Depends on: Subsystem 9 (Finality marking)
-    └── NOTE: Does NOT depend on 3 or 4 (atomicity enforcement)
+    ├── Provides to: Subsystem 6 (BlockStorageConfirmation)
+    └── Provides to: Subsystem 3 (Transaction hashes for proof generation) [V2.3]
 
 SUBSYSTEM 3: Transaction Indexing
     ├── Depends on: Subsystem 10 (Signature verification)
-    └── Provides to: Subsystem 8 (merkle_root for block assembly)
+    ├── Subscribes to: Subsystem 8 (BlockValidated event)
+    ├── Provides to: Event Bus (MerkleRootComputed)
+    ├── Provides to: Subsystem 13 (Merkle proofs)
+    └── Depends on: Subsystem 2 (Transaction hashes for proof generation) [V2.3]
 
 SUBSYSTEM 4: State Management
     ├── Depends on: Subsystem 11 (State updates)
-    └── Provides to: Subsystem 8 (state_root for block assembly)
+    ├── Subscribes to: Subsystem 8 (BlockValidated event)
+    └── Provides to: Event Bus (StateRootComputed)
 
 SUBSYSTEM 5: Block Propagation
     ├── Depends on: Subsystem 1 (Peer list)
@@ -749,23 +782,25 @@ SUBSYSTEM 5: Block Propagation
 
 SUBSYSTEM 6: Mempool
     ├── Depends on: Subsystem 10 (Signature check)
-    └── Depends on: Subsystem 4 (Balance/nonce check)
+    ├── Depends on: Subsystem 4 (Balance/nonce check)
+    ├── Provides to: Subsystem 8 (ProposeTransactionBatch)
+    └── Subscribes to: Subsystem 2 (BlockStorageConfirmation)
 
 SUBSYSTEM 7: Bloom Filters
     ├── Depends on: Subsystem 3 (Transaction hashes)
     └── Depends on: Subsystem 1 (Full node connections)
 
-SUBSYSTEM 8: Consensus (ORCHESTRATOR)
-    ├── Depends on: Subsystem 3 (Request merkle_root)
-    ├── Depends on: Subsystem 4 (Request state_root)
+SUBSYSTEM 8: Consensus (Validation Only - NOT Orchestrator)
     ├── Depends on: Subsystem 5 (Receive blocks from network)
-    ├── Depends on: Subsystem 6 (Transactions for block building)
+    ├── Depends on: Subsystem 6 (ProposeTransactionBatch)
     ├── Depends on: Subsystem 10 (Signature verification)
-    └── Provides to: Subsystem 2 (Complete WriteBlockRequest package)
+    ├── Provides to: Event Bus (BlockValidated)
+    └── Provides to: Subsystem 9 (Attestations)
 
 SUBSYSTEM 9: Finality
     ├── Depends on: Subsystem 8 (PoS attestations)
     ├── Depends on: Subsystem 10 (Signature verification)
+    ├── Provides to: Subsystem 2 (MarkFinalizedRequest)
     └── NOTE: Uses circuit breaker on failure, not retries
 
 SUBSYSTEM 10: Signature Verification
@@ -793,10 +828,54 @@ SUBSYSTEM 15: Cross-Chain
     └── Depends on: Subsystem 8 (Finality on both chains)
 ```
 
-**Data Flow for Block Writes:**
+**V2.3 Data Flow Diagrams:**
+
+**1. Block Creation (Choreography - Write Path):**
 ```
-[3] Transaction Indexing ──merkle_root──→ [8] Consensus ──WriteBlockRequest──→ [2] Block Storage
-[4] State Management ────state_root────→ [8] Consensus ──(complete package)──→ [2] Block Storage
+Consensus (8) ─────BlockValidated──────→ [Event Bus]
+                                              │
+                    ┌─────────────────────────┼─────────────────────────┐
+                    ↓                         ↓                         ↓
+           Tx Indexing (3)           State Management (4)      Block Storage (2)
+                    │                         │                  [Stateful Assembler]
+                    ↓                         ↓                         ↑
+         MerkleRootComputed          StateRootComputed                  │
+                    └─────────────────────────┴─────────────────────────┘
+                                              │
+                                              ↓
+                                   [All 3 components received]
+                                              │
+                                              ↓
+                                   Block Storage: Atomic Write
+```
+
+**2. Proof Generation (V2.3 - Read Path):**
+```
+Light Client (13) ──MerkleProofRequest──→ Transaction Indexing (3)
+                                                    │
+                                          [Check local cache]
+                                                    │
+                              ┌─────────────────────┴─────────────────────┐
+                              ↓                                           ↓
+                        [Cache Hit]                                 [Cache Miss]
+                              │                                           │
+                              ↓                                           ↓
+                    [Generate Proof]              GetTransactionHashesRequest
+                              │                            │              ↓
+                              │                            └───→ Block Storage (2)
+                              │                                           │
+                              │                    TransactionHashesResponse
+                              │                                           │
+                              │                            ←──────────────┘
+                              │                                           │
+                              ↓                                           ↓
+                     [Return Proof]                          [Rebuild Merkle Tree]
+                                                                          │
+                                                                          ↓
+                                                               [Generate Proof]
+                                                                          │
+                                                                          ↓
+                                                                 [Return Proof]
 ```
 
 ---
@@ -806,13 +885,13 @@ SUBSYSTEM 15: Cross-Chain
 **Phase 1 (Core - Weeks 1-4):**
 - Subsystem 10 (Signatures) - No dependencies
 - Subsystem 1 (Peer Discovery) - Depends on 10 for DDoS defense
-- Subsystem 3 (Merkle Trees) - Needs 10
+- Subsystem 3 (Merkle Trees) - Needs 10, and 2 for proof generation (V2.3)
 - Subsystem 6 (Mempool) - Needs 10, 4
 
 **Phase 2 (Consensus - Weeks 5-8):**
 - Subsystem 4 (State) - Needs 11
-- Subsystem 8 (Consensus) - ORCHESTRATOR, needs 3, 4, 5, 6, 10
-- Subsystem 2 (Storage) - Needs 8 (receives complete package from Consensus)
+- Subsystem 8 (Consensus) - Publishes BlockValidated, needs 5, 6, 10
+- Subsystem 2 (Storage) - Stateful Assembler, subscribes to 3, 4, 8
 - Subsystem 5 (Propagation) - Needs 1, 8
 - Subsystem 9 (Finality) - Needs 8, 10
 
