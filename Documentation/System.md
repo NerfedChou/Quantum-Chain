@@ -1,5 +1,28 @@
 # BLOCKCHAIN SUBSYSTEMS: STANDALONE ARCHITECTURE
 ## Each subsystem defined with Main Algorithm, Supporting Algorithms, Dependencies, and Security
+**Version:** 2.3 | **Last Updated:** 2025-12-01
+
+---
+
+## V2.3 GLOBAL SECURITY MANDATES
+
+These security rules apply to ALL subsystems and are non-negotiable:
+
+1. **Envelope-Only Identity (V2.2 Amendment):** 
+   - All inter-subsystem messages use `AuthenticatedMessage<T>` envelope
+   - The envelope's `sender_id` is the SOLE source of truth for identity
+   - Payloads MUST NOT contain `requester_id` or similar identity fields
+   - See: Architecture.md Section 3.2.1
+
+2. **Choreography over Orchestration (V2.2):**
+   - No single subsystem "orchestrates" others
+   - Subsystems publish events to Event Bus; consumers react independently
+   - See: Architecture.md Section 5.1
+
+3. **Time-Bounded Nonce (Replay Prevention):**
+   - All authenticated messages include nonce + timestamp
+   - Receivers maintain `TimeBoundedNonceCache` to reject replays
+   - See: Architecture.md Section 3.2.2
 
 ---
 
