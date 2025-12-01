@@ -114,6 +114,14 @@ jobs:
           toolchain: "1.82.0"
           components: rustfmt, clippy
       
+      - name: Verify toolchain version
+        run: |
+          echo "Rust version: $(rustc --version)"
+          echo "Cargo version: $(cargo --version)"
+          CARGO_VERSION=$(cargo --version | cut -d' ' -f2)
+          echo "Cargo lock file version:"
+          head -5 Cargo.lock
+      
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
