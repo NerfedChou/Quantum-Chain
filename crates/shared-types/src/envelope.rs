@@ -1,4 +1,4 @@
-//! # AuthenticatedMessage Envelope
+//! # `AuthenticatedMessage` Envelope
 //!
 //! The universal wrapper for ALL IPC communication as mandated by Architecture.md v2.2.
 //!
@@ -108,7 +108,7 @@ pub enum VerificationResult {
     ReplayDetected { nonce: Uuid },
     /// Message signature is invalid.
     InvalidSignature,
-    /// The reply_to.subsystem_id does not match sender_id (forwarding attack).
+    /// The `reply_to.subsystem_id` does not match `sender_id` (forwarding attack).
     ReplyToMismatch {
         reply_to_subsystem: u8,
         sender_id: u8,

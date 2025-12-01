@@ -51,7 +51,7 @@ impl Default for NodeConfig {
 }
 
 /// Initialize the node runtime.
-async fn init_node(config: NodeConfig) -> Result<()> {
+fn init_node(config: &NodeConfig) {
     info!("Initializing Quantum-Chain node...");
     info!("P2P Port: {}", config.p2p_port);
     info!("RPC Port: {}", config.rpc_port);
@@ -67,8 +67,6 @@ async fn init_node(config: NodeConfig) -> Result<()> {
     info!("Quantum-Chain node initialized successfully");
     info!("Architecture version: 2.2");
     info!("Protocol version: 1");
-
-    Ok(())
 }
 
 #[tokio::main]
@@ -84,7 +82,7 @@ async fn main() -> Result<()> {
     info!("===========================================");
 
     let config = NodeConfig::default();
-    init_node(config).await?;
+    init_node(&config);
 
     // Keep the node running
     info!("Node is running. Press Ctrl+C to stop.");

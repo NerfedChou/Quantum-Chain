@@ -8,7 +8,10 @@
 //! - Payloads MUST NOT contain `requester_id` fields (envelope authority).
 //! - Request/response pairs use the envelope's `correlation_id`.
 
-use crate::entities::*;
+use crate::entities::{
+    FinalityProof, Hash, NodeId, PeerInfo, PublicKey, Signature, StoredBlock, ValidatedBlock,
+    ValidatedTransaction,
+};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Bytes};
 
@@ -42,7 +45,7 @@ pub struct VerifyNodeIdentityResponse {
 }
 
 /// Request for a list of peers.
-/// Uses correlation_id for request/response mapping.
+/// Uses `correlation_id` for request/response mapping.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerListRequestPayload {
     /// Maximum number of peers to return.
@@ -102,7 +105,7 @@ pub struct BlockStoredPayload {
 }
 
 /// Request to read a block by hash.
-/// Uses correlation_id for response routing.
+/// Uses `correlation_id` for response routing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReadBlockRequestPayload {
     /// The block hash to retrieve.

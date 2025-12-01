@@ -5,10 +5,10 @@
 //!
 //! ## Clusters
 //!
-//! - **Chain**: Block, BlockHeader, Transaction, ValidatedTransaction
-//! - **Consensus & Finality**: Validator, Attestation, FinalityProof
-//! - **State & Storage**: AccountState, StateRoot, MerkleRoot
-//! - **Networking**: PeerInfo, NodeId
+//! - **Chain**: Block, `BlockHeader`, Transaction, `ValidatedTransaction`
+//! - **Consensus & Finality**: Validator, Attestation, `FinalityProof`
+//! - **State & Storage**: `AccountState`, `StateRoot`, `MerkleRoot`
+//! - **Networking**: `PeerInfo`, `NodeId`
 
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Bytes};
@@ -117,7 +117,7 @@ pub struct Attestation {
     pub epoch: u64,
     /// The validator's public key.
     pub validator: PublicKey,
-    /// Signature over (block_hash, epoch).
+    /// Signature over (`block_hash`, `epoch`).
     #[serde_as(as = "Bytes")]
     pub signature: Signature,
 }
