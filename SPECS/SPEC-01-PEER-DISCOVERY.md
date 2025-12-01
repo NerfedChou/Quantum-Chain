@@ -1,11 +1,12 @@
 # SPECIFICATION: PEER DISCOVERY & ROUTING
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Subsystem ID:** 1  
 **Bounded Context:** Network Topology & Peer Management  
 **Crate Name:** `crates/peer-discovery`  
 **Author:** Systems Architecture Team  
-**Date:** 2024-11-30
+**Date:** 2024-12-01  
+**Architecture Compliance:** Architecture.md v1.1 (AuthenticatedMessage envelope, Correlation ID pattern)
 
 ---
 
@@ -304,44 +305,75 @@ pub trait NodeIdValidator: Send + Sync {
 
 ## 4. EVENT SCHEMA (EDA)
 
+**IMPORTANT:** All events in this section are **payloads** within the `AuthenticatedMessage<T>` envelope defined in Architecture.md Section 3.2. They are NOT standalone structs. Every IPC message MUST include the mandatory envelope fields: `version`, `correlation_id`, `reply_to`, `sender_id`, `recipient_id`, `timestamp`, `nonce`, and `signature`.
+
 ### 4.1 Events Published to Shared Bus
+
+These are the payload types (`T` in `AuthenticatedMessage<T>`) that Peer Discovery publishes:
 
 ```rust
 /// Events emitted by the Peer Discovery subsystem
+/// 
+/// USAGE: These are payloads wrapped in AuthenticatedMessage<T>.
+/// Example: AuthenticatedMessage<PeerConnectedPayload>
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PeerDiscoveryEvent {
+pub enum PeerDiscoveryEventPayload {
     /// A new peer was successfully added to routing table
-    PeerConnected {
-        peer_info: PeerInfo,
-        bucket_index: u8,
-    },
+    PeerConnected(PeerConnectedPayload),
     
     /// A peer was removed from routing table
-    PeerDisconnected {
-        node_id: NodeId,
-        reason: DisconnectReason,
-    },
+    PeerDisconnected(PeerDisconnectedPayload),
     
     /// A peer was banned
-    PeerBanned {
-        node_id: NodeId,
-        reason: BanReason,
-        duration_seconds: u64,
-    },
+    PeerBanned(PeerBannedPayload),
     
     /// Bootstrap process completed
-    /// (Sufficient peers found to consider network joined)
-    BootstrapCompleted {
-        peer_count: usize,
-        duration_ms: u64,
-    },
+    BootstrapCompleted(BootstrapCompletedPayload),
     
     /// Routing table health warning
-    /// (Too few peers, buckets empty, etc.)
-    RoutingTableWarning {
-        warning_type: WarningType,
-        details: String,
-    },
+    RoutingTableWarning(RoutingTableWarningPayload),
+    
+    /// Response to a peer list request (correlated via correlation_id)
+    PeerListResponse(PeerListResponsePayload),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerConnectedPayload {
+    pub peer_info: PeerInfo,
+    pub bucket_index: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerDisconnectedPayload {
+    pub node_id: NodeId,
+    pub reason: DisconnectReason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerBannedPayload {
+    pub node_id: NodeId,
+    pub reason: BanReason,
+    pub duration_seconds: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BootstrapCompletedPayload {
+    pub peer_count: usize,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoutingTableWarningPayload {
+    pub warning_type: WarningType,
+    pub details: String,
+}
+
+/// Response payload for peer list requests
+/// The correlation_id in the envelope links this to the original request
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerListResponsePayload {
+    pub peers: Vec<PeerInfo>,
+    pub total_available: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -360,28 +392,204 @@ pub enum WarningType {
 }
 ```
 
-### 4.2 Events Subscribed From Shared Bus
+### 4.2 Events Subscribed From Shared Bus (Request Payloads)
+
+These are the payload types this subsystem listens for. All incoming messages MUST be validated against the `AuthenticatedMessage<T>` envelope requirements before processing.
 
 ```rust
-/// Events this subsystem listens to from other subsystems
-pub enum IncomingEvent {
-    /// From Subsystem 5 (Block Propagation) - requesting peer list
-    PeerListRequested {
-        requester_id: SubsystemId,
-        request_id: u64,
-    },
+/// Request payloads this subsystem handles
+/// 
+/// CRITICAL: These payloads arrive wrapped in AuthenticatedMessage<T>.
+/// The envelope's correlation_id and reply_to fields MUST be used for responses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PeerDiscoveryRequestPayload {
+    /// Request for a list of known peers
+    /// Allowed senders: Subsystems 5, 7, 13 ONLY
+    PeerListRequest(PeerListRequestPayload),
     
-    /// From Subsystem 7 (Bloom Filters) - requesting full nodes
-    FullNodeListRequested {
-        requester_id: SubsystemId,
-    },
-    
-    /// From Subsystem 13 (Light Clients) - requesting full nodes
-    LightClientPeerRequest {
-        requester_id: SubsystemId,
-    },
+    /// Request for full node connections (for light clients)
+    /// Allowed senders: Subsystem 13 ONLY
+    FullNodeListRequest(FullNodeListRequestPayload),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerListRequestPayload {
+    pub max_peers: usize,
+    pub filter: Option<PeerFilter>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FullNodeListRequestPayload {
+    pub max_nodes: usize,
+    pub preferred_region: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerFilter {
+    pub min_reputation: u8,
+    pub exclude_subnets: Vec<SubnetMask>,
 }
 ```
+
+### 4.3 Request/Response Flow Example
+
+Per Architecture.md Section 3.3, all request/response flows MUST use the correlation ID pattern. Here is a complete example:
+
+```rust
+// ============================================================
+// REQUESTER SIDE (e.g., Block Propagation - Subsystem 5)
+// ============================================================
+
+impl BlockPropagation {
+    /// Request peer list from Peer Discovery (NON-BLOCKING)
+    async fn request_peer_list(&self) -> Result<(), Error> {
+        // Step 1: Generate unique correlation ID
+        let correlation_id = Uuid::new_v4();
+        
+        // Step 2: Store pending request for later matching
+        self.pending_requests.insert(correlation_id, PendingRequest {
+            created_at: Instant::now(),
+            timeout: Duration::from_secs(30),
+            request_type: RequestType::PeerList,
+        });
+        
+        // Step 3: Construct the full authenticated message
+        let message = AuthenticatedMessage {
+            // === MANDATORY HEADER FIELDS ===
+            version: PROTOCOL_VERSION,           // e.g., 1
+            sender_id: SubsystemId::BlockPropagation,
+            recipient_id: SubsystemId::PeerDiscovery,
+            correlation_id: correlation_id.as_bytes().clone(),
+            reply_to: Some(Topic {
+                subsystem_id: SubsystemId::BlockPropagation,
+                channel: "responses".into(),
+            }),
+            timestamp: self.time_source.now(),
+            nonce: self.nonce_generator.next(),
+            signature: [0u8; 32],                // Computed below
+            
+            // === PAYLOAD ===
+            payload: PeerListRequestPayload {
+                max_peers: 20,
+                filter: Some(PeerFilter {
+                    min_reputation: 30,
+                    exclude_subnets: vec![],
+                }),
+            },
+        };
+        
+        // Step 4: Sign the message
+        let signed_message = message.sign(&self.shared_secret);
+        
+        // Step 5: Publish to event bus (NON-BLOCKING - returns immediately)
+        self.event_bus.publish("peer-discovery.requests", signed_message).await?;
+        
+        // DO NOT AWAIT RESPONSE HERE - continue processing other work
+        Ok(())
+    }
+    
+    /// Handle responses from Peer Discovery (separate async handler)
+    async fn handle_peer_list_response(
+        &mut self, 
+        msg: AuthenticatedMessage<PeerListResponsePayload>
+    ) {
+        // Step 1: Validate the envelope (version, signature, timestamp, etc.)
+        if let Err(e) = msg.verify(SubsystemId::PeerDiscovery, &self.shared_secret) {
+            log::warn!("Invalid message from PeerDiscovery: {:?}", e);
+            return;
+        }
+        
+        // Step 2: Match correlation_id to pending request
+        let correlation_id = Uuid::from_bytes(msg.correlation_id);
+        if let Some(pending) = self.pending_requests.remove(&correlation_id) {
+            // Step 3: Check if request timed out
+            if pending.created_at.elapsed() > pending.timeout {
+                log::warn!("Response arrived after timeout for {:?}", correlation_id);
+                return;
+            }
+            
+            // Step 4: Process the response
+            for peer in msg.payload.peers {
+                self.known_peers.insert(peer.node_id, peer);
+            }
+        } else {
+            // Orphaned response - request already timed out or never existed
+            log::debug!("Orphaned response for correlation_id {:?}", correlation_id);
+        }
+    }
+}
+
+// ============================================================
+// RESPONDER SIDE (Peer Discovery - Subsystem 1)
+// ============================================================
+
+impl PeerDiscovery {
+    /// Handle incoming peer list requests
+    async fn handle_peer_list_request(
+        &self,
+        msg: AuthenticatedMessage<PeerListRequestPayload>
+    ) -> Result<(), Error> {
+        // Step 1: Validate the envelope
+        if let Err(e) = msg.verify_envelope() {
+            return Err(Error::InvalidMessage(e));
+        }
+        
+        // Step 2: Verify sender is authorized (Subsystems 5, 7, 13 only)
+        match msg.sender_id {
+            SubsystemId::BlockPropagation |
+            SubsystemId::BloomFilters |
+            SubsystemId::LightClients => { /* Authorized */ }
+            _ => {
+                return Err(Error::UnauthorizedSender(msg.sender_id));
+            }
+        }
+        
+        // Step 3: Process the request
+        let peers = self.routing_table.get_random_peers(msg.payload.max_peers);
+        
+        // Step 4: Construct response with SAME correlation_id
+        let response = AuthenticatedMessage {
+            version: PROTOCOL_VERSION,
+            sender_id: SubsystemId::PeerDiscovery,
+            recipient_id: msg.sender_id,
+            correlation_id: msg.correlation_id,      // CRITICAL: Same as request!
+            reply_to: None,                          // This is a response, not a request
+            timestamp: self.time_source.now(),
+            nonce: self.nonce_generator.next(),
+            signature: [0u8; 32],
+            
+            payload: PeerListResponsePayload {
+                peers,
+                total_available: self.routing_table.total_peer_count(),
+            },
+        };
+        
+        // Step 5: Sign and publish to the requester's reply_to topic
+        let signed_response = response.sign(&self.shared_secret);
+        let reply_topic = msg.reply_to
+            .ok_or(Error::MissingReplyTo)?;
+        
+        self.event_bus.publish(&reply_topic.to_string(), signed_response).await?;
+        
+        Ok(())
+    }
+}
+```
+
+### 4.4 Message Envelope Compliance Checklist
+
+For every IPC message sent or received by this subsystem:
+
+| Field | Required | Validation |
+|-------|----------|------------|
+| `version` | ✅ YES | Must be within `[MIN_SUPPORTED_VERSION, MAX_SUPPORTED_VERSION]` |
+| `sender_id` | ✅ YES | Must match expected sender per IPC Matrix |
+| `recipient_id` | ✅ YES | Must be `SubsystemId::PeerDiscovery` for incoming |
+| `correlation_id` | ✅ YES | UUID v4, used to match request/response pairs |
+| `reply_to` | ✅ For requests | Topic where response should be published |
+| `timestamp` | ✅ YES | Must be within 60 seconds of current time |
+| `nonce` | ✅ YES | Must not be reused (replay prevention) |
+| `signature` | ✅ YES | HMAC-SHA256, verified before processing |
 
 ---
 
@@ -612,7 +820,7 @@ let peer = self.buckets
 ### 7.3 References
 
 - **IPC Matrix Document:** See message types for `PeerListRequest` and `PeerList`
-- **Architecture Document:** Section 4.1 (Subsystem Catalog - Peer Discovery)
+- **Architecture Document:** Section 3.2 (AuthenticatedMessage envelope), Section 3.3 (Request/Response Correlation Pattern), Section 4.1 (Subsystem Catalog - Peer Discovery)
 - **Kademlia Paper:** Maymounkov & Mazières (2002) - "Kademlia: A Peer-to-peer Information System Based on the XOR Metric"
 
 ### 7.4 Related Specifications
@@ -641,9 +849,13 @@ let peer = self.buckets
 - [ ] Define `NodeIdValidator` trait
 
 ### Phase 3: Event Integration
-- [ ] Define `PeerDiscoveryEvent` enum
+- [ ] Define `PeerDiscoveryEventPayload` enum (payloads only, not standalone)
+- [ ] Define `PeerDiscoveryRequestPayload` enum for incoming requests
+- [ ] Implement `AuthenticatedMessage<T>` envelope handling
+- [ ] Implement correlation ID tracking for request/response flows
 - [ ] Implement event publishing on peer lifecycle changes
-- [ ] Implement event subscription for peer list requests
+- [ ] Implement event subscription with sender validation per IPC Matrix
+- [ ] Implement response routing via `reply_to` topic
 
 ### Phase 4: Adapters (Separate Crate)
 - [ ] Create `peer-discovery-adapters` crate

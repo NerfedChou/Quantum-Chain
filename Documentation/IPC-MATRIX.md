@@ -10,6 +10,7 @@
 ### I Am Allowed To Talk To:
 - **Subsystem 5 (Block Propagation)** - Provide peer list
 - **Subsystem 7 (Bloom Filters)** - Provide full node connections
+- **Subsystem 10 (Signature Verification)** - Verify node identity for DDoS defense
 - **Subsystem 13 (Light Clients)** - Provide full node connections
 
 ### Who Is Allowed To Talk To Me:
@@ -23,6 +24,8 @@
 **OUTGOING:**
 ```rust
 struct PeerList {
+    version: u16,
+    correlation_id: [u8; 16],
     peers: Vec<PeerInfo>,
     timestamp: u64,
     signature: Signature,  // Signed by this node
@@ -35,31 +38,66 @@ struct PeerInfo {
     reputation_score: u8,   // 0-100
     last_seen: u64,
 }
+
+/// Request to Subsystem 10 for DDoS defense
+struct VerifyNodeIdentityRequest {
+    version: u16,
+    requester_id: SubsystemId,  // Must be 1
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    node_id: [u8; 32],
+    claimed_pubkey: [u8; 33],
+    signature: Signature,
+}
 ```
 
 **INCOMING:**
 ```rust
 struct PeerListRequest {
+    version: u16,
     requester_id: SubsystemId,  // Must be 5, 7, or 13
+    correlation_id: [u8; 16],
+    reply_to: Topic,
     request_id: u64,
     timestamp: u64,
     signature: Signature,       // Signed by requester
 }
 
 struct BootstrapRequest {
+    version: u16,
     node_id: [u8; 32],
     ip_address: IpAddr,
     port: u16,
     proof_of_work: [u8; 32],   // Anti-Sybil
+}
+
+/// Response from Subsystem 10
+struct NodeIdentityVerificationResult {
+    version: u16,
+    correlation_id: [u8; 16],
+    node_id: [u8; 32],
+    identity_valid: bool,
+    verification_timestamp: u64,
 }
 ```
 
 ### Security Boundaries:
 - ✅ Accept: PeerListRequest from Subsystems 5, 7, 13 only
 - ✅ Accept: BootstrapRequest from external nodes with valid PoW
-- ❌ Reject: Any message from Subsystems 2, 3, 4, 6, 8, 9, 10, 11, 12, 14, 15
+- ✅ Accept: NodeIdentityVerificationResult from Subsystem 10 only
+- ✅ Send: VerifyNodeIdentityRequest to Subsystem 10 (DDoS defense)
+- ❌ Reject: Any message from Subsystems 2, 3, 4, 6, 8, 9, 11, 12, 14, 15
 - ❌ Reject: Unsigned messages
 - ❌ Reject: Messages older than 60 seconds
+
+### DDoS Defense Flow:
+```
+External Peer ──BootstrapRequest──→ Peer Discovery (1) ──VerifyNodeIdentityRequest──→ Signature Verification (10)
+                                                       ←──NodeIdentityVerificationResult──
+                                    
+If identity_valid == false: REJECT peer immediately (before it enters system)
+If identity_valid == true:  Add to routing table
+```
 
 ---
 
@@ -69,16 +107,21 @@ struct BootstrapRequest {
 - **None** (Pure storage layer, only responds to requests)
 
 ### Who Is Allowed To Talk To Me:
-- **Subsystem 3 (Transaction Indexing)** - Store Merkle roots
-- **Subsystem 4 (State Management)** - Store state roots
-- **Subsystem 8 (Consensus)** - Store validated blocks
+- **Subsystem 8 (Consensus)** - Store validated blocks (COMPLETE PACKAGE with merkle_root and state_root)
 - **Subsystem 9 (Finality)** - Mark blocks as finalized
+
+**CRITICAL DESIGN DECISION (Atomicity Enforcement):**
+Subsystems 3 (Transaction Indexing) and 4 (State Management) do NOT write directly to Block Storage.
+Instead, they provide their roots to Consensus (Subsystem 8), which assembles the complete package
+and sends a single atomic WriteBlockRequest. This prevents partial writes and database corruption.
 
 ### Strict Message Types:
 
 **OUTGOING:**
 ```rust
 struct StorageResponse {
+    version: u16,                    // Protocol version
+    correlation_id: [u8; 16],        // Maps to original request
     request_id: u64,
     success: bool,
     data: Option<Vec<u8>>,
@@ -95,36 +138,61 @@ enum StorageError {
 
 **INCOMING:**
 ```rust
+/// WriteBlockRequest is the ONLY way to write a block.
+/// This is a COMPLETE PACKAGE containing all data needed for atomic write.
+/// 
+/// ATOMICITY GUARANTEE: Either all of (block, merkle_root, state_root) are
+/// written together, or none are written. Partial writes are impossible.
 struct WriteBlockRequest {
-    requester_id: SubsystemId,  // Must be 8
-    block: ValidatedBlock,       // From Consensus only
-    merkle_root: [u8; 32],      // From Subsystem 3
-    state_root: [u8; 32],       // From Subsystem 4
+    version: u16,                    // Protocol version - MUST be validated first
+    requester_id: SubsystemId,       // MUST be 8 (Consensus) ONLY
+    correlation_id: [u8; 16],        // For async response correlation
+    reply_to: Topic,                 // Where to send response
+    
+    // === COMPLETE BLOCK PACKAGE ===
+    block: ValidatedBlock,           // From Consensus
+    merkle_root: [u8; 32],           // Consensus received this from Subsystem 3
+    state_root: [u8; 32],            // Consensus received this from Subsystem 4
+    
     signature: Signature,
 }
 
-struct WriteMerkleRootRequest {
-    requester_id: SubsystemId,  // Must be 3
-    block_number: u64,
-    merkle_root: [u8; 32],
-    signature: Signature,
-}
-
-struct WriteStateRootRequest {
-    requester_id: SubsystemId,  // Must be 4
-    block_number: u64,
-    state_root: [u8; 32],
-    signature: Signature,
-}
+// ============================================================
+// THE FOLLOWING MESSAGE TYPES ARE REMOVED (Atomicity Violation):
+// 
+// - WriteMerkleRootRequest (REMOVED - merkle_root comes via WriteBlockRequest)
+// - WriteStateRootRequest (REMOVED - state_root comes via WriteBlockRequest)
+//
+// RATIONALE: In an asynchronous system, separate messages arrive at different
+// times. If power fails between Message 1 and Message 2, you have a block
+// with no roots - the database is corrupted. By bundling into one message,
+// we guarantee atomicity: either the whole block exists, or nothing does.
+// ============================================================
 
 struct ReadBlockRequest {
+    version: u16,
     requester_id: SubsystemId,
+    correlation_id: [u8; 16],
+    reply_to: Topic,
     block_number: u64,
+    signature: Signature,
+}
+
+struct ReadBlockRangeRequest {
+    version: u16,
+    requester_id: SubsystemId,
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    start_height: u64,
+    limit: u64,                      // Capped at 100
     signature: Signature,
 }
 
 struct MarkFinalizedRequest {
-    requester_id: SubsystemId,  // Must be 9
+    version: u16,
+    requester_id: SubsystemId,       // MUST be 9 (Finality) ONLY
+    correlation_id: [u8; 16],
+    reply_to: Topic,
     block_number: u64,
     finality_proof: FinalityProof,
     signature: Signature,
@@ -132,11 +200,12 @@ struct MarkFinalizedRequest {
 ```
 
 ### Security Boundaries:
-- ✅ Accept: WriteBlockRequest from Subsystem 8 only
-- ✅ Accept: WriteMerkleRootRequest from Subsystem 3 only
-- ✅ Accept: WriteStateRootRequest from Subsystem 4 only
-- ✅ Accept: MarkFinalizedRequest from Subsystem 9 only
-- ✅ Accept: ReadBlockRequest from any subsystem (read-only)
+- ✅ Accept: WriteBlockRequest from Subsystem 8 (Consensus) ONLY
+- ✅ Accept: MarkFinalizedRequest from Subsystem 9 (Finality) ONLY
+- ✅ Accept: ReadBlockRequest from any authorized subsystem (read-only)
+- ✅ Accept: ReadBlockRangeRequest from any authorized subsystem (read-only)
+- ❌ **REMOVED: WriteMerkleRootRequest (atomicity violation)**
+- ❌ **REMOVED: WriteStateRootRequest (atomicity violation)**
 - ❌ Reject: Write requests without valid Consensus signature
 - ❌ Reject: Duplicate block writes
 - ❌ Reject: Writes when disk >95% full
@@ -699,6 +768,7 @@ struct Attestation {
 
 ### Who Is Allowed To Talk To Me:
 - **External Network** - Receive signed transactions (via P2P gateway)
+- **Subsystem 1 (Peer Discovery)** - Verify node identity signatures for DDoS defense
 - **Subsystem 5 (Block Propagation)** - Verify block signatures from network peers
 - **Subsystem 6 (Mempool)** - Verify transaction signatures before pool entry
 - **Subsystem 8 (Consensus)** - Verify block/validator signatures
@@ -706,7 +776,6 @@ struct Attestation {
 
 ### FORBIDDEN Consumers (Principle of Least Privilege):
 The following subsystems are EXPLICITLY FORBIDDEN from accessing SignatureVerification:
-- ❌ Subsystem 1 (Peer Discovery) - No cryptographic verification needs
 - ❌ Subsystem 2 (Block Storage) - Storage only, receives pre-verified data
 - ❌ Subsystem 3 (Transaction Indexing) - Indexing only, receives pre-verified data
 - ❌ Subsystem 4 (State Management) - State only, receives pre-verified data
@@ -717,7 +786,12 @@ The following subsystems are EXPLICITLY FORBIDDEN from accessing SignatureVerifi
 - ❌ Subsystem 14 (Sharding) - Coordination only, uses Consensus for verification
 - ❌ Subsystem 15 (Cross-Chain) - Uses Finality proofs, not direct signature verification
 
-**Security Rationale:** Restricting access to SignatureVerification minimizes the attack surface. If a low-priority subsystem (e.g., BloomFilters) is compromised, the attacker cannot use it as a vector to DoS the signature verification service. Only transaction ingestion points (P2P, Mempool) and consensus-critical paths have access.
+**Security Rationale (Updated):** 
+- Subsystem 1 (Peer Discovery) is NOW ALLOWED to verify signatures for **DDoS defense at the network edge**.
+- If Peer Discovery cannot verify signatures, it must accept unverified data into the system.
+- An attacker can flood the Mempool with invalid transactions, consuming all CPU.
+- By allowing Peer Discovery to verify signatures **at the door**, we block attacks before they hit internal systems.
+- Other low-priority subsystems remain forbidden to minimize attack surface.
 
 ### Strict Message Types:
 
@@ -748,17 +822,38 @@ struct BatchVerificationResult {
     total_valid: u32,
     total_invalid: u32,
 }
+
+/// Response for Peer Discovery node identity verification
+struct NodeIdentityVerificationResult {
+    version: u16,
+    correlation_id: [u8; 16],
+    node_id: [u8; 32],
+    identity_valid: bool,
+    verification_timestamp: u64,
+}
 ```
 
 **INCOMING:**
 ```rust
 struct VerifyTransactionRequest {
     version: u16,                      // Protocol version - MUST be validated first
-    requester_id: SubsystemId,         // MUST be 5, 6, 8, or 9 ONLY
+    requester_id: SubsystemId,         // MUST be 1, 5, 6, 8, or 9 ONLY
     correlation_id: [u8; 16],          // For async response correlation
     reply_to: Topic,                   // Where to send response
     transaction: SignedTransaction,
     expected_signer: Option<[u8; 20]>,
+}
+
+/// NEW: Node identity verification for DDoS defense
+/// Allows Peer Discovery to verify node signatures before accepting peers
+struct VerifyNodeIdentityRequest {
+    version: u16,
+    requester_id: SubsystemId,         // MUST be 1 (Peer Discovery) ONLY
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    node_id: [u8; 32],                 // Kademlia node ID
+    claimed_pubkey: [u8; 33],          // Compressed public key
+    signature: Signature,              // Signature over node_id
 }
 
 struct SignedTransaction {
@@ -779,7 +874,7 @@ struct Signature {
 
 struct VerifySignatureRequest {
     version: u16,                      // Protocol version - MUST be validated first
-    requester_id: SubsystemId,         // MUST be 5, 8, or 9 ONLY
+    requester_id: SubsystemId,         // MUST be 1, 5, 8, or 9 ONLY
     correlation_id: [u8; 16],          // For async response correlation
     reply_to: Topic,                   // Where to send response
     message_hash: [u8; 32],
@@ -797,15 +892,21 @@ struct BatchVerifyRequest {
 ```
 
 ### Security Boundaries:
-- ✅ Accept: VerifyTransactionRequest from Subsystems 5, 6, 8, 9 ONLY
-- ✅ Accept: VerifySignatureRequest from Subsystems 5, 8, 9 ONLY
+- ✅ Accept: VerifyTransactionRequest from Subsystems 1, 5, 6, 8, 9 ONLY
+- ✅ Accept: VerifyNodeIdentityRequest from Subsystem 1 (Peer Discovery) ONLY
+- ✅ Accept: VerifySignatureRequest from Subsystems 1, 5, 8, 9 ONLY
 - ✅ Accept: BatchVerifyRequest from Subsystem 8 ONLY
-- ❌ **REJECT: ALL requests from Subsystems 1, 2, 3, 4, 7, 11, 12, 13, 14, 15**
+- ❌ **REJECT: ALL requests from Subsystems 2, 3, 4, 7, 11, 12, 13, 14, 15**
 - ❌ Reject: Signatures with low s value (malleability)
 - ❌ Reject: Signatures with v ∉ {27, 28}
 - ❌ Reject: Batch verification with >1000 signatures (DoS risk)
 - ❌ Reject: Invalid ECDSA points
 - ❌ Reject: Messages with unsupported version field
+
+### Rate Limiting (DDoS Defense):
+- Subsystem 1 requests: Max 100 verifications/second (network edge protection)
+- Subsystem 5, 6 requests: Max 1000 verifications/second (internal traffic)
+- Subsystem 8, 9 requests: No limit (consensus-critical path)
 
 ---
 
@@ -1326,21 +1427,29 @@ enum CrossChainMessageType {
 
 | Subsystem | Allowed Senders | Allowed Recipients | Critical Security Check |
 |-----------|----------------|-------------------|------------------------|
-| 1 (Peer Discovery) | 5, 7, 13, External | 5, 7, 13 | PoW for bootstrap, reputation scoring |
-| 2 (Block Storage) | 3, 4, 8, 9 | None (responses only) | Write permissions enforced |
-| 3 (Transaction Indexing) | 7, 8, 13 | 2, 7, 13 | Only validated transactions |
-| 4 (State Management) | 6, 11, 12, 14 | 2, 6, 11, 12 | Only Subsystem 11 can write |
+| 1 (Peer Discovery) | 5, 7, 13, External | 5, 7, 10, 13 | PoW for bootstrap, reputation scoring |
+| 2 (Block Storage) | **8, 9 ONLY** | None (responses only) | **Atomicity enforced: Consensus provides complete package** |
+| 3 (Transaction Indexing) | 7, 8, 13 | 7, 8, 13 | Only validated transactions |
+| 4 (State Management) | 6, 11, 12, 14 | 6, 8, 11, 12 | Only Subsystem 11 can write |
 | 5 (Block Propagation) | 8, External Peers | 1, 10, External Peers | ConsensusProof required |
 | 6 (Mempool) | 8, 10 | 4, 8, 10 | Only pre-verified transactions |
 | 7 (Bloom Filters) | 3, 13 | 1, 13 | FPR limits, address count limits |
-| 8 (Consensus) | 5, 10, External | 2, 3, 5, 6, 9, 10, 12, 14, 15 | Signature validation, >67% threshold |
-| 9 (Finality) | 8 | 2, 10, 15 | Supermajority (>2/3) required |
-| 10 (Signature Verification) | **5, 6, 8, 9 ONLY** | 6, 8 | **Least Privilege: 11 subsystems FORBIDDEN** |
+| 8 (Consensus) | 3, 4, 5, 10, External | 2, 3, 5, 6, 9, 10, 12, 14, 15 | Signature validation, >67% threshold, **assembles complete block package** |
+| 9 (Finality) | 8 | 2, 10, 15 | Supermajority (>2/3) required, **circuit breaker on failure** |
+| 10 (Signature Verification) | **1, 5, 6, 8, 9** | 6, 8 | **DDoS defense: Peer Discovery can verify at edge** |
 | 11 (Smart Contracts) | 8, 12 | 4, 15 | Gas limits, depth limits |
 | 12 (Transaction Ordering) | 8 | 4, 11 | Cycle detection |
 | 13 (Light Clients) | 1, 3, 7, External | 1, 7 | Merkle proof validation |
 | 14 (Sharding) | 8 | 4, 8 | Minimum validator count |
 | 15 (Cross-Chain) | 9, 11, External | 8, 11 | Finality proofs, timelock enforcement |
+
+### Summary of Re-Alignments (System.md Compliance)
+
+| Fix | Change | Rationale |
+|-----|--------|-----------|
+| **Dual Write Fix** | Subsystem 2 only accepts writes from Subsystem 8 | Atomicity: Complete block package prevents partial writes on power failure |
+| **DDoS Defense Fix** | Subsystem 1 can now access Subsystem 10 | Network edge protection: Verify signatures before accepting data into system |
+| **Finality Fix** | See Architecture.md DLQ section | Circuit breaker: Don't retry mathematical impossibilities |
 
 ---
 
@@ -1527,6 +1636,16 @@ impl<T> AuthenticatedMessage<T> {
 9. **Version Validation** - Protocol version checked BEFORE payload deserialization
 10. **Correlation IDs** - Enables non-blocking request/response without deadlocks
 11. **Dead Letter Queues** - Critical events never lost, always recoverable
-12. **Principle of Least Privilege** - SignatureVerification restricted to 4 subsystems only
+12. **Atomicity Enforcement** - Block writes bundled into single message (Dual Write Fix)
+13. **Edge Defense** - Peer Discovery can verify signatures to block DDoS at network edge
+14. **Finality Circuit Breaker** - Consensus failures trigger sync mode, not infinite retries
 
-**Result:** Even if an attacker fully compromises one subsystem, they are trapped in that compartment and cannot spread to others without breaking multiple layers of authentication. Additionally, the system is resilient to cascading failures through non-blocking patterns and recoverable from data loss through DLQ infrastructure.
+**System.md Compliance Achieved:**
+
+| System.md Requirement | IPC-MATRIX Implementation |
+|-----------------------|---------------------------|
+| Atomic Writes (Subsystem 2) | WriteBlockRequest is complete package; no separate root writes |
+| DDoS Defense (Subsystem 6) | Peer Discovery can verify signatures before accepting data |
+| Safety over Liveness (Subsystem 9) | Finality failures trigger circuit breaker, not retries |
+
+**Result:** Even if an attacker fully compromises one subsystem, they are trapped in that compartment and cannot spread to others without breaking multiple layers of authentication. The system now correctly prioritizes data integrity (atomicity), network defense (edge verification), and consensus safety (circuit breaker) as mandated by System.md.

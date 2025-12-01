@@ -16,13 +16,19 @@
 4. **STUN/TURN Protocol** - NAT traversal for nodes behind firewalls
 
 ### Dependencies:
-- **None** (Bootstrap node addresses required for initial network entry)
+- **Subsystem 10** (Signature Verification) - Verify node identity for DDoS defense
+- **Bootstrap Nodes** - Required for initial network entry
+
+### DDoS Defense (Network Edge Protection):
+Peer Discovery can now verify node signatures before accepting peers into the system.
+This blocks malicious actors at the network edge, preventing Mempool spam attacks.
 
 ### Security & Robustness:
 **Attack Vectors:**
 - Sybil attacks where attackers create numerous fake peers to take over routing
 - Eclipse attacks isolating nodes from the honest network
 - Routing table poisoning with malicious node IDs
+- **Mempool spam via unverified peers (NOW PREVENTED)**
 
 **Defenses:**
 1. **Proof of Work for Node IDs** - Require computational effort to generate valid node IDs
@@ -30,6 +36,7 @@
 3. **Reputation Scoring** - Track successful vs failed interactions per peer
 4. **Random Peer Selection** - Mix deterministic routing with random peer connections
 5. **Bootstrap Node Diversity** - Use multiple bootstrap nodes from different entities
+6. **Signature Verification at Edge** - Verify node identity before accepting (via Subsystem 10)
 
 **Robustness Measures:**
 - Periodic bucket refresh (every 1 hour)
@@ -51,14 +58,26 @@
 4. **Snappy Compression** - Fast compression/decompression (~250 MB/s)
 
 ### Dependencies:
-- **Subsystem 3** (Transaction Indexing) - Provides Merkle roots to store
-- **Subsystem 4** (State Management) - Provides state roots to store
+- **Subsystem 8** (Consensus) - Provides COMPLETE block package (ValidatedBlock + merkle_root + state_root)
+- **Subsystem 9** (Finality) - Marks blocks as finalized
+
+**CRITICAL DESIGN DECISION (Atomicity Enforcement):**
+Block Storage does NOT depend on Subsystems 3 or 4 directly.
+Consensus (Subsystem 8) acts as the orchestrator:
+1. Receives merkle_root from Subsystem 3
+2. Receives state_root from Subsystem 4
+3. Assembles complete WriteBlockRequest package
+4. Sends single atomic write to Block Storage
+
+This prevents the "Dual Write" vulnerability where separate messages could
+result in partial writes (block without roots) on power failure.
 
 ### Security & Robustness:
 **Attack Vectors:**
 - Disk space exhaustion (blockchain bloat)
 - Data corruption from hardware failures
 - Malicious transactions causing crashes that halt all nodes
+- **Partial writes from separate root messages (NOW PREVENTED)**
 
 **Defenses:**
 1. **Write-Ahead Logging (WAL)** - Survive crashes mid-write
@@ -66,6 +85,7 @@
 3. **Disk Space Monitoring** - Alert when 85% full, reject writes at 95%
 4. **Database Versioning** - Snapshot every 10,000 blocks for recovery
 5. **Atomic Writes** - Either full block write or rollback
+6. **Single Source of Truth** - Only Consensus can trigger block writes
 
 **Robustness Measures:**
 - Background compaction to prevent read amplification
@@ -88,7 +108,13 @@
 
 ### Dependencies:
 - **Subsystem 10** (Signature Verification) - Validates transactions before indexing
-- **Subsystem 2** (Block Storage) - Stores the Merkle root
+
+### Provides To:
+- **Subsystem 8** (Consensus) - Sends merkle_root for block assembly
+- **Subsystem 13** (Light Clients) - Provides Merkle proofs for SPV
+
+**Note:** This subsystem does NOT write directly to Block Storage.
+It provides merkle_root to Consensus, which assembles the complete package.
 
 ### Security & Robustness:
 **Attack Vectors:**
@@ -124,7 +150,12 @@
 
 ### Dependencies:
 - **Subsystem 11** (Smart Contract Execution) - Updates state after transactions
-- **Subsystem 2** (Block Storage) - Persists trie nodes
+
+### Provides To:
+- **Subsystem 8** (Consensus) - Sends state_root for block assembly
+
+**Note:** This subsystem does NOT write directly to Block Storage.
+It provides state_root to Consensus, which assembles the complete package.
 
 ### Security & Robustness:
 **Attack Vectors:**
@@ -274,9 +305,25 @@
 4. **View Change** - Leader rotation if timeout (Byzantine leader detected)
 
 ### Dependencies:
-- **Subsystem 3** (Transaction Indexing) - Validates block transaction Merkle root
-- **Subsystem 4** (State Management) - Validates state root transitions
+- **Subsystem 3** (Transaction Indexing) - Provides merkle_root for block assembly
+- **Subsystem 4** (State Management) - Provides state_root for block assembly
+- **Subsystem 5** (Block Propagation) - Receives blocks from network
+- **Subsystem 6** (Mempool) - Source of transactions for block building
 - **Subsystem 10** (Signature Verification) - Validates block signatures
+
+### Orchestrator Role (CRITICAL):
+Consensus is the **single orchestrator** for block storage writes:
+1. Validates block cryptographically
+2. Requests merkle_root from Subsystem 3
+3. Requests state_root from Subsystem 4
+4. Assembles complete WriteBlockRequest package
+5. Sends single atomic write to Subsystem 2
+
+**This ensures atomicity:** Either all data (block + merkle_root + state_root) is written, or none.
+
+### Provides To:
+- **Subsystem 2** (Block Storage) - Sends complete WriteBlockRequest package
+- **Subsystem 9** (Finality) - Validated blocks for finalization checking
 
 ### Security & Robustness:
 **Attack Vectors:**
@@ -564,21 +611,28 @@
 
 ## DEPENDENCY GRAPH
 
+**CRITICAL UPDATE (Atomicity Enforcement):**
+The dependency graph has been updated to reflect that Block Storage (Subsystem 2)
+no longer depends on Subsystems 3 and 4 directly. Consensus (Subsystem 8) is the
+orchestrator that collects roots and sends a complete package to Block Storage.
+
 ```
 SUBSYSTEM 1: Peer Discovery
-    └── No Dependencies (Requires bootstrap nodes)
+    ├── Depends on: Subsystem 10 (DDoS defense - verify node identity at edge)
+    └── Provides to: Subsystems 5, 7, 13 (peer lists)
 
 SUBSYSTEM 2: Block Storage
-    ├── Depends on: Subsystem 3 (Merkle roots)
-    └── Depends on: Subsystem 4 (State roots)
+    ├── Depends on: Subsystem 8 (ONLY - receives complete WriteBlockRequest package)
+    ├── Depends on: Subsystem 9 (Finality marking)
+    └── NOTE: Does NOT depend on 3 or 4 (atomicity enforcement)
 
 SUBSYSTEM 3: Transaction Indexing
     ├── Depends on: Subsystem 10 (Signature verification)
-    └── Depends on: Subsystem 2 (Storage)
+    └── Provides to: Subsystem 8 (merkle_root for block assembly)
 
 SUBSYSTEM 4: State Management
     ├── Depends on: Subsystem 11 (State updates)
-    └── Depends on: Subsystem 2 (Persistence)
+    └── Provides to: Subsystem 8 (state_root for block assembly)
 
 SUBSYSTEM 5: Block Propagation
     ├── Depends on: Subsystem 1 (Peer list)
@@ -592,14 +646,18 @@ SUBSYSTEM 7: Bloom Filters
     ├── Depends on: Subsystem 3 (Transaction hashes)
     └── Depends on: Subsystem 1 (Full node connections)
 
-SUBSYSTEM 8: Consensus
-    ├── Depends on: Subsystem 3 (Merkle verification)
-    ├── Depends on: Subsystem 4 (State verification)
-    └── Depends on: Subsystem 10 (Signature verification)
+SUBSYSTEM 8: Consensus (ORCHESTRATOR)
+    ├── Depends on: Subsystem 3 (Request merkle_root)
+    ├── Depends on: Subsystem 4 (Request state_root)
+    ├── Depends on: Subsystem 5 (Receive blocks from network)
+    ├── Depends on: Subsystem 6 (Transactions for block building)
+    ├── Depends on: Subsystem 10 (Signature verification)
+    └── Provides to: Subsystem 2 (Complete WriteBlockRequest package)
 
 SUBSYSTEM 9: Finality
     ├── Depends on: Subsystem 8 (PoS attestations)
-    └── Depends on: Subsystem 10 (Signature verification)
+    ├── Depends on: Subsystem 10 (Signature verification)
+    └── NOTE: Uses circuit breaker on failure, not retries
 
 SUBSYSTEM 10: Signature Verification
     └── No Dependencies (Pure crypto)
@@ -626,20 +684,26 @@ SUBSYSTEM 15: Cross-Chain
     └── Depends on: Subsystem 8 (Finality on both chains)
 ```
 
+**Data Flow for Block Writes:**
+```
+[3] Transaction Indexing ──merkle_root──→ [8] Consensus ──WriteBlockRequest──→ [2] Block Storage
+[4] State Management ────state_root────→ [8] Consensus ──(complete package)──→ [2] Block Storage
+```
+
 ---
 
 ## IMPLEMENTATION PRIORITY
 
 **Phase 1 (Core - Weeks 1-4):**
 - Subsystem 10 (Signatures) - No dependencies
-- Subsystem 1 (Peer Discovery) - No dependencies
-- Subsystem 2 (Storage) - Needs 3, 4
+- Subsystem 1 (Peer Discovery) - Depends on 10 for DDoS defense
 - Subsystem 3 (Merkle Trees) - Needs 10
 - Subsystem 6 (Mempool) - Needs 10, 4
 
 **Phase 2 (Consensus - Weeks 5-8):**
-- Subsystem 4 (State) - Needs 2
-- Subsystem 8 (Consensus) - Needs 3, 4, 10
+- Subsystem 4 (State) - Needs 11
+- Subsystem 8 (Consensus) - ORCHESTRATOR, needs 3, 4, 5, 6, 10
+- Subsystem 2 (Storage) - Needs 8 (receives complete package from Consensus)
 - Subsystem 5 (Propagation) - Needs 1, 8
 - Subsystem 9 (Finality) - Needs 8, 10
 

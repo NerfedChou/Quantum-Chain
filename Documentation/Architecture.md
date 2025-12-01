@@ -284,7 +284,12 @@ pub fn validate_block(block: &Block) -> Result<(), ValidationError> {
 
 ### 3.1 Subsystem Dependency Graph
 
-**Reference:** See previous conversation for complete IPC Matrix.
+**Reference:** See IPC-MATRIX.md for complete message type definitions.
+
+**CRITICAL UPDATE (Atomicity Enforcement):**
+Subsystem 2 (Block Storage) no longer depends on Subsystems 3 and 4 directly.
+Subsystem 8 (Consensus) is the orchestrator that collects roots from 3 and 4,
+then sends a single atomic WriteBlockRequest to Subsystem 2.
 
 ```
 Dependency Flow (A → B means "A depends on B"):
@@ -294,6 +299,7 @@ LEVEL 0 (No Dependencies):
 └─ [10] Signature Verification
 
 LEVEL 1 (Depends on Level 0):
+├─ [1] Peer Discovery → [10] (NEW: DDoS defense - verify node identity at edge)
 ├─ [6] Mempool → [10]
 ├─ [7] Bloom Filters → [1]
 └─ [13] Light Clients → [1]
@@ -304,17 +310,26 @@ LEVEL 2 (Depends on Level 0-1):
 └─ [4] State Management (partial)
 
 LEVEL 3 (Depends on Level 0-2):
-├─ [2] Block Storage → [3, 4]
-├─ [8] Consensus → [3, 4, 5, 6, 10]
+├─ [8] Consensus → [3, 4, 5, 6, 10] (ORCHESTRATOR: collects merkle_root from 3, state_root from 4)
 └─ [11] Smart Contracts → [4, 10]
 
 LEVEL 4 (Depends on Level 0-3):
+├─ [2] Block Storage → [8] (UPDATED: receives complete package from Consensus ONLY)
 ├─ [9] Finality → [8, 10]
 ├─ [12] Transaction Ordering → [4, 11]
 └─ [14] Sharding → [4, 8]
 
 LEVEL 5 (Depends on Level 0-4):
 └─ [15] Cross-Chain → [8, 9, 11]
+```
+
+**Data Flow for Block Writes (Atomicity Guarantee):**
+```
+[3] Transaction Indexing ──merkle_root──→ [8] Consensus ──WriteBlockRequest──→ [2] Block Storage
+[4] State Management ────state_root────→ [8] Consensus ──(complete package)──→ [2] Block Storage
+
+IMPORTANT: Subsystems 3 and 4 do NOT write directly to Block Storage.
+           Consensus assembles the complete package to ensure atomicity.
 ```
 
 ### 3.2 Message Flow Architecture
@@ -522,7 +537,11 @@ crates/
 
 **Reference:** See IPC Matrix for complete message type catalog.
 
-**Example: Block Validation Flow**
+**Example: Block Validation Flow (Updated for Atomicity)**
+
+The block validation flow has been updated to ensure atomicity. Consensus now acts as the
+orchestrator, collecting roots from Subsystems 3 and 4 before sending a single atomic
+WriteBlockRequest to Block Storage.
 
 ```rust
 // Step 1: Block Propagation receives block from network
@@ -533,19 +552,76 @@ BlockchainEvent::BlockReceived {
 }
 
 // Step 2: Consensus subscribes to BlockReceived
-// ↓ validates block
-// ↓ publishes result
+// ↓ validates block cryptographically
+// ↓ publishes result to indicate block is valid
 BlockchainEvent::BlockValidated {
     block: ValidatedBlock,
     consensus_proof: ConsensusProof,
 }
 
-// Step 3: Multiple subsystems react:
-// - Block Storage saves it
-// - Transaction Indexing builds Merkle tree
-// - State Management updates account balances
-// - Finality checks if epoch boundary reached
+// Step 3: Consensus orchestrates data collection (NON-BLOCKING, parallel)
+// ↓ requests merkle_root from Transaction Indexing
+// ↓ requests state_root from State Management
+
+// 3a: Request to Transaction Indexing
+ConsensusToTransactionIndexing::BuildMerkleTreeRequest {
+    correlation_id: uuid_a,
+    reply_to: "consensus.responses",
+    block_number: block.header.block_height,
+    transactions: block.transactions,
+}
+
+// 3b: Request to State Management (parallel with 3a)
+ConsensusToStateManagement::ComputeStateRootRequest {
+    correlation_id: uuid_b,
+    reply_to: "consensus.responses",
+    block_number: block.header.block_height,
+    state_transitions: block.state_transitions,
+}
+
+// Step 4: Consensus receives responses (via correlation IDs)
+// ↓ from Transaction Indexing
+TransactionIndexingToConsensus::MerkleRootResponse {
+    correlation_id: uuid_a,  // Matches request
+    merkle_root: [u8; 32],
+}
+
+// ↓ from State Management
+StateManagementToConsensus::StateRootResponse {
+    correlation_id: uuid_b,  // Matches request
+    state_root: [u8; 32],
+}
+
+// Step 5: Consensus assembles COMPLETE PACKAGE and sends to Block Storage
+// This is the ONLY message that triggers a block write.
+// ATOMICITY GUARANTEE: Either all data is written, or none.
+ConsensusToBlockStorage::WriteBlockRequest {
+    correlation_id: uuid_c,
+    reply_to: "consensus.responses",
+    
+    // === COMPLETE PACKAGE ===
+    block: ValidatedBlock,
+    merkle_root: [u8; 32],   // From Step 4 (Transaction Indexing)
+    state_root: [u8; 32],    // From Step 4 (State Management)
+}
+
+// Step 6: Block Storage writes atomically
+// ↓ Either all data (block + merkle_root + state_root) is written
+// ↓ Or nothing is written (rollback on failure)
+// ↓ Emits BlockStoredPayload on success
+
+// Step 7: Finality checks if epoch boundary reached (separate flow)
+// ↓ This happens after block is stored, not in parallel
 ```
+
+**IMPORTANT: What Changed (Atomicity Fix)**
+
+| Before (Flawed) | After (Correct) |
+|-----------------|-----------------|
+| Subsystems 3, 4 wrote roots directly to Storage | Subsystems 3, 4 send roots to Consensus |
+| Three separate writes (potential partial failure) | Single atomic write (all or nothing) |
+| Power failure = corrupted database | Power failure = clean rollback |
+| Block Storage depended on 3 and 4 | Block Storage depends only on 8 |
 
 ### 5.2 Security Boundaries
 
@@ -643,9 +719,133 @@ impl Mempool {
 | Event Criticality | Retry Count | Backoff Strategy | DLQ Action |
 |-------------------|-------------|------------------|------------|
 | CRITICAL (Block Storage, State Write) | 5 | Exponential (1s, 2s, 4s, 8s, 16s) | Alert + Manual Review Required |
-| HIGH (Consensus, Finality) | 3 | Exponential (1s, 2s, 4s) | Alert + Auto-Retry after 1 hour |
+| HIGH (Consensus) | 3 | Exponential (1s, 2s, 4s) | Alert + Auto-Retry after 1 hour |
+| **FINALITY (Special Case)** | **0** | **NONE - Circuit Breaker** | **Trigger Sync Mode (see below)** |
 | MEDIUM (Mempool, Propagation) | 2 | Linear (1s, 2s) | Log + Auto-Discard after 24 hours |
 | LOW (Metrics, Logging) | 0 | None | Discard immediately |
+
+### 5.4 Finality Circuit Breaker (Casper FFG Compliance)
+
+**CRITICAL:** Finality failures require special handling that differs from standard retry logic.
+
+**The Problem:**
+- System.md (Subsystem 9) uses Casper FFG consensus
+- Casper FFG prioritizes **Safety over Liveness**: the chain MUST stop finalizing if 33% of validators disagree
+- Standard retry logic (Auto-Retry after 1 hour) is inappropriate for mathematical impossibilities
+
+**Why Retrying Finality Failures is Harmful:**
+1. If >33% of validators reject finalization, consensus is mathematically impossible
+2. Retrying a mathematical impossibility wastes CPU and fills logs with errors
+3. The node may be on a minority fork and needs to sync with the majority chain
+4. Continuous retries create a "Zombie State" - the node appears alive but cannot make progress
+
+**Circuit Breaker Implementation:**
+
+```rust
+/// Finality failure handling - DO NOT RETRY
+impl FinalityCircuitBreaker {
+    /// Handle finality failure events
+    async fn handle_finality_failure(
+        &mut self,
+        failure: FinalityFailureEvent
+    ) -> Result<(), Error> {
+        // Step 1: DO NOT RETRY - this is a circuit breaker, not a retry handler
+        log::error!("Finality circuit breaker triggered: {:?}", failure);
+        
+        // Step 2: Determine failure type
+        match failure.failure_type {
+            FinalityFailureType::InsufficientAttestations => {
+                // <67% attestations - likely on minority fork
+                self.trigger_sync_mode(SyncReason::MinorityFork).await?;
+            }
+            FinalityFailureType::ConflictingCheckpoints => {
+                // Validators disagree on checkpoint - network partition
+                self.trigger_sync_mode(SyncReason::NetworkPartition).await?;
+            }
+            FinalityFailureType::StaleCheckpoint => {
+                // Checkpoint too old - node fell behind
+                self.trigger_sync_mode(SyncReason::NodeBehind).await?;
+            }
+            FinalityFailureType::InvalidProof => {
+                // Byzantine behavior detected
+                self.alert_security("Invalid finality proof detected", &failure)?;
+                self.trigger_sync_mode(SyncReason::ByzantineBehavior).await?;
+            }
+        }
+        
+        // Step 3: Emit state change event
+        self.emit_event(NodeStateChanged {
+            previous_state: NodeState::Finalizing,
+            new_state: NodeState::Syncing,
+            reason: format!("Finality circuit breaker: {:?}", failure.failure_type),
+            timestamp: now(),
+        }).await?;
+        
+        // Step 4: DO NOT send to DLQ - this is not a retry-able error
+        // The message is acknowledged and the node transitions to sync mode
+        
+        Ok(())
+    }
+    
+    /// Transition node to sync mode to find majority chain
+    async fn trigger_sync_mode(&mut self, reason: SyncReason) -> Result<(), Error> {
+        log::warn!("Entering sync mode: {:?}", reason);
+        
+        // 1. Pause block production
+        self.pause_block_production()?;
+        
+        // 2. Request peer chain heads
+        self.request_chain_heads_from_peers().await?;
+        
+        // 3. Identify longest finalized chain
+        let majority_chain = self.identify_majority_chain().await?;
+        
+        // 4. If our chain diverges, reorg to majority
+        if majority_chain.tip != self.current_chain.tip {
+            self.reorg_to_chain(majority_chain).await?;
+        }
+        
+        // 5. Resume normal operation
+        self.resume_block_production()?;
+        
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+enum FinalityFailureType {
+    InsufficientAttestations,  // <67% validators attested
+    ConflictingCheckpoints,    // Validators disagree on checkpoint
+    StaleCheckpoint,           // Checkpoint is too old
+    InvalidProof,              // Proof cryptographically invalid
+}
+
+#[derive(Debug, Clone)]
+enum SyncReason {
+    MinorityFork,
+    NetworkPartition,
+    NodeBehind,
+    ByzantineBehavior,
+}
+
+#[derive(Debug, Clone)]
+enum NodeState {
+    Syncing,
+    Finalizing,
+    Producing,
+    Halted,
+}
+```
+
+**Key Differences from Standard DLQ Handling:**
+
+| Aspect | Standard DLQ | Finality Circuit Breaker |
+|--------|-------------|-------------------------|
+| Retry Count | 3-5 attempts | **0 attempts** |
+| Backoff | Exponential | **None** |
+| DLQ Routing | Yes | **No** |
+| Action | Wait and retry | **State change to Sync Mode** |
+| Goal | Eventually succeed | **Find correct chain** |
 
 **DLQ Message Format:**
 
