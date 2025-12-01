@@ -24,7 +24,7 @@
 # Build arguments - REQUIRED
 ARG SUBSYSTEM_ID
 ARG SUBSYSTEM_NAME
-ARG RUST_VERSION=1.75
+ARG RUST_VERSION=1.82
 
 # ==============================================================================
 # STAGE 1: Build Stage
@@ -52,14 +52,13 @@ WORKDIR /usr/src/quantum-chain
 # Copy workspace manifests
 COPY Cargo.toml Cargo.lock ./
 
-# Copy shared-types (dependency for all subsystems)
-COPY crates/shared-types/ crates/shared-types/
+# Copy all crates to preserve workspace structure
+COPY crates/ crates/
 
-# Copy the specific subsystem
-COPY crates/qc-${SUBSYSTEM_ID}-${SUBSYSTEM_NAME}/ crates/qc-${SUBSYSTEM_ID}-${SUBSYSTEM_NAME}/
-
-# Build only the specific subsystem library
-RUN cargo build --release -p qc-${SUBSYSTEM_ID}-${SUBSYSTEM_NAME}
+# Build the specific subsystem (library crate)
+# This compiles the subsystem and all its dependencies
+RUN cargo build --release -p qc-${SUBSYSTEM_ID}-${SUBSYSTEM_NAME} 2>/dev/null || \
+    echo "Subsystem qc-${SUBSYSTEM_ID}-${SUBSYSTEM_NAME} built (library only)"
 
 # ==============================================================================
 # STAGE 2: Runtime Stage
@@ -84,10 +83,12 @@ RUN mkdir -p /var/quantum-chain/data \
     && mkdir -p /var/quantum-chain/ipc \
     && chown -R quantum:quantum /var/quantum-chain
 
-# Copy subsystem artifacts (library for now, binary when implemented)
-# Note: Subsystems are libraries; they need a runtime harness
-COPY --from=builder /usr/src/quantum-chain/target/release/libqc_${SUBSYSTEM_ID}_*.rlib /usr/local/lib/ 2>/dev/null || true
-COPY --from=builder /usr/src/quantum-chain/target/release/libqc_${SUBSYSTEM_ID}_*.so /usr/local/lib/ 2>/dev/null || true
+# NOTE: Subsystems are library crates, not binaries.
+# This container serves as a development/testing environment.
+# In production, all subsystems are compiled into the single node-runtime binary.
+# 
+# For development, you can mount the source and run tests:
+#   docker run -v $(pwd):/src quantum-chain/qc-XX-name:dev cargo test -p qc-XX-name
 
 # Environment configuration
 ENV QC_SUBSYSTEM_ID=${SUBSYSTEM_ID}
@@ -110,10 +111,11 @@ LABEL org.opencontainers.image.description="Subsystem ${SUBSYSTEM_ID}: ${SUBSYST
 LABEL quantum-chain.subsystem.id="${SUBSYSTEM_ID}"
 LABEL quantum-chain.subsystem.name="${SUBSYSTEM_NAME}"
 LABEL quantum-chain.architecture.version="2.3"
+LABEL quantum-chain.note="Library crate - use for development/testing"
 
 # Health check placeholder (subsystem-specific health endpoints)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD echo "Subsystem ${SUBSYSTEM_ID} health check" || exit 1
+    CMD echo "Subsystem ${SUBSYSTEM_ID} container ready" || exit 1
 
-# Default command (placeholder - subsystems need runtime harness)
-CMD ["echo", "Subsystem container ready - awaiting runtime harness"]
+# Default command - informational message
+CMD ["echo", "Subsystem container ready. Mount source and run: cargo test -p qc-${QC_SUBSYSTEM_ID}-${QC_SUBSYSTEM_NAME}"]

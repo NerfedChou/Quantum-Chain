@@ -86,8 +86,8 @@ env:
   RUSTUP_MAX_RETRIES: 10
   # Subsystem count for validation
   EXPECTED_SUBSYSTEM_COUNT: 15
-  # Minimum supported Rust version (1.78+ required for Cargo.lock v4)
-  MSRV: "1.78.0"
+  # Minimum supported Rust version (1.82+ required for Cargo.lock v4)
+  MSRV: "1.82.0"
 
 jobs:
   # ============================================================================
@@ -108,9 +108,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: "1.82.0"
           components: rustfmt, clippy
       
       - name: Cache cargo registry
@@ -139,7 +140,8 @@ jobs:
             -A clippy::module_name_repetitions \
             -A clippy::must_use_candidate \
             -A clippy::missing_errors_doc \
-            -A clippy::missing_panics_doc
+            -A clippy::missing_panics_doc \
+            -A clippy::redundant_pub_crate
       
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
@@ -206,8 +208,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.82.0"
       
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -260,8 +264,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.82.0"
       
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -300,9 +306,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: "1.82.0"
           components: llvm-tools-preview
       
       - name: Install cargo-llvm-cov
@@ -353,8 +360,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.82.0"
       
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -424,8 +433,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.82.0"
       
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -510,8 +521,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.82.0"
       
       - name: Cache cargo registry
         uses: actions/cache@v4

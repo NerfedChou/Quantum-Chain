@@ -32,8 +32,8 @@ array-size-threshold = 512000
 min-ident-chars-threshold = 1
 
 # MSRV (Minimum Supported Rust Version)
-# Must be 1.78+ for Cargo.lock v4 compatibility
-msrv = "1.78.0"
+# Must be 1.82+ for Cargo.lock v4 compatibility
+msrv = "1.82.0"
 
 # Allowed prefixes for documentation
 doc-valid-idents = [
