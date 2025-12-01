@@ -5,7 +5,7 @@
 # all necessary build dependencies. It is optimized for caching.
 # ==============================================================================
 # Use a more recent version of Rust to match modern lockfile formats
-FROM rust:1.78 as builder
+FROM rust:1.90 as builder
 
 # Create a new, empty workspace so we can cache dependencies efficiently
 WORKDIR /usr/src/quantum-chain
