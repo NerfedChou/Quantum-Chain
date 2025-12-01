@@ -1,0 +1,603 @@
+# ==============================================================================
+# Quantum-Chain Docker Compose - Development Environment
+# ==============================================================================
+# Orchestrates the Quantum-Chain node with optional per-subsystem isolation.
+#
+# Architecture Reference: 
+#   - Documentation/Architecture.md V2.3
+#   - Documentation/System.md (15 Subsystems)
+#   - Documentation/IPC-MATRIX.md (Inter-subsystem Communication)
+#
+# DEPLOYMENT MODES:
+#   1. Monolithic (Default): Single container with all 15 subsystems
+#      $ docker compose up quantum-chain
+#
+#   2. Development: Individual subsystem containers for isolation testing
+#      $ docker compose --profile dev up
+#
+#   3. Full Stack: All services including monitoring
+#      $ docker compose --profile monitoring up
+#
+# IPC ARCHITECTURE (Reference: IPC-MATRIX.md):
+#   - Event Bus: Redis Streams for async events (BlockValidated, MerkleRootComputed)
+#   - Request/Response: gRPC for sync calls with correlation_id pattern
+#   - Shared Volume: /var/quantum-chain/ipc for Unix domain sockets
+#
+# ==============================================================================
+
+name: quantum-chain
+
+# ==============================================================================
+# SHARED CONFIGURATIONS
+# ==============================================================================
+x-common-env: &common-env
+  QC_LOG_LEVEL: ${QC_LOG_LEVEL:-info}
+  QC_NETWORK: ${QC_NETWORK:-testnet}
+  RUST_BACKTRACE: "1"
+  
+x-common-volumes: &common-volumes
+  - qc-data:/var/quantum-chain/data
+  - qc-config:/var/quantum-chain/config
+  - qc-ipc:/var/quantum-chain/ipc
+
+x-subsystem-base: &subsystem-base
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.subsystem
+  environment:
+    <<: *common-env
+    QC_IPC_DIR: /var/quantum-chain/ipc
+    QC_EVENT_BUS_URL: redis://event-bus:6379
+  volumes:
+    - qc-ipc:/var/quantum-chain/ipc
+  depends_on:
+    event-bus:
+      condition: service_healthy
+  networks:
+    - qc-internal
+  restart: unless-stopped
+
+# ==============================================================================
+# SERVICES
+# ==============================================================================
+services:
+  # ============================================================================
+  # CORE: Monolithic Node (Production-like)
+  # ============================================================================
+  quantum-chain:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        RUST_VERSION: "1.75"
+    container_name: quantum-chain-node
+    hostname: quantum-chain
+    environment:
+      <<: *common-env
+      QC_DATA_DIR: /var/quantum-chain/data
+      QC_P2P_PORT: 30303
+      QC_RPC_PORT: 8545
+      QC_WS_PORT: 8546
+    ports:
+      # P2P Discovery & Propagation (Subsystem 1, 5)
+      - "${QC_P2P_PORT:-30303}:30303/tcp"
+      - "${QC_P2P_PORT:-30303}:30303/udp"
+      # JSON-RPC API (Subsystem 13 - Light Client Support)
+      - "${QC_RPC_PORT:-8545}:8545/tcp"
+      # WebSocket API
+      - "${QC_WS_PORT:-8546}:8546/tcp"
+    volumes:
+      - qc-data:/var/quantum-chain/data
+      - qc-config:/var/quantum-chain/config
+    networks:
+      - qc-public
+      - qc-internal
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/quantum-chain", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+
+  # ============================================================================
+  # INFRASTRUCTURE: Event Bus (IPC-MATRIX.md - Event-Driven Architecture)
+  # ============================================================================
+  event-bus:
+    image: redis:7-alpine
+    container_name: qc-event-bus
+    hostname: event-bus
+    command: >
+      redis-server 
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - qc-eventbus:/data
+    networks:
+      - qc-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - dev
+      - monitoring
+
+  # ============================================================================
+  # SUBSYSTEM CONTAINERS (Development Profile)
+  # Architecture Reference: System.md - 15 Subsystems
+  # ============================================================================
+
+  # --------------------------------------------------------------------------
+  # Subsystem 1: Peer Discovery & Routing
+  # Reference: SPEC-01-PEER-DISCOVERY.md
+  # Dependencies: Subsystem 10 (Signature Verification) - DDoS defense
+  # --------------------------------------------------------------------------
+  qc-01-peer-discovery:
+    <<: *subsystem-base
+    container_name: qc-01-peer-discovery
+    hostname: peer-discovery
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "01"
+        SUBSYSTEM_NAME: "peer-discovery"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "01"
+      # IPC-MATRIX: Allowed to talk to Subsystem 10
+      QC_ALLOWED_TARGETS: "10"
+      # IPC-MATRIX: Accepts from Subsystems 5,7,13
+      QC_ALLOWED_SOURCES: "5,7,13"
+    ports:
+      - "30303:30303/udp"  # Kademlia DHT
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 2: Block Storage Engine
+  # Reference: SPEC-02-BLOCK-STORAGE.md
+  # Role: Stateful Assembler (Choreography Pattern)
+  # Subscribes: BlockValidated(8), MerkleRootComputed(3), StateRootComputed(4)
+  # --------------------------------------------------------------------------
+  qc-02-block-storage:
+    <<: *subsystem-base
+    container_name: qc-02-block-storage
+    hostname: block-storage
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "02"
+        SUBSYSTEM_NAME: "block-storage"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "02"
+      # Choreography: Subscribes to events from 3, 4, 8
+      QC_EVENT_SUBSCRIPTIONS: "MerkleRootComputed,StateRootComputed,BlockValidated"
+      # Assembly timeout (Architecture.md: Stateful Assembler pattern)
+      QC_ASSEMBLY_TIMEOUT_SECS: "60"
+    volumes:
+      - qc-blocks:/var/quantum-chain/blocks
+      - qc-ipc:/var/quantum-chain/ipc
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 3: Transaction Indexing
+  # Reference: SPEC-03-TRANSACTION-INDEXING.md
+  # Role: Merkle Tree Computation
+  # Subscribes: BlockValidated(8)
+  # Publishes: MerkleRootComputed -> Block Storage(2)
+  # --------------------------------------------------------------------------
+  qc-03-transaction-indexing:
+    <<: *subsystem-base
+    container_name: qc-03-transaction-indexing
+    hostname: transaction-indexing
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "03"
+        SUBSYSTEM_NAME: "transaction-indexing"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "03"
+      QC_EVENT_SUBSCRIPTIONS: "BlockValidated"
+      QC_EVENT_PUBLICATIONS: "MerkleRootComputed"
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 4: State Management
+  # Reference: SPEC-04-STATE-MANAGEMENT.md
+  # Role: World State & State Root Computation
+  # Publishes: StateRootComputed -> Block Storage(2)
+  # --------------------------------------------------------------------------
+  qc-04-state-management:
+    <<: *subsystem-base
+    container_name: qc-04-state-management
+    hostname: state-management
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "04"
+        SUBSYSTEM_NAME: "state-management"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "04"
+      QC_EVENT_PUBLICATIONS: "StateRootComputed"
+    volumes:
+      - qc-state:/var/quantum-chain/state
+      - qc-ipc:/var/quantum-chain/ipc
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 5: Block Propagation
+  # Reference: SPEC-05-BLOCK-PROPAGATION.md
+  # Dependencies: Subsystem 1 (Peer list), 10 (Signature verification)
+  # --------------------------------------------------------------------------
+  qc-05-block-propagation:
+    <<: *subsystem-base
+    container_name: qc-05-block-propagation
+    hostname: block-propagation
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "05"
+        SUBSYSTEM_NAME: "block-propagation"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "05"
+      QC_ALLOWED_TARGETS: "1,8,10"
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 6: Mempool
+  # Reference: SPEC-06-MEMPOOL.md
+  # Dependencies: Subsystem 4 (Balance check), 10 (Signature verification)
+  # --------------------------------------------------------------------------
+  qc-06-mempool:
+    <<: *subsystem-base
+    container_name: qc-06-mempool
+    hostname: mempool
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "06"
+        SUBSYSTEM_NAME: "mempool"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "06"
+      QC_ALLOWED_TARGETS: "4,10"
+      QC_MAX_MEMPOOL_SIZE: "10000"
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 7: Bloom Filters
+  # Reference: SPEC-07-BLOOM-FILTERS.md
+  # Dependencies: Subsystem 1 (Full node connections), 3 (Transaction data)
+  # --------------------------------------------------------------------------
+  qc-07-bloom-filters:
+    <<: *subsystem-base
+    container_name: qc-07-bloom-filters
+    hostname: bloom-filters
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "07"
+        SUBSYSTEM_NAME: "bloom-filters"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "07"
+      QC_ALLOWED_TARGETS: "1,3"
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 8: Consensus Engine
+  # Reference: SPEC-08-CONSENSUS.md
+  # Role: Block Validation (NOT Orchestration per V2.2)
+  # Publishes: BlockValidated -> Event Bus
+  # --------------------------------------------------------------------------
+  qc-08-consensus:
+    <<: *subsystem-base
+    container_name: qc-08-consensus
+    hostname: consensus
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "08"
+        SUBSYSTEM_NAME: "consensus"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "08"
+      QC_EVENT_PUBLICATIONS: "BlockValidated"
+      QC_ALLOWED_TARGETS: "4,10"
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 9: Finality Gadget
+  # Reference: SPEC-09-FINALITY.md
+  # Dependencies: Subsystem 4 (Validator stakes), 8 (Attestations), 10 (Signatures)
+  # Circuit Breaker: Deterministic halt after N failures
+  # --------------------------------------------------------------------------
+  qc-09-finality:
+    <<: *subsystem-base
+    container_name: qc-09-finality
+    hostname: finality
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "09"
+        SUBSYSTEM_NAME: "finality"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "09"
+      QC_ALLOWED_TARGETS: "2,4,8,10"
+      # Circuit breaker configuration (Architecture.md Section 5.4.1)
+      QC_FINALITY_MAX_SYNC_FAILURES: "5"
+      QC_FINALITY_SUPERMAJORITY: "0.67"
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 10: Signature Verification
+  # Reference: SPEC-10-SIGNATURE-VERIFICATION.md
+  # Role: Pure cryptographic service (NO dependencies)
+  # Security: Zero-trust - all callers must re-verify
+  # --------------------------------------------------------------------------
+  qc-10-signature-verification:
+    <<: *subsystem-base
+    container_name: qc-10-signature-verification
+    hostname: signature-verification
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "10"
+        SUBSYSTEM_NAME: "signature-verification"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "10"
+      # IPC-MATRIX: Accepts from 1,5,6,8,9,11 (foundational service)
+      QC_ALLOWED_SOURCES: "1,5,6,8,9,11"
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 11: Smart Contract Engine
+  # Reference: SPEC-11-SMART-CONTRACTS.md
+  # Dependencies: Subsystem 4 (State R/W), 10 (Sender verification)
+  # --------------------------------------------------------------------------
+  qc-11-smart-contracts:
+    <<: *subsystem-base
+    container_name: qc-11-smart-contracts
+    hostname: smart-contracts
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "11"
+        SUBSYSTEM_NAME: "smart-contracts"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "11"
+      QC_ALLOWED_TARGETS: "4,10"
+      QC_VM_GAS_LIMIT: "10000000"
+      QC_VM_CALL_DEPTH_LIMIT: "1024"
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 12: Transaction Ordering
+  # Reference: SPEC-12-TRANSACTION-ORDERING.md
+  # Dependencies: Subsystem 4 (Conflict detection), 11 (Execution)
+  # --------------------------------------------------------------------------
+  qc-12-transaction-ordering:
+    <<: *subsystem-base
+    container_name: qc-12-transaction-ordering
+    hostname: transaction-ordering
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "12"
+        SUBSYSTEM_NAME: "transaction-ordering"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "12"
+      QC_ALLOWED_TARGETS: "4,11"
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 13: Light Client Support
+  # Reference: SPEC-13-LIGHT-CLIENT-SYNC.md
+  # Dependencies: Subsystem 1 (Peer connections), 3 (Merkle proofs), 7 (Bloom filters)
+  # --------------------------------------------------------------------------
+  qc-13-light-client-sync:
+    <<: *subsystem-base
+    container_name: qc-13-light-client-sync
+    hostname: light-client-sync
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "13"
+        SUBSYSTEM_NAME: "light-client-sync"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "13"
+      QC_ALLOWED_TARGETS: "1,3,7"
+    ports:
+      - "8545:8545/tcp"  # Light client RPC
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 14: Sharding Coordinator
+  # Reference: SPEC-14-SHARDING.md
+  # Dependencies: Subsystem 4 (Partitioned state), 8 (Per-shard consensus)
+  # --------------------------------------------------------------------------
+  qc-14-sharding:
+    <<: *subsystem-base
+    container_name: qc-14-sharding
+    hostname: sharding
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "14"
+        SUBSYSTEM_NAME: "sharding"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "14"
+      QC_ALLOWED_TARGETS: "4,8"
+      QC_SHARD_COUNT: "64"
+    profiles:
+      - dev
+
+  # --------------------------------------------------------------------------
+  # Subsystem 15: Cross-Chain Bridge
+  # Reference: SPEC-15-CROSS-CHAIN.md
+  # Dependencies: Subsystem 9 (Finality proofs), 11 (HTLC contracts)
+  # --------------------------------------------------------------------------
+  qc-15-cross-chain:
+    <<: *subsystem-base
+    container_name: qc-15-cross-chain
+    hostname: cross-chain
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.subsystem
+      args:
+        SUBSYSTEM_ID: "15"
+        SUBSYSTEM_NAME: "cross-chain"
+    environment:
+      <<: *common-env
+      QC_SUBSYSTEM_ID: "15"
+      QC_ALLOWED_TARGETS: "9,11"
+    profiles:
+      - dev
+
+  # ============================================================================
+  # MONITORING (Optional Profile)
+  # ============================================================================
+  
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: qc-prometheus
+    hostname: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - qc-prometheus:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - qc-internal
+      - qc-public
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: qc-grafana
+    hostname: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-quantum}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - qc-grafana:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - qc-internal
+      - qc-public
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+# ==============================================================================
+# NETWORKS
+# ==============================================================================
+networks:
+  # Public network for external access (P2P, RPC)
+  qc-public:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+  # Internal network for subsystem communication
+  qc-internal:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.0.0/16
+
+# ==============================================================================
+# VOLUMES
+# ==============================================================================
+volumes:
+  # Persistent blockchain data
+  qc-data:
+    name: quantum-chain-data
+
+  # Configuration files
+  qc-config:
+    name: quantum-chain-config
+
+  # IPC shared memory for Unix domain sockets
+  qc-ipc:
+    name: quantum-chain-ipc
+
+  # Block storage (Subsystem 2)
+  qc-blocks:
+    name: quantum-chain-blocks
+
+  # State trie storage (Subsystem 4)
+  qc-state:
+    name: quantum-chain-state
+
+  # Event bus persistence
+  qc-eventbus:
+    name: quantum-chain-eventbus
+
+  # Monitoring
+  qc-prometheus:
+    name: quantum-chain-prometheus
+
+  qc-grafana:
+    name: quantum-chain-grafana

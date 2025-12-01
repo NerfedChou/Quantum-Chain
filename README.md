@@ -2,9 +2,11 @@
 
 **A Modular Blockchain System with Quantum-Inspired Architecture**
 
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.82%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
 [![Architecture](https://img.shields.io/badge/architecture-v2.3-green.svg)](Documentation/Architecture.md)
+[![CI](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/rust.yml/badge.svg)](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/rust.yml)
+[![Docker](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/docker-publish.yml)
 
 ---
 
@@ -129,7 +131,7 @@ The system uses **event-driven choreography**, NOT centralized orchestration:
 
 ### Prerequisites
 
-- **Rust** 1.75 or later
+- **Rust** 1.82 or later (required for Cargo.lock v4)
 - **Cargo** (comes with Rust)
 - **Docker** (optional, for containerized deployment)
 
@@ -250,28 +252,129 @@ The project uses GitHub Actions for continuous integration:
 
 | Workflow | Trigger | Actions |
 |----------|---------|---------|
-| `rust.yml` | Push/PR to main | Format, Build, Clippy, Test, Docs |
-| `docker-publish.yml` | Push/Tag/Schedule | Build, Push to GHCR, Sign with Cosign |
+| `rust.yml` | Push/PR to main | Format, Build, Clippy, Test (unit + subsystem isolation), Docs |
+| `docker-publish.yml` | Push/Tag/Schedule | Build Monolithic + Per-Subsystem, Push to GHCR, Sign with Cosign |
 
-### Container Architecture
+### Hybrid Container Architecture
 
-**Single-Binary Philosophy:** Despite the modular design, we compile to a **single binary** for production:
+Quantum-Chain supports **two deployment modes** to balance production efficiency with development flexibility:
 
-```dockerfile
-# Multi-stage build for minimal image
-FROM rust:1.75 AS builder
-# ... build steps ...
-
-FROM debian:bullseye-slim
-# Only the compiled binary, ~10MB final image
-COPY --from=builder /target/release/node-runtime /usr/local/bin/
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    HYBRID DOCKER ARCHITECTURE (V2.3)                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                    MODE 1: MONOLITHIC (Production)                   │    │
+│  │                                                                      │    │
+│  │   ┌──────────────────────────────────────────────────────────────┐  │    │
+│  │   │                quantum-chain:latest                          │  │    │
+│  │   │  ┌────────┬────────┬────────┬────────┬────────┬────────────┐ │  │    │
+│  │   │  │ SS-01  │ SS-02  │ SS-03  │  ...   │ SS-14  │   SS-15    │ │  │    │
+│  │   │  └────────┴────────┴────────┴────────┴────────┴────────────┘ │  │    │
+│  │   │               Single Binary (~50MB image)                    │  │    │
+│  │   └──────────────────────────────────────────────────────────────┘  │    │
+│  │   Use: Production nodes, validators                                 │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                 MODE 2: PER-SUBSYSTEM (Development)                  │    │
+│  │                                                                      │    │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐       ┌──────────┐        │    │
+│  │  │ qc-01-*  │  │ qc-02-*  │  │ qc-03-*  │  ...  │ qc-15-*  │        │    │
+│  │  │ :dev     │  │ :dev     │  │ :dev     │       │ :dev     │        │    │
+│  │  └────┬─────┘  └────┬─────┘  └────┬─────┘       └────┬─────┘        │    │
+│  │       │             │             │                  │              │    │
+│  │       └─────────────┴─────────────┴──────────────────┘              │    │
+│  │                            │                                        │    │
+│  │                    ┌───────▼───────┐                                │    │
+│  │                    │   Event Bus   │ (Redis Streams)                │    │
+│  │                    │   IPC Layer   │ (Unix Domain Sockets)          │    │
+│  │                    └───────────────┘                                │    │
+│  │   Use: Isolation testing, debugging, microservice deployment        │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Why not microservices?**
-- Lower latency (in-process communication)
-- Simpler deployment (single binary)
-- Easier debugging
-- Can scale to microservices later if needed
+### Docker Deployment Commands
+
+```bash
+# ============================================================================
+# MODE 1: MONOLITHIC (Production)
+# ============================================================================
+
+# Build the production image
+docker build -t quantum-chain:latest .
+
+# Run the node
+docker run -d \
+  --name quantum-chain \
+  -p 30303:30303 \
+  -p 8545:8545 \
+  -v qc-data:/var/quantum-chain/data \
+  quantum-chain:latest
+
+# ============================================================================
+# MODE 2: DOCKER COMPOSE (Development)
+# ============================================================================
+
+# Start monolithic node only
+docker compose -f docker/docker-compose.yml up quantum-chain
+
+# Start with development profile (individual subsystem containers)
+docker compose -f docker/docker-compose.yml --profile dev up
+
+# Start with monitoring (Prometheus + Grafana)
+docker compose -f docker/docker-compose.yml --profile monitoring up
+
+# Build specific subsystem for testing
+docker build -f docker/Dockerfile.subsystem \
+  --build-arg SUBSYSTEM_ID=08 \
+  --build-arg SUBSYSTEM_NAME=consensus \
+  -t quantum-chain/qc-08-consensus:dev .
+```
+
+### IPC Architecture (Per-Subsystem Mode)
+
+When running in per-subsystem mode, inter-container communication follows **IPC-MATRIX.md**:
+
+| Channel | Technology | Use Case |
+|---------|-----------|----------|
+| Event Bus | Redis Streams | Async events (BlockValidated, MerkleRootComputed) |
+| Request/Response | gRPC | Sync calls with `correlation_id` pattern |
+| Shared Memory | Unix Domain Sockets | High-performance local IPC |
+
+```yaml
+# docker/docker-compose.yml excerpt
+services:
+  event-bus:
+    image: redis:7-alpine
+    # All subsystems publish/subscribe events here
+    
+  qc-08-consensus:
+    environment:
+      QC_EVENT_BUS_URL: redis://event-bus:6379
+      QC_EVENT_PUBLICATIONS: "BlockValidated"
+      
+  qc-02-block-storage:
+    environment:
+      QC_EVENT_SUBSCRIPTIONS: "BlockValidated,MerkleRootComputed,StateRootComputed"
+```
+
+### Why Hybrid Architecture?
+
+| Aspect | Monolithic | Per-Subsystem |
+|--------|-----------|---------------|
+| **Latency** | ✅ In-process calls | ❌ Network overhead |
+| **Debugging** | ❌ Harder to isolate | ✅ Test one component |
+| **Deployment** | ✅ Single artifact | ❌ 15+ containers |
+| **Resource Usage** | ✅ Shared memory | ❌ Per-container overhead |
+| **Fault Isolation** | ❌ Process crash = all down | ✅ One container fails |
+| **Development** | ❌ Full rebuild | ✅ Hot-reload one crate |
+
+**Production:** Use monolithic for performance and simplicity.
+**Development:** Use per-subsystem for isolation testing and debugging.
 
 ### Configuration
 

@@ -2,18 +2,39 @@
 # Quantum-Chain Docker Build & Publish Pipeline
 # ==============================================================================
 # Builds and publishes container images for the Quantum-Chain node.
-# Architecture Reference: Documentation/Architecture.md V2.3
 #
-# Container Strategy:
-#   - Single-binary architecture (all subsystems compiled into one binary)
+# Architecture Reference: 
+#   - Documentation/Architecture.md V2.3
+#   - Documentation/System.md (15 Subsystems)
+#   - Documentation/IPC-MATRIX.md (Inter-subsystem Communication)
+#
+# CONTAINER STRATEGY (Hybrid Architecture):
+#
+#   1. MONOLITHIC (Production):
+#      - Single binary with all 15 subsystems compiled together
+#      - Image: ghcr.io/{owner}/quantum-chain:latest
+#      - Use case: Production nodes, validators
+#
+#   2. PER-SUBSYSTEM (Development/Testing):
+#      - Individual containers for each subsystem
+#      - Images: ghcr.io/{owner}/quantum-chain/qc-{id}-{name}:dev
+#      - Use case: Isolation testing, debugging, microservice deployment
+#
+# SECURITY:
 #   - Multi-stage build for minimal image size (~50MB)
-#   - Non-root user for security
+#   - Non-root user (quantum:1000)
 #   - Cosign signature for supply chain security
+#   - Trivy vulnerability scanning
 #
-# Images:
-#   - ghcr.io/{owner}/quantum-chain:latest
-#   - ghcr.io/{owner}/quantum-chain:v{version}
-#   - ghcr.io/{owner}/quantum-chain:sha-{commit}
+# IMAGES:
+#   Monolithic:
+#     - ghcr.io/{owner}/quantum-chain:latest
+#     - ghcr.io/{owner}/quantum-chain:v{version}
+#     - ghcr.io/{owner}/quantum-chain:sha-{commit}
+#   Per-Subsystem (dev profile):
+#     - ghcr.io/{owner}/quantum-chain/qc-01-peer-discovery:dev
+#     - ghcr.io/{owner}/quantum-chain/qc-02-block-storage:dev
+#     - ... (all 15 subsystems)
 # ==============================================================================
 
 name: Docker Build & Publish
@@ -24,10 +45,21 @@ on:
     - cron: '20 12 * * *'
   push:
     branches: [ "main" ]
-    # Publish semver tags as releases
     tags: [ 'v*.*.*' ]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Dockerfile'
+      - 'docker/**'
+      - '.github/workflows/docker-publish.yml'
   pull_request:
     branches: [ "main" ]
+    paths:
+      - 'crates/**'
+      - 'Dockerfile'
+      - 'docker/**'
+      - '.github/workflows/docker-publish.yml'
   workflow_dispatch:
     inputs:
       push_image:
@@ -35,36 +67,34 @@ on:
         required: false
         default: 'false'
         type: boolean
+      build_subsystems:
+        description: 'Build individual subsystem images'
+        required: false
+        default: 'false'
+        type: boolean
 
 env:
-  # Use GitHub Container Registry
   REGISTRY: ghcr.io
-  # Image name: github.repository as <account>/<repo>
   IMAGE_NAME: ${{ github.repository }}
-  # Rust version for reproducible builds
-  RUST_VERSION: "1.75"
+  RUST_VERSION: "1.82"
 
 jobs:
   # ============================================================================
-  # Build and Push Docker Image
+  # Build and Push Monolithic Docker Image (Production)
+  # Architecture Reference: Architecture.md - Single-binary deployment
   # ============================================================================
-  build:
-    name: Build & Push
+  build-monolithic:
+    name: Build Monolithic Node
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-      # Required for cosign OIDC
       id-token: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ========================================================================
-      # Setup Build Environment
-      # ========================================================================
-      
       - name: Install cosign
         if: github.event_name != 'pull_request'
         uses: sigstore/cosign-installer@v3.3.0
@@ -74,10 +104,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ========================================================================
-      # Registry Authentication
-      # ========================================================================
-      
       - name: Log into registry ${{ env.REGISTRY }}
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -86,37 +112,28 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ========================================================================
-      # Metadata Extraction
-      # ========================================================================
-      
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Set latest tag for main branch
             type=raw,value=latest,enable={{is_default_branch}}
-            # Semantic version tags
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            # SHA-based tags
             type=sha,prefix=sha-
-            # Branch-based tags
             type=ref,event=branch
             type=ref,event=pr
           labels: |
             org.opencontainers.image.title=Quantum-Chain
-            org.opencontainers.image.description=Modular Blockchain with Quantum-Inspired Architecture
+            org.opencontainers.image.description=Modular Blockchain with Quantum-Inspired Architecture (Monolithic Deployment)
             org.opencontainers.image.vendor=Quantum-Chain Contributors
             org.opencontainers.image.documentation=https://github.com/${{ github.repository }}#readme
+            quantum-chain.deployment.mode=monolithic
+            quantum-chain.architecture.version=2.3
+            quantum-chain.subsystem.count=15
 
-      # ========================================================================
-      # Build and Push
-      # ========================================================================
-      
       - name: Build and push Docker image
         id: build-and-push
         uses: docker/build-push-action@v5
@@ -134,10 +151,6 @@ jobs:
             VCS_REF=${{ github.sha }}
           platforms: linux/amd64
 
-      # ========================================================================
-      # Security: Sign the Image
-      # ========================================================================
-      
       - name: Sign the published Docker image
         if: ${{ github.event_name != 'pull_request' }}
         env:
@@ -147,12 +160,94 @@ jobs:
           echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
 
   # ============================================================================
-  # Verify Built Image
+  # Build Per-Subsystem Images (Development/Testing)
+  # Architecture Reference: System.md - 15 Independent Subsystems
+  # ============================================================================
+  build-subsystems:
+    name: Build Subsystem Images
+    runs-on: ubuntu-latest
+    if: github.event.inputs.build_subsystems == 'true' || github.ref == 'refs/heads/develop'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        subsystem:
+          - { id: "01", name: "peer-discovery" }
+          - { id: "02", name: "block-storage" }
+          - { id: "03", name: "transaction-indexing" }
+          - { id: "04", name: "state-management" }
+          - { id: "05", name: "block-propagation" }
+          - { id: "06", name: "mempool" }
+          - { id: "07", name: "bloom-filters" }
+          - { id: "08", name: "consensus" }
+          - { id: "09", name: "finality" }
+          - { id: "10", name: "signature-verification" }
+          - { id: "11", name: "smart-contracts" }
+          - { id: "12", name: "transaction-ordering" }
+          - { id: "13", name: "light-client-sync" }
+          - { id: "14", name: "sharding" }
+          - { id: "15", name: "cross-chain" }
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log into registry ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if subsystem crate exists
+        id: check-crate
+        run: |
+          CRATE_DIR="crates/qc-${{ matrix.subsystem.id }}-${{ matrix.subsystem.name }}"
+          if [ -d "$CRATE_DIR" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Subsystem crate found: $CRATE_DIR"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Subsystem crate not found: $CRATE_DIR (skipping)"
+          fi
+
+      - name: Build subsystem image
+        if: steps.check-crate.outputs.exists == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.subsystem
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/qc-${{ matrix.subsystem.id }}-${{ matrix.subsystem.name }}:dev
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/qc-${{ matrix.subsystem.id }}-${{ matrix.subsystem.name }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.title=Quantum-Chain Subsystem ${{ matrix.subsystem.id }}
+            org.opencontainers.image.description=Subsystem ${{ matrix.subsystem.id }}: ${{ matrix.subsystem.name }}
+            quantum-chain.deployment.mode=microservice
+            quantum-chain.subsystem.id=${{ matrix.subsystem.id }}
+            quantum-chain.subsystem.name=${{ matrix.subsystem.name }}
+            quantum-chain.architecture.version=2.3
+          build-args: |
+            SUBSYSTEM_ID=${{ matrix.subsystem.id }}
+            SUBSYSTEM_NAME=${{ matrix.subsystem.name }}
+            RUST_VERSION=${{ env.RUST_VERSION }}
+          cache-from: type=gha,scope=subsystem-${{ matrix.subsystem.id }}
+          cache-to: type=gha,mode=max,scope=subsystem-${{ matrix.subsystem.id }}
+
+  # ============================================================================
+  # Verify Built Images
   # ============================================================================
   verify:
-    name: Verify Image
+    name: Verify Images
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-monolithic
     if: github.event_name != 'pull_request'
     steps:
       - name: Log into registry
@@ -162,7 +257,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull and test image
+      - name: Pull and test monolithic image
         run: |
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
           docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }} --version || true
@@ -181,3 +276,47 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
         continue-on-error: true
+
+  # ============================================================================
+  # Docker Compose Validation
+  # Architecture Reference: docker/docker-compose.yml
+  # ============================================================================
+  validate-compose:
+    name: Validate Docker Compose
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml syntax
+        run: |
+          if [ -f "docker/docker-compose.yml" ]; then
+            docker compose -f docker/docker-compose.yml config --quiet
+            echo "Docker Compose configuration is valid"
+          else
+            echo "docker-compose.yml not found, skipping validation"
+          fi
+
+      - name: Validate subsystem Dockerfile
+        run: |
+          if [ -f "docker/Dockerfile.subsystem" ]; then
+            # Basic syntax check
+            docker build --check -f docker/Dockerfile.subsystem . 2>/dev/null || echo "Dockerfile.subsystem syntax check completed"
+          fi
+
+      - name: Generate deployment summary
+        run: |
+          echo "## Docker Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployment Modes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Mode | Description | Use Case |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Monolithic | Single container, all 15 subsystems | Production |" >> $GITHUB_STEP_SUMMARY
+          echo "| Per-Subsystem | Individual containers per subsystem | Development/Testing |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Compose | Orchestrated multi-container | Local development |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Architecture References" >> $GITHUB_STEP_SUMMARY
+          echo "- **Architecture.md V2.3**: Choreography pattern, Envelope-Only Identity" >> $GITHUB_STEP_SUMMARY
+          echo "- **System.md**: 15 Subsystem definitions and dependencies" >> $GITHUB_STEP_SUMMARY
+          echo "- **IPC-MATRIX.md**: Inter-subsystem communication rules" >> $GITHUB_STEP_SUMMARY

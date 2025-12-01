@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Architecture Evolution
 
+#### V2.4 - Hybrid Docker Architecture (2024-12-01)
+- **ADDED:** Hybrid container architecture (Monolithic + Per-Subsystem modes)
+- **ADDED:** `docker/docker-compose.yml` with 15 subsystem service definitions
+- **ADDED:** `docker/Dockerfile.subsystem` for individual subsystem containers
+- **ADDED:** Event Bus infrastructure (Redis Streams) for inter-container IPC
+- **ADDED:** Prometheus/Grafana monitoring stack
+- **ADDED:** Per-subsystem CI test matrix in `rust.yml`
+- **ADDED:** IPC-MATRIX compliance validation in CI pipeline
+- **UPDATED:** `docker-publish.yml` to support both deployment modes
+- **UPDATED:** README.md with comprehensive DevOps documentation
+
 #### V2.3 - Unified Workflow (2024-12-01)
 - **ADDED:** Data Retrieval Pattern for Merkle proof generation
 - **ADDED:** `GetTransactionHashesRequest` contract between Subsystem 3 → Subsystem 2
@@ -69,11 +80,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `SPEC-13-LIGHT-CLIENT-SYNC.md` (V2.3)
   - `SPEC-14-SHARDING.md` (V2.3)
   - `SPEC-15-CROSS-CHAIN.md` (V2.3)
+
+### DevOps
 - CI/CD workflows:
-  - `rust.yml` (Rust build, test, lint)
-  - `docker-publish.yml` (Container build and push)
-- Multi-stage Dockerfile
-- README.md with architecture overview
+  - `rust.yml` - Rust build, test, lint with per-subsystem isolation testing
+  - `docker-publish.yml` - Hybrid container build (Monolithic + Per-Subsystem)
+- Docker infrastructure:
+  - `Dockerfile` - Multi-stage production build (~50MB image)
+  - `docker/Dockerfile.subsystem` - Individual subsystem containers
+  - `docker/docker-compose.yml` - Full orchestration with 3 profiles:
+    - Default: Monolithic node
+    - `dev`: Per-subsystem containers with Event Bus
+    - `monitoring`: Prometheus + Grafana stack
+  - `docker/monitoring/prometheus.yml` - Metrics collection for all 15 subsystems
 
 ### Security
 - Implemented Envelope-Only Identity pattern
@@ -82,6 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Reply-To Forwarding Attack Prevention
 - Added Circuit Breaker with deterministic triggers
 - Added Two-Phase Transaction Removal Protocol
+- Added IPC-MATRIX compliance validation in CI
 
 ---
 

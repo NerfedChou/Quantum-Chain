@@ -18,7 +18,7 @@
 # ==============================================================================
 # STAGE 1: Build Stage
 # ==============================================================================
-ARG RUST_VERSION=1.75
+ARG RUST_VERSION=1.82
 FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 
 # Install build dependencies
@@ -33,20 +33,16 @@ WORKDIR /usr/src/quantum-chain
 # Copy dependency manifests first for better caching
 COPY Cargo.toml Cargo.lock ./
 
-# Create dummy crates to cache dependencies
-# This layer is cached and only re-runs if Cargo.toml changes
-RUN mkdir -p crates/node-runtime/src && echo "fn main() {}" > crates/node-runtime/src/main.rs
-RUN mkdir -p crates/shared-types/src && echo "" > crates/shared-types/src/lib.rs
+# Copy ALL crate directories to preserve structure
+# This ensures Cargo.toml files are in correct locations
+COPY crates/ crates/
 
-# Create dummy subsystem crates
-RUN for i in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15; do \
-    mkdir -p crates/qc-$i-*/src 2>/dev/null || true; \
+# Create dummy source files for dependency caching
+RUN echo "fn main() {}" > crates/node-runtime/src/main.rs && \
+    echo "" > crates/shared-types/src/lib.rs && \
+    for dir in crates/qc-*/; do \
+        echo "" > "${dir}src/lib.rs"; \
     done
-
-# Copy all Cargo.toml files for proper dependency resolution
-COPY crates/node-runtime/Cargo.toml crates/node-runtime/
-COPY crates/shared-types/Cargo.toml crates/shared-types/
-COPY crates/qc-*/Cargo.toml crates/
 
 # Build dependencies (cached layer)
 RUN cargo fetch

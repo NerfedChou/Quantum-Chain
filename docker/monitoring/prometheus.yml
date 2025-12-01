@@ -1,0 +1,143 @@
+# ==============================================================================
+# Prometheus Configuration for Quantum-Chain
+# ==============================================================================
+# Monitors all 15 subsystems and infrastructure components.
+# Architecture Reference: Documentation/Architecture.md V2.3
+# ==============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'quantum-chain'
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Rule files
+rule_files: []
+
+# Scrape configurations
+scrape_configs:
+  # --------------------------------------------------------------------------
+  # Prometheus self-monitoring
+  # --------------------------------------------------------------------------
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # --------------------------------------------------------------------------
+  # Monolithic node (production deployment)
+  # --------------------------------------------------------------------------
+  - job_name: 'quantum-chain-node'
+    static_configs:
+      - targets: ['quantum-chain:9100']
+    metrics_path: '/metrics'
+
+  # --------------------------------------------------------------------------
+  # Individual Subsystems (development deployment)
+  # Architecture Reference: System.md - 15 Subsystems
+  # --------------------------------------------------------------------------
+  
+  # Subsystem 1: Peer Discovery & Routing
+  - job_name: 'qc-01-peer-discovery'
+    static_configs:
+      - targets: ['peer-discovery:9101']
+    metrics_path: '/metrics'
+
+  # Subsystem 2: Block Storage Engine
+  - job_name: 'qc-02-block-storage'
+    static_configs:
+      - targets: ['block-storage:9102']
+    metrics_path: '/metrics'
+
+  # Subsystem 3: Transaction Indexing
+  - job_name: 'qc-03-transaction-indexing'
+    static_configs:
+      - targets: ['transaction-indexing:9103']
+    metrics_path: '/metrics'
+
+  # Subsystem 4: State Management
+  - job_name: 'qc-04-state-management'
+    static_configs:
+      - targets: ['state-management:9104']
+    metrics_path: '/metrics'
+
+  # Subsystem 5: Block Propagation
+  - job_name: 'qc-05-block-propagation'
+    static_configs:
+      - targets: ['block-propagation:9105']
+    metrics_path: '/metrics'
+
+  # Subsystem 6: Mempool
+  - job_name: 'qc-06-mempool'
+    static_configs:
+      - targets: ['mempool:9106']
+    metrics_path: '/metrics'
+
+  # Subsystem 7: Bloom Filters
+  - job_name: 'qc-07-bloom-filters'
+    static_configs:
+      - targets: ['bloom-filters:9107']
+    metrics_path: '/metrics'
+
+  # Subsystem 8: Consensus Engine
+  - job_name: 'qc-08-consensus'
+    static_configs:
+      - targets: ['consensus:9108']
+    metrics_path: '/metrics'
+
+  # Subsystem 9: Finality Gadget
+  - job_name: 'qc-09-finality'
+    static_configs:
+      - targets: ['finality:9109']
+    metrics_path: '/metrics'
+
+  # Subsystem 10: Signature Verification
+  - job_name: 'qc-10-signature-verification'
+    static_configs:
+      - targets: ['signature-verification:9110']
+    metrics_path: '/metrics'
+
+  # Subsystem 11: Smart Contract Engine
+  - job_name: 'qc-11-smart-contracts'
+    static_configs:
+      - targets: ['smart-contracts:9111']
+    metrics_path: '/metrics'
+
+  # Subsystem 12: Transaction Ordering
+  - job_name: 'qc-12-transaction-ordering'
+    static_configs:
+      - targets: ['transaction-ordering:9112']
+    metrics_path: '/metrics'
+
+  # Subsystem 13: Light Client Support
+  - job_name: 'qc-13-light-client-sync'
+    static_configs:
+      - targets: ['light-client-sync:9113']
+    metrics_path: '/metrics'
+
+  # Subsystem 14: Sharding Coordinator
+  - job_name: 'qc-14-sharding'
+    static_configs:
+      - targets: ['sharding:9114']
+    metrics_path: '/metrics'
+
+  # Subsystem 15: Cross-Chain Bridge
+  - job_name: 'qc-15-cross-chain'
+    static_configs:
+      - targets: ['cross-chain:9115']
+    metrics_path: '/metrics'
+
+  # --------------------------------------------------------------------------
+  # Infrastructure
+  # --------------------------------------------------------------------------
+  
+  # Event Bus (Redis)
+  - job_name: 'event-bus'
+    static_configs:
+      - targets: ['event-bus:9121']
+    metrics_path: '/metrics'

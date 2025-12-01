@@ -1,0 +1,119 @@
+# ==============================================================================
+# Quantum-Chain Subsystem Dockerfile (Development/Testing)
+# ==============================================================================
+# Multi-stage build for individual subsystem containers.
+# Architecture Reference: Documentation/Architecture.md V2.3
+#
+# PURPOSE:
+#   This Dockerfile builds INDIVIDUAL subsystem containers for:
+#   - Isolation testing
+#   - Development debugging
+#   - Microservice-style deployment (optional)
+#
+# USAGE:
+#   docker build -f docker/Dockerfile.subsystem \
+#     --build-arg SUBSYSTEM_ID=01 \
+#     --build-arg SUBSYSTEM_NAME=peer-discovery \
+#     -t quantum-chain/qc-01-peer-discovery:dev .
+#
+# ARCHITECTURE REFERENCE:
+#   System.md Section 1-15: Each subsystem is an independent bounded context
+#   IPC-MATRIX.md: Inter-subsystem communication via message bus
+# ==============================================================================
+
+# Build arguments - REQUIRED
+ARG SUBSYSTEM_ID
+ARG SUBSYSTEM_NAME
+ARG RUST_VERSION=1.75
+
+# ==============================================================================
+# STAGE 1: Build Stage
+# ==============================================================================
+FROM rust:${RUST_VERSION}-slim-bookworm AS builder
+
+# Re-declare ARGs after FROM
+ARG SUBSYSTEM_ID
+ARG SUBSYSTEM_NAME
+
+# Validate arguments
+RUN if [ -z "$SUBSYSTEM_ID" ] || [ -z "$SUBSYSTEM_NAME" ]; then \
+      echo "ERROR: SUBSYSTEM_ID and SUBSYSTEM_NAME are required"; \
+      exit 1; \
+    fi
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/src/quantum-chain
+
+# Copy workspace manifests
+COPY Cargo.toml Cargo.lock ./
+
+# Copy shared-types (dependency for all subsystems)
+COPY crates/shared-types/ crates/shared-types/
+
+# Copy the specific subsystem
+COPY crates/qc-${SUBSYSTEM_ID}-${SUBSYSTEM_NAME}/ crates/qc-${SUBSYSTEM_ID}-${SUBSYSTEM_NAME}/
+
+# Build only the specific subsystem library
+RUN cargo build --release -p qc-${SUBSYSTEM_ID}-${SUBSYSTEM_NAME}
+
+# ==============================================================================
+# STAGE 2: Runtime Stage
+# ==============================================================================
+FROM debian:bookworm-slim AS runtime
+
+ARG SUBSYSTEM_ID
+ARG SUBSYSTEM_NAME
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -ms /bin/bash -u 1000 quantum
+
+# Create data directories
+RUN mkdir -p /var/quantum-chain/data \
+    && mkdir -p /var/quantum-chain/config \
+    && mkdir -p /var/quantum-chain/ipc \
+    && chown -R quantum:quantum /var/quantum-chain
+
+# Copy subsystem artifacts (library for now, binary when implemented)
+# Note: Subsystems are libraries; they need a runtime harness
+COPY --from=builder /usr/src/quantum-chain/target/release/libqc_${SUBSYSTEM_ID}_*.rlib /usr/local/lib/ 2>/dev/null || true
+COPY --from=builder /usr/src/quantum-chain/target/release/libqc_${SUBSYSTEM_ID}_*.so /usr/local/lib/ 2>/dev/null || true
+
+# Environment configuration
+ENV QC_SUBSYSTEM_ID=${SUBSYSTEM_ID}
+ENV QC_SUBSYSTEM_NAME=${SUBSYSTEM_NAME}
+ENV QC_DATA_DIR=/var/quantum-chain/data
+ENV QC_IPC_DIR=/var/quantum-chain/ipc
+ENV QC_LOG_LEVEL=debug
+ENV RUST_BACKTRACE=1
+
+# Switch to non-root user
+USER quantum
+WORKDIR /var/quantum-chain
+
+# Volumes for data persistence and IPC
+VOLUME ["/var/quantum-chain/data", "/var/quantum-chain/ipc"]
+
+# Labels
+LABEL org.opencontainers.image.title="Quantum-Chain Subsystem ${SUBSYSTEM_ID}"
+LABEL org.opencontainers.image.description="Subsystem ${SUBSYSTEM_ID}: ${SUBSYSTEM_NAME}"
+LABEL quantum-chain.subsystem.id="${SUBSYSTEM_ID}"
+LABEL quantum-chain.subsystem.name="${SUBSYSTEM_NAME}"
+LABEL quantum-chain.architecture.version="2.3"
+
+# Health check placeholder (subsystem-specific health endpoints)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD echo "Subsystem ${SUBSYSTEM_ID} health check" || exit 1
+
+# Default command (placeholder - subsystems need runtime harness)
+CMD ["echo", "Subsystem container ready - awaiting runtime harness"]
