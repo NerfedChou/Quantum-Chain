@@ -11,12 +11,12 @@
 //! - **No Redundant Identity**: Payloads MUST NOT contain `requester_id` fields;
 //!   the envelope's `sender_id` is authoritative.
 
-pub mod envelope;
 pub mod entities;
-pub mod ipc;
+pub mod envelope;
 pub mod errors;
+pub mod ipc;
 
-pub use envelope::AuthenticatedMessage;
 pub use entities::*;
-pub use ipc::*;
+pub use envelope::AuthenticatedMessage;
 pub use errors::*;
+pub use ipc::*;

@@ -56,18 +56,18 @@ async fn init_node(config: NodeConfig) -> Result<()> {
     info!("P2P Port: {}", config.p2p_port);
     info!("RPC Port: {}", config.rpc_port);
     info!("Data Dir: {}", config.data_dir);
-    
+
     // TODO: Initialize subsystems according to Architecture.md v2.2
     // - Initialize Event Bus
     // - Initialize Block Storage (Subsystem 2)
     // - Initialize Consensus (Subsystem 8)
     // - Initialize remaining subsystems
     // - Start the event loop
-    
+
     info!("Quantum-Chain node initialized successfully");
     info!("Architecture version: 2.2");
     info!("Protocol version: 1");
-    
+
     Ok(())
 }
 
@@ -78,18 +78,18 @@ async fn main() -> Result<()> {
         .with_max_level(Level::INFO)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
-    
+
     info!("===========================================");
     info!("  Quantum-Chain Node Runtime v0.1.0");
     info!("===========================================");
-    
+
     let config = NodeConfig::default();
     init_node(config).await?;
-    
+
     // Keep the node running
     info!("Node is running. Press Ctrl+C to stop.");
     tokio::signal::ctrl_c().await?;
     info!("Shutting down gracefully...");
-    
+
     Ok(())
 }

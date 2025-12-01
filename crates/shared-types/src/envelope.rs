@@ -36,50 +36,47 @@ pub struct AuthenticatedMessage<T> {
     // =========================================================================
     // HEADER SECTION
     // =========================================================================
-    
     /// Protocol version for forward compatibility.
     /// MUST be checked by deserializers before processing.
     pub version: u16,
-    
+
     /// The subsystem ID of the sender. This is the SOLE source of truth
     /// for the sender's identity. Payloads MUST NOT duplicate this.
     pub sender_id: u8,
-    
+
     /// The intended recipient subsystem ID.
     pub recipient_id: u8,
-    
+
     /// Unique identifier for correlating request/response pairs.
     /// For requests: A newly generated UUID.
     /// For responses: The UUID from the original request.
     pub correlation_id: Uuid,
-    
+
     /// Optional routing information for responses.
     /// MUST be present for request messages expecting a response.
     /// Responders MUST validate that `reply_to.subsystem_id == sender_id`.
     pub reply_to: Option<ReplyTo>,
-    
+
     // =========================================================================
     // SECURITY SECTION (Time-Bounded Replay Prevention)
     // =========================================================================
-    
     /// Unix timestamp (seconds since epoch) when the message was created.
     /// Valid window: `now - 60s <= timestamp <= now + 10s`.
     /// Messages outside this window MUST be rejected immediately.
     pub timestamp: u64,
-    
+
     /// Unique nonce for replay prevention within the timestamp window.
     /// Nonces are garbage-collected after the timestamp expires.
     pub nonce: Uuid,
-    
+
     /// Ed25519 signature over the serialized header + payload.
     /// Verified using the sender's public key.
     #[serde_as(as = "Bytes")]
     pub signature: [u8; 64],
-    
+
     // =========================================================================
     // PAYLOAD SECTION
     // =========================================================================
-    
     /// The actual message payload (generic over message type).
     pub payload: T,
 }
@@ -87,13 +84,13 @@ pub struct AuthenticatedMessage<T> {
 impl<T> AuthenticatedMessage<T> {
     /// Current protocol version.
     pub const CURRENT_VERSION: u16 = 1;
-    
+
     /// Maximum allowed clock skew for future timestamps (seconds).
     pub const MAX_FUTURE_SKEW: u64 = 10;
-    
+
     /// Maximum age for valid timestamps (seconds).
     pub const MAX_AGE: u64 = 60;
-    
+
     /// Duration to retain nonces in cache (2x the validity window).
     pub const NONCE_CACHE_TTL: u64 = 120;
 }
@@ -112,5 +109,8 @@ pub enum VerificationResult {
     /// Message signature is invalid.
     InvalidSignature,
     /// The reply_to.subsystem_id does not match sender_id (forwarding attack).
-    ReplyToMismatch { reply_to_subsystem: u8, sender_id: u8 },
+    ReplyToMismatch {
+        reply_to_subsystem: u8,
+        sender_id: u8,
+    },
 }

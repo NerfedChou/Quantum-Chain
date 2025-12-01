@@ -8,9 +8,9 @@
 //! - Payloads MUST NOT contain `requester_id` fields (envelope authority).
 //! - Request/response pairs use the envelope's `correlation_id`.
 
+use crate::entities::*;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Bytes};
-use crate::entities::*;
 
 // =============================================================================
 // SUBSYSTEM 1: PEER DISCOVERY
