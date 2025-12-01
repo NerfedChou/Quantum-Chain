@@ -1,12 +1,12 @@
 # SPECIFICATION: PEER DISCOVERY & ROUTING
 
-**Version:** 1.1  
+**Version:** 2.4  
 **Subsystem ID:** 1  
 **Bounded Context:** Network Topology & Peer Management  
 **Crate Name:** `crates/peer-discovery`  
 **Author:** Systems Architecture Team  
 **Date:** 2024-12-01  
-**Architecture Compliance:** Architecture.md v1.1 (AuthenticatedMessage envelope, Correlation ID pattern)
+**Architecture Compliance:** Architecture.md v2.2 (Envelope-Only Identity, DDoS Edge Defense, Choreography Pattern, Bounded Staging, Eviction-on-Failure)
 
 ---
 
@@ -79,17 +79,69 @@ pub struct Timestamp(u64);
 ### 2.2 Routing Table Structure
 
 ```rust
+use std::collections::HashMap;
+
 /// The main routing table implementing Kademlia DHT
+/// 
+/// SECURITY (DDoS Edge Defense - System.md Compliance):
+/// New peers are staged in `pending_verification` until Subsystem 10 confirms
+/// their identity. This prevents unverified peers from polluting the Kademlia table.
+/// 
+/// SECURITY (Bounded Staging - V2.3 Memory Bomb Defense):
+/// The `pending_verification` HashMap is bounded by `config.max_pending_peers`.
+/// When full, incoming peer requests are immediately dropped (Tail Drop Strategy).
+/// This prevents memory exhaustion attacks. See INVARIANT-9.
 pub struct RoutingTable {
     local_node_id: NodeId,
     buckets: [KBucket; 256],  // One bucket per bit distance
     banned_peers: BannedPeers,
+    /// Staging area for peers awaiting signature verification from Subsystem 10.
+    /// Peers move to `buckets` only after identity_valid == true.
+    /// BOUNDED: Size limited by config.max_pending_peers (INVARIANT-9).
+    pending_verification: HashMap<NodeId, PendingPeer>,
+    /// Configuration including max_pending_peers limit.
+    config: KademliaConfig,
+}
+
+/// A peer awaiting identity verification from Subsystem 10
+pub struct PendingPeer {
+    pub peer_info: PeerInfo,
+    pub received_at: Timestamp,
+    /// Timeout for verification (default: 10 seconds)
+    pub verification_deadline: Timestamp,
 }
 
 /// A k-bucket storing up to k peers at a specific distance range
+/// 
+/// SECURITY (Eclipse Attack Defense - V2.4 Eviction-on-Failure):
+/// When the bucket is full and a new verified peer wants to join, we do NOT
+/// immediately evict the oldest peer. Instead, we CHALLENGE the oldest peer
+/// with a PING. Only if the oldest peer fails to respond (is dead) do we evict.
+/// This prevents "Table Poisoning" attacks where an attacker sequentially
+/// connects with 20 new nodes to flush honest, stable peers.
 pub struct KBucket {
     peers: Vec<PeerInfo>,      // Max size = K (20)
     last_updated: Timestamp,
+    /// Peers waiting to join this bucket, pending eviction challenge result.
+    /// When bucket is full and new peer arrives, old peer is challenged.
+    /// If old peer responds (alive), new peer is rejected.
+    /// If old peer times out (dead), new peer replaces it.
+    pending_insertion: Option<PendingInsertion>,
+}
+
+/// A peer waiting to be inserted into a full bucket, pending challenge result
+/// 
+/// SECURITY (V2.4): This enables the "Eviction-on-Failure" policy.
+/// The new peer only gets inserted if the challenged (oldest) peer is dead.
+pub struct PendingInsertion {
+    /// The new peer waiting to be inserted
+    pub candidate: PeerInfo,
+    /// The existing peer being challenged (oldest/least-recently-seen)
+    pub challenged_peer: NodeId,
+    /// When the challenge was sent
+    pub challenge_sent_at: Timestamp,
+    /// Deadline for challenge response (default: 5 seconds)
+    pub challenge_deadline: Timestamp,
 }
 
 /// Tracks banned peers with expiration times
@@ -103,11 +155,23 @@ pub struct BannedEntry {
     reason: BanReason,
 }
 
+/// Reasons for banning a peer from the routing table
+/// 
+/// SECURITY (IP Spoofing Defense):
+/// `InvalidSignature` is intentionally EXCLUDED from this enum.
+/// In UDP contexts, IP addresses can be trivially spoofed. If we banned IPs
+/// for bad signatures, an attacker could spoof a legitimate peer's IP (e.g., 
+/// an exchange), send a bad signature, and trick us into banning the victim.
+/// 
+/// Instead, failed signature verification results in a SILENT DROP:
+/// - Remove from `pending_verification`
+/// - Do NOT add to `banned_peers`
+/// - Log at DEBUG level only (no alerting)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BanReason {
     MalformedMessage,
     ExcessiveRequests,
-    InvalidSignature,
+    // InvalidSignature REMOVED - See security note above
     ManualBan,
 }
 ```
@@ -120,10 +184,27 @@ pub enum BanReason {
 pub struct Distance(u8);  // 0-255 (which bit differs first)
 
 /// Configuration constants for Kademlia
+/// 
+/// SECURITY (Bounded Staging - V2.3 Memory Bomb Defense):
+/// The `max_pending_peers` field limits the size of the pending_verification
+/// staging area. This prevents attackers from exhausting node memory by
+/// flooding connection requests faster than signatures can be verified.
+/// 
+/// SECURITY (Eviction-on-Failure - V2.4 Eclipse Attack Defense):
+/// The `eviction_challenge_timeout_secs` field controls how long we wait for
+/// an oldest peer to respond before declaring it dead and allowing eviction.
 pub struct KademliaConfig {
     pub k: usize,              // Bucket size (default: 20)
     pub alpha: usize,          // Parallelism (default: 3)
     pub max_peers_per_subnet: usize,  // IP diversity (default: 2)
+    /// Maximum peers allowed in pending_verification staging area.
+    /// Incoming requests beyond this limit are immediately dropped (Tail Drop).
+    /// Default: 1024 (bounded memory: ~128KB worst case)
+    pub max_pending_peers: usize,
+    /// Timeout for eviction challenge PING (V2.4 Eclipse Defense).
+    /// If oldest peer doesn't respond within this time, it's considered dead.
+    /// Default: 5 seconds
+    pub eviction_challenge_timeout_secs: u64,
 }
 
 impl Default for KademliaConfig {
@@ -132,6 +213,8 @@ impl Default for KademliaConfig {
             k: 20,
             alpha: 3,
             max_peers_per_subnet: 2,
+            max_pending_peers: 1024,
+            eviction_challenge_timeout_secs: 5,
         }
     }
 }
@@ -180,6 +263,73 @@ Once RoutingTable is created, RoutingTable.local_node_id NEVER changes
     distance(local_node_id, peer.node_id).leading_zeros() == i
 ```
 
+**INVARIANT-7: Pending Verification Staging (DDoS Edge Defense)**
+```
+∀ new_peer received from network:
+    new_peer ∈ pending_verification UNTIL identity_valid == true from Subsystem 10
+    new_peer ∉ buckets WHILE pending_verification
+```
+
+**INVARIANT-8: Verification Timeout**
+```
+∀ peer ∈ pending_verification:
+    IF now > peer.verification_deadline THEN remove(peer) (silent drop)
+```
+
+**INVARIANT-9: Bounded Pending Verification (Memory Bomb Defense - V2.3)**
+```
+ALWAYS: pending_verification.len() ≤ max_pending_peers (default: 1024)
+
+ENFORCEMENT (Tail Drop Strategy):
+    IF pending_verification.len() >= max_pending_peers THEN
+        IMMEDIATELY DROP incoming peer request
+        DO NOT allocate memory for the new peer
+        DO NOT evict existing pending peers
+        Log at DEBUG level only (prevent log flooding)
+    ENDIF
+
+RATIONALE:
+    - Prioritizes peers already undergoing verification (honest work)
+    - Prevents attacker from flushing legitimate pending verifications
+    - Bounds memory to: max_pending_peers × sizeof(PendingPeer) ≈ 128KB
+    - Tail Drop is fair: first-come-first-served for staging slots
+```
+
+**INVARIANT-10: Eviction-on-Failure (Eclipse Attack Defense - V2.4)**
+```
+WHEN bucket.len() == K AND new_verified_peer wants to join:
+    
+    1. IDENTIFY oldest_peer = bucket.peers.min_by(last_seen)
+    
+    2. CHALLENGE oldest_peer with PING message
+    
+    3. WAIT for PONG response (timeout: 5 seconds)
+    
+    4. DECISION:
+        IF oldest_peer responds (ALIVE):
+            - Move oldest_peer to FRONT of bucket (most recent)
+            - REJECT new_verified_peer
+            - Rationale: Stable peers are more valuable than new peers
+        
+        IF oldest_peer times out (DEAD):
+            - EVICT oldest_peer from bucket
+            - INSERT new_verified_peer
+            - Rationale: Only replace peers that are actually gone
+
+SECURITY GUARANTEE:
+    An attacker CANNOT displace healthy peers by simply connecting.
+    To displace a peer, the attacker must:
+    a) Wait for legitimate peer to go offline, OR
+    b) Perform a network-level attack (which is out of scope)
+    
+    This makes "Table Poisoning" attacks mathematically infeasible
+    against a healthy network mesh.
+
+IMPLEMENTATION NOTE:
+    Only ONE pending_insertion per bucket at a time.
+    If a challenge is already in progress, new candidates are rejected.
+```
+
 ---
 
 ## 3. PORTS & INTERFACES (THE "HEXAGON")
@@ -199,8 +349,15 @@ pub trait PeerDiscoveryApi {
         count: usize
     ) -> Vec<PeerInfo>;
     
-    /// Add a newly discovered peer to the routing table
-    /// Returns Ok(true) if added, Ok(false) if rejected (full bucket, banned, etc.)
+    /// Add a newly discovered peer to the staging area for verification.
+    /// 
+    /// SECURITY (Bounded Staging - V2.3):
+    /// This function enforces INVARIANT-9 (Memory Bomb Defense):
+    /// - If pending_verification.len() >= max_pending_peers, returns Err(StagingAreaFull)
+    /// - Peer is NOT added; request is immediately dropped (Tail Drop Strategy)
+    /// - No eviction of existing pending peers (prioritizes honest work)
+    /// 
+    /// Returns Ok(true) if staged for verification, Ok(false) if rejected (banned, etc.)
     fn add_peer(&mut self, peer: PeerInfo) -> Result<bool, PeerDiscoveryError>;
     
     /// Get a random selection of peers (for gossip protocols)
@@ -234,6 +391,10 @@ pub struct RoutingTableStats {
     pub buckets_used: usize,
     pub banned_count: usize,
     pub oldest_peer_age_seconds: u64,
+    /// Current count of peers awaiting verification (V2.3)
+    pub pending_verification_count: usize,
+    /// Maximum allowed pending peers (V2.3)
+    pub max_pending_peers: usize,
 }
 
 /// Errors that can occur during peer discovery operations
@@ -245,6 +406,10 @@ pub enum PeerDiscoveryError {
     InvalidNodeId,
     SubnetLimitReached,
     SelfConnection,  // Attempting to add local node
+    /// V2.3: Staging area is at capacity (Memory Bomb Defense).
+    /// Request immediately dropped; no memory allocated.
+    /// See INVARIANT-9 for Tail Drop Strategy.
+    StagingAreaFull,
 }
 ```
 
@@ -310,6 +475,26 @@ pub trait NodeIdValidator: Send + Sync {
 ### 4.1 Events Published to Shared Bus
 
 These are the payload types (`T` in `AuthenticatedMessage<T>`) that Peer Discovery publishes:
+
+**ARCHITECTURAL CONTEXT (Stateful Assembler Pattern - Architecture.md v2.2):**
+
+Some consumers of these events (notably Block Storage, Subsystem 2) implement the 
+**Stateful Assembler** pattern. This means:
+
+1. **Buffered Assembly:** Block Storage buffers events by `block_hash` key, waiting for 
+   multiple components (BlockValidated, MerkleRootComputed, StateRootComputed) before 
+   performing an atomic write.
+
+2. **Timeout Behavior:** If all required components don't arrive within 30 seconds, the 
+   incomplete assembly is dropped and logged as a warning.
+
+3. **Implications for Publishers:** While Peer Discovery events are not part of the block 
+   assembly flow, developers should understand that the event bus uses at-most-once 
+   delivery for non-critical events. Critical events (like block-related data) are 
+   handled via Dead Letter Queues (DLQ) per Architecture.md Section 5.3.
+
+4. **No Orchestrator:** The system uses choreography, not orchestration. Each subsystem 
+   reacts to events independently. There is no central coordinator.
 
 ```rust
 /// Events emitted by the Peer Discovery subsystem
@@ -412,12 +597,30 @@ pub enum PeerDiscoveryRequestPayload {
     FullNodeListRequest(FullNodeListRequestPayload),
 }
 
+/// Request payload for peer list
+/// 
+/// SECURITY (Envelope-Only Identity - Architecture.md v2.2 Amendment 4.2):
+/// This payload contains NO identity fields (e.g., `requester_id`).
+/// The sender's identity is derived SOLELY from the AuthenticatedMessage
+/// envelope's `sender_id` field, which is cryptographically signed.
+/// This prevents "Payload Impersonation" attacks where an attacker could
+/// spoof the payload identity while using their own envelope signature.
+/// 
+/// PRIVACY NOTE: The `filter` field, while not an identity field, can have
+/// privacy implications. Complex or unique filter combinations may act as
+/// fingerprints, allowing correlation of requests across sessions. Implementers
+/// should consider offering standardized filter presets to reduce fingerprinting risk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerListRequestPayload {
     pub max_peers: usize,
+    /// Optional filter for peer selection.
+    /// PRIVACY: Unique filter combinations may enable request fingerprinting.
     pub filter: Option<PeerFilter>,
 }
 
+/// Request payload for full node list (light clients)
+/// 
+/// NOTE: Identity derived from envelope.sender_id per Architecture.md v2.2
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FullNodeListRequestPayload {
     pub max_nodes: usize,
@@ -489,31 +692,67 @@ impl BlockPropagation {
     }
     
     /// Handle responses from Peer Discovery (separate async handler)
+    /// 
+    /// IMPORTANT (Response Verification - Architecture.md v2.2):
+    /// Response verification differs from request verification:
+    /// - Responses do NOT require nonce cache checking (they are correlated, not deduplicated)
+    /// - Responses MUST verify: signature, timestamp, sender_id, version
+    /// - Correlation ID matching provides the anti-replay guarantee for responses
     async fn handle_peer_list_response(
         &mut self, 
         msg: AuthenticatedMessage<PeerListResponsePayload>
     ) {
-        // Step 1: Validate the envelope (version, signature, timestamp, etc.)
-        if let Err(e) = msg.verify(SubsystemId::PeerDiscovery, &self.shared_secret) {
-            log::warn!("Invalid message from PeerDiscovery: {:?}", e);
+        // Step 1: Verify protocol version FIRST (before any deserialization of payload)
+        if msg.version < MIN_SUPPORTED_VERSION || msg.version > MAX_SUPPORTED_VERSION {
+            log::warn!("Unsupported protocol version: {}", msg.version);
             return;
         }
         
-        // Step 2: Match correlation_id to pending request
+        // Step 2: Verify sender is expected (must be PeerDiscovery for this response type)
+        if msg.sender_id != SubsystemId::PeerDiscovery {
+            log::warn!("Unexpected sender for PeerListResponse: {:?}", msg.sender_id);
+            return;
+        }
+        
+        // Step 3: Verify timestamp is within acceptable window (prevents stale responses)
+        let now = self.time_source.now();
+        let min_valid = now.saturating_sub(60);
+        let max_valid = now.saturating_add(10);
+        if msg.timestamp < min_valid || msg.timestamp > max_valid {
+            log::warn!("Response timestamp out of range: {}", msg.timestamp);
+            return;
+        }
+        
+        // Step 4: Verify HMAC signature (cryptographic authenticity)
+        // NOTE: We do NOT check nonce cache for responses - correlation_id provides anti-replay
+        let computed_hmac = compute_hmac(&self.shared_secret, &msg.serialize_without_sig());
+        if !constant_time_eq(&computed_hmac, &msg.signature) {
+            log::warn!("Invalid signature on response from PeerDiscovery");
+            return;
+        }
+        
+        // Step 5: Match correlation_id to pending request (THIS is the anti-replay for responses)
         let correlation_id = Uuid::from_bytes(msg.correlation_id);
         if let Some(pending) = self.pending_requests.remove(&correlation_id) {
-            // Step 3: Check if request timed out
+            // Step 6: Check if request timed out (response arrived too late)
             if pending.created_at.elapsed() > pending.timeout {
                 log::warn!("Response arrived after timeout for {:?}", correlation_id);
                 return;
             }
             
-            // Step 4: Process the response
+            // Step 7: Process the validated response
             for peer in msg.payload.peers {
                 self.known_peers.insert(peer.node_id, peer);
             }
+            
+            log::debug!(
+                "Received {} peers from PeerDiscovery (correlation: {:?})",
+                msg.payload.peers.len(),
+                correlation_id
+            );
         } else {
-            // Orphaned response - request already timed out or never existed
+            // Orphaned response - request already timed out, was cancelled, or never existed
+            // This is normal in async systems; log at debug level only
             log::debug!("Orphaned response for correlation_id {:?}", correlation_id);
         }
     }
@@ -588,8 +827,26 @@ For every IPC message sent or received by this subsystem:
 | `correlation_id` | ✅ YES | UUID v4, used to match request/response pairs |
 | `reply_to` | ✅ For requests | Topic where response should be published |
 | `timestamp` | ✅ YES | Must be within 60 seconds of current time |
-| `nonce` | ✅ YES | Must not be reused (replay prevention) |
+| `nonce` | ✅ For requests | Must not be reused (replay prevention via TimeBoundedNonceCache) |
 | `signature` | ✅ YES | HMAC-SHA256, verified before processing |
+
+**REQUEST vs RESPONSE Verification Differences:**
+
+| Check | Request | Response |
+|-------|---------|----------|
+| Version | ✅ Required | ✅ Required |
+| Sender ID | ✅ Required (per IPC Matrix) | ✅ Required (must be expected responder) |
+| Timestamp | ✅ Required (60s window) | ✅ Required (60s window) |
+| Signature | ✅ Required (HMAC) | ✅ Required (HMAC) |
+| Nonce Cache | ✅ Required (TimeBoundedNonceCache) | ❌ NOT required |
+| Correlation ID | ✅ Generate new UUID | ✅ Must match pending request |
+| Reply-To | ✅ Required | ❌ Not applicable |
+
+**Why Responses Skip Nonce Cache:**
+Responses are correlated to a specific request via `correlation_id`. The anti-replay 
+guarantee comes from the fact that each `correlation_id` can only be used once (it's 
+removed from `pending_requests` upon first matching response). This is more efficient 
+than maintaining a separate nonce cache for responses.
 
 ---
 
@@ -625,12 +882,34 @@ fn test_xor_distance_ordering_for_closest_peers()
 
 ```rust
 #[test]
-fn test_bucket_rejects_21st_peer_when_full()
+fn test_bucket_rejects_21st_peer_when_full_and_all_alive()
 // Verify: INVARIANT-1 (bucket size ≤ 20)
+// Scenario: Fill bucket with 20 peers, all respond to PING
+// Assert: 21st peer is REJECTED, bucket remains at 20
 
 #[test]
-fn test_bucket_replaces_least_recently_seen_peer()
-// Verify: When bucket full, new peer replaces oldest
+fn test_bucket_prefers_stable_peers_over_new_peers()
+// Verify: INVARIANT-10 (Eviction-on-Failure) - Eclipse Attack Defense
+// Scenario: Fill bucket with 20 peers. Add 21st peer.
+// Action: Simulate "Oldest Peer is ALIVE" (responds to PING challenge)
+// Assert: 21st peer is REJECTED
+// Assert: Oldest peer remains in bucket and is moved to front (most recent)
+// Rationale: Stable peers are more valuable than new peers
+
+#[test]
+fn test_bucket_evicts_dead_peers_for_new_peers()
+// Verify: INVARIANT-10 (Eviction-on-Failure) - Dead peer replacement
+// Scenario: Fill bucket with 20 peers. Add 21st peer.
+// Action: Simulate "Oldest Peer is DEAD" (times out on PING challenge)
+// Assert: Oldest peer is EVICTED
+// Assert: 21st peer is INSERTED
+// Rationale: Only replace peers that are actually gone
+
+#[test]
+fn test_bucket_challenge_in_progress_rejects_additional_candidates()
+// Verify: Only ONE pending_insertion per bucket at a time
+// Scenario: Bucket full, peer A triggers challenge, peer B arrives during challenge
+// Assert: Peer B is immediately rejected (challenge already in progress)
 
 #[test]
 fn test_bucket_rejects_peer_if_banned()
@@ -697,6 +976,106 @@ fn test_cannot_add_banned_peer_to_routing_table()
 // Verify: add_peer fails with PeerDiscoveryError::PeerBanned
 ```
 
+#### Test Group 6: Pending Verification Staging (DDoS Edge Defense)
+
+```rust
+#[test]
+fn test_new_peer_goes_to_pending_verification_first()
+// Verify: INVARIANT-7 - new peer enters staging, not buckets
+
+#[test]
+fn test_peer_moves_to_buckets_after_identity_valid_true()
+// Verify: On NodeIdentityVerificationResult with identity_valid=true,
+//         peer moves from pending_verification to appropriate bucket
+
+#[test]
+fn test_peer_silently_dropped_on_identity_valid_false()
+// Verify: On identity_valid=false, peer removed from pending_verification
+//         WITHOUT being added to banned_peers (IP spoofing defense)
+
+#[test]
+fn test_pending_peer_times_out_after_deadline()
+// Verify: INVARIANT-8 - peer removed if verification not received in time
+
+#[test]
+fn test_invalid_signature_does_not_trigger_ban()
+// Verify: BanReason::InvalidSignature removed; bad sig = silent drop only
+```
+
+#### Test Group 7: Bounded Staging (Memory Bomb Defense - V2.3)
+
+```rust
+#[test]
+fn test_staging_area_rejects_peer_when_at_capacity()
+// Verify: INVARIANT-9 - when pending_verification.len() == max_pending_peers,
+//         add_peer returns Err(StagingAreaFull) and does NOT allocate memory
+
+#[test]
+fn test_staging_area_uses_tail_drop_not_eviction()
+// Verify: When staging is full, existing pending peers are NOT evicted
+//         New peer is dropped, not existing ones (prioritize honest work)
+
+#[test]
+fn test_staging_area_accepts_peer_below_capacity()
+// Verify: When pending_verification.len() < max_pending_peers,
+//         add_peer succeeds and peer enters staging
+
+#[test]
+fn test_staging_area_capacity_freed_after_verification_complete()
+// Verify: After identity_valid received (true or false), staging slot is freed
+//         New peers can now be accepted
+
+#[test]
+fn test_staging_area_capacity_freed_after_timeout()
+// Verify: After verification_deadline passes, staging slot is freed via GC
+
+#[test]
+fn test_get_stats_reports_pending_verification_count()
+// Verify: RoutingTableStats.pending_verification_count matches actual count
+//         and max_pending_peers matches config
+```
+
+#### Test Group 8: Eviction-on-Failure (Eclipse Attack Defense - V2.4)
+
+```rust
+#[test]
+fn test_eviction_challenge_is_sent_when_bucket_full()
+// Verify: When bucket is full and new verified peer arrives,
+//         a PING challenge is sent to the oldest peer (not immediate eviction)
+
+#[test]
+fn test_alive_peer_is_moved_to_front_after_challenge()
+// Verify: INVARIANT-10 - When oldest peer responds to PING,
+//         it is moved to front of bucket (most recently seen)
+
+#[test]
+fn test_new_peer_rejected_when_oldest_is_alive()
+// Verify: INVARIANT-10 - Stable peers preferred over new peers
+// This is the core Eclipse Attack defense
+
+#[test]
+fn test_dead_peer_evicted_after_challenge_timeout()
+// Verify: INVARIANT-10 - When oldest peer fails to respond within 5s,
+//         it is evicted and new peer is inserted
+
+#[test]
+fn test_challenge_timeout_is_configurable()
+// Verify: Challenge deadline can be configured (default: 5 seconds)
+
+#[test]
+fn test_only_one_pending_insertion_per_bucket()
+// Verify: If challenge already in progress, new candidates are rejected
+//         Prevents memory exhaustion via pending_insertion flooding
+
+#[test]
+fn test_table_poisoning_attack_is_blocked()
+// Verify: Attacker cannot flush 20 honest peers by connecting 20 new nodes
+// Scenario: 
+//   1. Fill bucket with 20 "honest" peers (all respond to PING)
+//   2. Attacker sequentially tries to add 20 "malicious" peers
+// Assert: All 20 honest peers remain; all 20 malicious peers rejected
+```
+
 ### 5.2 Integration Tests (Port Contracts)
 
 ```rust
@@ -741,7 +1120,30 @@ fn test_config_provider_loads_bootstrap_nodes()
 
 **Threat:** Attacker isolates victim by controlling all its connections.
 
-**Mitigations:**
+**Attack Vector (Table Poisoning):**
+```
+1. Attacker identifies target node
+2. Attacker connects 20 malicious nodes to target's bucket
+3. With "Naive Eviction" (VULNERABLE): Each new node evicts oldest honest peer
+4. Result: Bucket filled with 100% attacker-controlled nodes
+5. Attacker can now censor transactions, feed false chain data, etc.
+```
+
+**Defense: Eviction-on-Failure (V2.4 - INVARIANT-10)**
+
+| Step | Action | Outcome |
+|------|--------|---------|
+| 1 | Attacker's node arrives, bucket is full | Challenge sent to oldest peer |
+| 2 | Oldest honest peer receives PING | Responds with PONG |
+| 3 | Oldest peer is ALIVE | Attacker's node is REJECTED |
+| 4 | Oldest peer moved to front | Now "most recently seen" |
+
+**Why This Works:**
+- Honest peers that are online CANNOT be displaced
+- Attacker must wait for honest peers to naturally go offline
+- 20-node attack requires 20 honest peers to die → infeasible against healthy network
+
+**Additional Mitigations:**
 1. **Bootstrap Node Diversity:** Require connections to multiple bootstrap nodes from different entities
 2. **Outbound Connection Limits:** Maintain at least 8 outbound connections to random peers
 3. **Random Peer Selection:** Don't only connect to "closest" peers (deterministic → vulnerable)
@@ -752,16 +1154,25 @@ fn test_config_provider_loads_bootstrap_nodes()
 - **Routing Table Size:** 256 buckets × 20 peers = **5,120 peers maximum**
 - **Memory Per Peer:** ~128 bytes (NodeId + SocketAddr + metadata)
 - **Total Memory:** ~640 KB for routing table (acceptable)
+- **Pending Verification (V2.3):** max_pending_peers × ~128 bytes = **~128 KB maximum**
 
 **Enforcement:**
 ```rust
 const MAX_TOTAL_PEERS: usize = 5120;
 
 fn add_peer(&mut self, peer: PeerInfo) -> Result<bool, PeerDiscoveryError> {
+    // V2.3: Check staging area capacity FIRST (Memory Bomb Defense)
+    // This check is O(1) and prevents ANY memory allocation if staging is full
+    if self.pending_verification.len() >= self.config.max_pending_peers {
+        // Tail Drop: Immediately reject, do not allocate, do not evict
+        log::debug!("Staging area full, dropping incoming peer request");
+        return Err(PeerDiscoveryError::StagingAreaFull);
+    }
+    
     if self.total_peer_count() >= MAX_TOTAL_PEERS {
         return Err(PeerDiscoveryError::RoutingTableFull);
     }
-    // ... rest of logic
+    // ... rest of logic (stage in pending_verification)
 }
 ```
 
@@ -771,7 +1182,42 @@ fn add_peer(&mut self, peer: PeerInfo) -> Result<bool, PeerDiscoveryError> {
 
 **Implementation Note:** This is handled by the `NetworkSocket` adapter, not domain logic.
 
-### 6.5 Panic Policy
+### 6.5 Memory Bomb Defense (V2.3)
+
+**Threat:** Attacker floods node with connection requests faster than signatures can be verified, exhausting memory.
+
+**Attack Vector:**
+```
+Attacker sends 100,000 connection requests per second.
+Each request creates a PendingPeer (~128 bytes) in staging area.
+Without bounds: 100K × 128 bytes = 12.8 MB/second memory growth.
+Node runs out of memory within minutes → crash → network partition.
+```
+
+**Defense: Bounded Staging with Tail Drop (INVARIANT-9)**
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| `max_pending_peers` | 1024 (default) | ~128 KB max memory |
+| Strategy | Tail Drop | Prioritize existing honest work |
+| Eviction | NONE | Attackers cannot flush legitimate peers |
+
+**Why Tail Drop, Not Eviction:**
+- **Eviction** (remove oldest to make room) allows attacker to flush honest peers
+- **Tail Drop** (reject new when full) preserves peers already being verified
+- Honest peers who arrived first get verified first (fair)
+- Attacker cannot disrupt in-progress verifications
+
+**Implementation:**
+```rust
+// CRITICAL: This check MUST be the FIRST operation in add_peer()
+// It is O(1) and prevents ANY memory allocation on the hot path
+if self.pending_verification.len() >= self.config.max_pending_peers {
+    return Err(PeerDiscoveryError::StagingAreaFull);
+}
+```
+
+### 6.6 Panic Policy
 
 **Principle:** This library must NEVER panic in production.
 
@@ -835,11 +1281,15 @@ let peer = self.buckets
 
 ### Phase 1: Domain Logic (Pure)
 - [ ] Implement `NodeId` type with XOR distance calculation
-- [ ] Implement `KBucket` with size limit enforcement
-- [ ] Implement `RoutingTable` with all invariants
+- [ ] Implement `KBucket` with size limit enforcement and `PendingInsertion` for challenges
+- [ ] Implement `PendingPeer` staging area for unverified peers
+- [ ] Implement `RoutingTable` with all invariants (INVARIANT-7 through INVARIANT-10)
+- [ ] Implement bounded staging with Tail Drop (max_pending_peers check in add_peer)
+- [ ] Implement Eviction-on-Failure challenge flow (V2.4 Eclipse Attack Defense)
 - [ ] Implement `find_closest_peers` algorithm
 - [ ] Implement `BannedPeers` with expiration logic
-- [ ] Write all TDD tests from Section 5.1
+- [ ] Implement silent drop logic for failed signature verification (NO ban)
+- [ ] Write all TDD tests from Section 5.1 (including Test Groups 6, 7, and 8)
 
 ### Phase 2: Port Definitions
 - [ ] Define `PeerDiscoveryApi` trait
