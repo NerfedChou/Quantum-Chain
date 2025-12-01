@@ -1,13 +1,12 @@
 # SPECIFICATION: BLOCK STORAGE ENGINE
 
-**Version:** 1.1  
+**Version:** 2.2  
 **Subsystem ID:** 2  
 **Bounded Context:** Persistence & Data Reliability  
 **Crate Name:** `crates/block-storage`  
 **Author:** Systems Architecture Team  
 **Date:** 2024-12-01  
-**Architecture Compliance:** Architecture.md v1.1, IPC-MATRIX.md, System.md  
-**Revision Notes:** v1.1 - Enforced single source of truth for block writes (Consensus only), removed invalid WriteMerkleRoot/WriteStateRoot handlers, moved shared types to shared-types crate, added batch read capability
+**Architecture Compliance:** Architecture.md v2.2 (Choreography Pattern, Stateful Assembler, Envelope-Only Identity, Deterministic Failure Awareness)
 
 ---
 
@@ -36,11 +35,33 @@ The **Block Storage Engine** subsystem is the system's authoritative source of t
 - Network I/O or peer communication
 - Any business logic validation on block contents
 
-**CRITICAL DESIGN CONSTRAINT:**
-- Block writes are triggered ONLY by `WriteBlockRequest` from Subsystem 8 (Consensus)
-- The `WriteBlockRequest` is a **complete package** containing: `ValidatedBlock`, `merkle_root`, and `state_root`
-- This subsystem does NOT accept separate `WriteMerkleRootRequest` or `WriteStateRootRequest` messages
-- Consensus is the single orchestrator that assembles all components before requesting storage
+**CRITICAL DESIGN CONSTRAINT (V2.2 Choreography Pattern):**
+
+This subsystem operates as a **Stateful Assembler** within an event-driven choreography. 
+It does NOT receive a pre-assembled "complete package" from any orchestrator.
+
+**Architecture Mandate (Architecture.md v2.2, Section 5.1):**
+- The V2.2 architecture REJECTS the "Orchestrator" pattern where a single subsystem 
+  assembles all components before storage.
+- Instead, each subsystem publishes its results independently to the event bus.
+- Block Storage subscribes to multiple event streams and assembles the components itself.
+
+**Stateful Assembler Behavior:**
+1. Subscribe to THREE independent events (no single orchestrator):
+   - `BlockValidated` from Subsystem 8 (Consensus)
+   - `MerkleRootComputed` from Subsystem 3 (Transaction Indexing)  
+   - `StateRootComputed` from Subsystem 4 (State Management)
+   
+2. Buffer incoming components by `block_hash` key until all three arrive
+
+3. When all three components are present for a given `block_hash`:
+   - Perform atomic write of the complete block
+   - Emit `BlockStored` event
+   - Clear the assembly buffer entry
+
+4. Implement Assembly Timeout (resource exhaustion defense):
+   - Incomplete assemblies are purged after 30 seconds
+   - This prevents memory exhaustion from orphaned partial blocks
 
 ### 1.3 Key Design Principles
 
@@ -51,22 +72,23 @@ The **Block Storage Engine** subsystem is the system's authoritative source of t
 
 ### 1.4 Trust Model
 
-This subsystem operates within a strict trust boundary:
+This subsystem operates within a strict trust boundary under the V2.2 Choreography Pattern:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    TRUST BOUNDARY                           │
+│                    TRUST BOUNDARY (V2.2)                    │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  TRUSTED WRITE INPUTS (via AuthenticatedMessage envelope):  │
-│  ├─ Subsystem 8 (Consensus) → WriteBlockRequest             │
-│  │   (ONLY source for block writes - contains complete      │
-│  │    package: ValidatedBlock + merkle_root + state_root)   │
-│  └─ Subsystem 9 (Finality) → MarkFinalizedRequest           │
+│  TRUSTED EVENT INPUTS (via AuthenticatedMessage envelope):  │
+│  ├─ Subsystem 8 (Consensus) → BlockValidated event         │
+│  ├─ Subsystem 3 (Tx Indexing) → MerkleRootComputed event   │
+│  ├─ Subsystem 4 (State Mgmt) → StateRootComputed event     │
+│  └─ Subsystem 9 (Finality) → MarkFinalized request         │
 │                                                             │
-│  EXPLICITLY NOT ACCEPTED:                                   │
-│  ├─ WriteMerkleRootRequest (INVALID - removed from spec)    │
-│  └─ WriteStateRootRequest (INVALID - removed from spec)     │
+│  CHOREOGRAPHY PATTERN (V2.2 Mandate):                       │
+│  ├─ NO single orchestrator assembles the complete package   │
+│  ├─ Block Storage buffers components by block_hash         │
+│  └─ Atomic write when all 3 components arrive              │
 │                                                             │
 │  READ ACCESS:                                               │
 │  └─ Any authorized subsystem (read-only, no trust needed)   │
@@ -186,7 +208,99 @@ pub struct StorageMetadata {
 }
 ```
 
-### 2.4 Value Objects
+### 2.4 Stateful Assembler Structures (V2.2 Choreography)
+
+These structures implement the "Stateful Assembler" pattern mandated by Architecture.md v2.2.
+Block Storage buffers incoming event components until all three are present, then performs
+an atomic write.
+
+```rust
+use std::collections::HashMap;
+
+/// Buffer for assembling block components from multiple subsystems.
+/// 
+/// ARCHITECTURE (V2.2 Choreography Pattern):
+/// Unlike the rejected "Orchestrator" pattern where Consensus would assemble
+/// a complete package, this subsystem receives THREE independent events:
+/// - BlockValidated (from Consensus)
+/// - MerkleRootComputed (from Transaction Indexing)
+/// - StateRootComputed (from State Management)
+/// 
+/// Each event may arrive in any order. This buffer holds partial assemblies
+/// until all components are present.
+/// 
+/// SECURITY (Resource Exhaustion Defense):
+/// Entries are purged after `assembly_timeout_secs` to prevent memory exhaustion
+/// from orphaned partial blocks (e.g., if one subsystem fails to emit its event).
+pub struct BlockAssemblyBuffer {
+    /// Pending assemblies keyed by block_hash
+    pending: HashMap<Hash, PendingBlockAssembly>,
+    /// Configuration for assembly behavior
+    config: AssemblyConfig,
+}
+
+/// A partial block assembly awaiting completion
+#[derive(Debug, Clone)]
+pub struct PendingBlockAssembly {
+    /// Block hash (key for this assembly)
+    pub block_hash: Hash,
+    /// Block height for ordering
+    pub block_height: u64,
+    /// When this assembly was first started (for timeout)
+    pub started_at: Timestamp,
+    /// The validated block (from Consensus, Subsystem 8)
+    pub validated_block: Option<ValidatedBlock>,
+    /// Correlation ID from BlockValidated event (for tracing)
+    pub block_correlation_id: Option<[u8; 16]>,
+    /// Merkle root of transactions (from Tx Indexing, Subsystem 3)
+    pub merkle_root: Option<Hash>,
+    /// Correlation ID from MerkleRootComputed event
+    pub merkle_correlation_id: Option<[u8; 16]>,
+    /// State root after execution (from State Management, Subsystem 4)
+    pub state_root: Option<Hash>,
+    /// Correlation ID from StateRootComputed event
+    pub state_correlation_id: Option<[u8; 16]>,
+}
+
+impl PendingBlockAssembly {
+    /// Check if all three components are present
+    pub fn is_complete(&self) -> bool {
+        self.validated_block.is_some() 
+            && self.merkle_root.is_some() 
+            && self.state_root.is_some()
+    }
+    
+    /// Check if this assembly has timed out
+    pub fn is_expired(&self, now: Timestamp, timeout_secs: u64) -> bool {
+        now.0.saturating_sub(self.started_at.0) > timeout_secs
+    }
+}
+
+/// Configuration for the assembly buffer
+#[derive(Debug, Clone)]
+pub struct AssemblyConfig {
+    /// Maximum time to wait for all components before purging (default: 30 seconds)
+    /// 
+    /// SECURITY: This prevents memory exhaustion from orphaned partial blocks.
+    /// If a subsystem fails to emit its event, the partial assembly is cleaned up.
+    pub assembly_timeout_secs: u64,
+    /// Maximum number of pending assemblies (default: 1000)
+    /// 
+    /// SECURITY: Bounds memory usage. If exceeded, oldest entries are purged.
+    pub max_pending_assemblies: usize,
+}
+
+impl Default for AssemblyConfig {
+    fn default() -> Self {
+        Self {
+            assembly_timeout_secs: 30,
+            max_pending_assemblies: 1000,
+        }
+    }
+}
+```
+
+### 2.5 Value Objects
 
 ```rust
 /// Configuration for the storage engine
@@ -200,6 +314,8 @@ pub struct StorageConfig {
     pub max_block_size: usize,
     /// Compaction strategy
     pub compaction_strategy: CompactionStrategy,
+    /// Assembly buffer configuration (V2.2 Choreography)
+    pub assembly_config: AssemblyConfig,
 }
 
 impl Default for StorageConfig {
@@ -209,6 +325,7 @@ impl Default for StorageConfig {
             verify_checksums: true,
             max_block_size: 10 * 1024 * 1024, // 10 MB
             compaction_strategy: CompactionStrategy::LeveledCompaction,
+            assembly_config: AssemblyConfig::default(),
         }
     }
 }
@@ -242,7 +359,7 @@ impl KeyPrefix {
 }
 ```
 
-### 2.5 Domain Invariants
+### 2.6 Domain Invariants
 
 **INVARIANT-1: Sequential Blocks (Parent Chain Continuity)**
 ```
@@ -288,6 +405,29 @@ Finalization cannot regress.
 ```
 Once StorageMetadata.genesis_hash is set:
     StorageMetadata.genesis_hash NEVER changes
+```
+
+**INVARIANT-7: Assembly Timeout (V2.2 Resource Exhaustion Defense)**
+```
+∀ pending_assembly A in BlockAssemblyBuffer:
+    IF now - A.started_at > assembly_timeout_secs THEN
+        A is PURGED from buffer
+        Log warning with block_hash for debugging
+        
+RATIONALE:
+    - Prevents memory exhaustion from orphaned partial blocks
+    - If one of the three subsystems fails to emit, assembly is cleaned up
+    - Default timeout: 30 seconds (configurable)
+```
+
+**INVARIANT-8: Bounded Assembly Buffer (V2.2 Memory Safety)**
+```
+ALWAYS: pending_assemblies.len() ≤ max_pending_assemblies (default: 1000)
+
+ENFORCEMENT:
+    IF pending_assemblies.len() >= max_pending_assemblies THEN
+        Purge OLDEST incomplete assembly (by started_at)
+        Log warning with purged block_hash
 ```
 
 ---
@@ -509,33 +649,85 @@ pub struct SerializationError {
 
 **IMPORTANT:** All events in this section are **payloads** within the `AuthenticatedMessage<T>` envelope defined in Architecture.md Section 3.2. They are NOT standalone structs. Every IPC message MUST include the mandatory envelope fields: `version`, `correlation_id`, `reply_to`, `sender_id`, `recipient_id`, `timestamp`, `nonce`, and `signature`.
 
-### 4.1 Incoming Request Payloads
+**SECURITY (Envelope-Only Identity - Architecture.md v2.2 Amendment 3.2.1):**
+All payloads in this section contain NO identity fields (e.g., `requester_id`, `sender_id`).
+The sender's identity is derived SOLELY from the `AuthenticatedMessage` envelope's `sender_id`
+field, which is cryptographically signed. This prevents "Payload Impersonation" attacks.
 
-These are the payload types (`T` in `AuthenticatedMessage<T>`) that Block Storage accepts:
+### 4.1 Incoming Event Subscriptions (V2.2 Choreography Pattern)
+
+**ARCHITECTURAL MANDATE:** This subsystem does NOT listen for a single `WriteBlockRequest`.
+Instead, it subscribes to THREE independent event streams per the V2.2 Choreography Pattern.
+Each event may arrive in any order; the Stateful Assembler buffers them by `block_hash`.
+
+```rust
+/// Events this subsystem SUBSCRIBES TO (not requests, but published events)
+/// 
+/// CHOREOGRAPHY PATTERN (V2.2 - Architecture.md Section 5.1):
+/// Block Storage assembles blocks from three independent event streams.
+/// There is NO orchestrator - each subsystem publishes independently.
+/// 
+/// SECURITY (Envelope-Only Identity):
+/// Sender identity is derived from envelope.sender_id only.
+/// These payloads contain NO identity fields.
+
+// ============================================================
+// EVENT 1: BlockValidated (from Consensus, Subsystem 8)
+// ============================================================
+
+/// Published by Consensus when a block passes validation.
+/// Block Storage buffers this until MerkleRootComputed and StateRootComputed arrive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockValidatedPayload {
+    /// The consensus-validated block
+    pub block: ValidatedBlock,
+    /// Block hash for correlation with other events
+    pub block_hash: Hash,
+    /// Block height for ordering
+    pub block_height: u64,
+}
+
+// ============================================================
+// EVENT 2: MerkleRootComputed (from Transaction Indexing, Subsystem 3)
+// ============================================================
+
+/// Published by Transaction Indexing when Merkle tree is computed.
+/// Block Storage buffers this until BlockValidated and StateRootComputed arrive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MerkleRootComputedPayload {
+    /// Block hash to correlate with other components
+    pub block_hash: Hash,
+    /// The computed Merkle root of transactions
+    pub merkle_root: Hash,
+}
+
+// ============================================================
+// EVENT 3: StateRootComputed (from State Management, Subsystem 4)
+// ============================================================
+
+/// Published by State Management after state transitions are applied.
+/// Block Storage buffers this until BlockValidated and MerkleRootComputed arrive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateRootComputedPayload {
+    /// Block hash to correlate with other components
+    pub block_hash: Hash,
+    /// The state root after executing this block
+    pub state_root: Hash,
+}
+```
+
+### 4.2 Incoming Request Payloads
+
+These are request payloads (requiring a response) that Block Storage handles:
 
 ```rust
 /// Request payloads this subsystem handles
 /// 
-/// CRITICAL: These payloads arrive wrapped in AuthenticatedMessage<T>.
-/// The envelope's correlation_id and reply_to fields MUST be used for responses.
-/// 
-/// SINGLE SOURCE OF TRUTH: Block writes are ONLY triggered by WriteBlockRequest
-/// from Consensus. There are NO separate WriteMerkleRoot or WriteStateRoot messages.
+/// SECURITY (Envelope-Only Identity - V2.2):
+/// These payloads contain NO identity fields. Sender identity
+/// is derived from the AuthenticatedMessage envelope only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockStorageRequestPayload {
-    /// Write a validated block to storage (COMPLETE PACKAGE)
-    /// 
-    /// Allowed sender: Subsystem 8 (Consensus) ONLY
-    /// 
-    /// This is the ONLY way to write a block. The request contains:
-    /// - ValidatedBlock (the consensus-validated block)
-    /// - merkle_root (computed by Subsystem 3, assembled by Consensus)
-    /// - state_root (computed by Subsystem 4, assembled by Consensus)
-    /// 
-    /// Consensus is responsible for orchestrating the collection of all
-    /// components before requesting storage.
-    WriteBlock(WriteBlockRequestPayload),
-    
     /// Mark a block as finalized
     /// Allowed sender: Subsystem 9 (Finality) ONLY
     MarkFinalized(MarkFinalizedRequestPayload),
@@ -549,35 +741,27 @@ pub enum BlockStorageRequestPayload {
     ReadBlockRange(ReadBlockRangeRequestPayload),
 }
 
-// ============================================================
-// NOTE: The following message types are EXPLICITLY NOT DEFINED
-// because they violate the single-source-of-truth principle:
-//
-// - WriteMerkleRootRequest (INVALID - merkle_root comes via WriteBlockRequest)
-// - WriteStateRootRequest (INVALID - state_root comes via WriteBlockRequest)
-//
-// Consensus (Subsystem 8) is the single orchestrator that assembles
-// the complete block package before requesting storage.
-// ============================================================
-
-/// Write block request from Consensus (COMPLETE PACKAGE)
-/// 
-/// This contains ALL data needed to store a block atomically.
-/// Consensus has already collected the merkle_root from Transaction Indexing
-/// and the state_root from State Management before sending this request.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WriteBlockRequestPayload {
-    /// The consensus-validated block (from shared-types)
-    pub block: ValidatedBlock,
-    /// Merkle root of transactions (Consensus received this from Subsystem 3)
-    pub merkle_root: Hash,
-    /// State root after execution (Consensus received this from Subsystem 4)
-    pub state_root: Hash,
-}
-
 /// Mark finalized request from Finality subsystem
 /// 
-/// FinalityProof is from shared-types crate
+/// SECURITY (Envelope-Only Identity): No requester_id field.
+/// Sender verified via envelope.sender_id.
+/// 
+/// ARCHITECTURAL CONTEXT (Finality Liveness - V2.2):
+/// The Finality subsystem (Subsystem 9) uses a deterministic circuit breaker
+/// as defined in Architecture.md Section 5.4.1. If the Finality subsystem
+/// enters a HALTED state (after exceeding the maximum failed sync attempts),
+/// this MarkFinalizedRequest will CEASE to be emitted until the node is
+/// manually recovered. 
+/// 
+/// Operators diagnosing "blocks not being finalized" should check:
+/// 1. Finality subsystem circuit breaker state
+/// 2. Finality sync attempt counters
+/// 3. Network connectivity to other validators
+/// 
+/// The circuit breaker triggers are deterministic and testable:
+/// - Consecutive failures threshold (configurable)
+/// - Time-based failure window
+/// - Manual reset required after HALTED state
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkFinalizedRequestPayload {
     pub block_height: u64,
@@ -586,6 +770,8 @@ pub struct MarkFinalizedRequestPayload {
 }
 
 /// Read block request (requires response via correlation_id)
+/// 
+/// SECURITY (Envelope-Only Identity): No requester_id field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadBlockRequestPayload {
     /// Read by hash or by height
@@ -593,6 +779,8 @@ pub struct ReadBlockRequestPayload {
 }
 
 /// Read block range request for efficient batch reads (node syncing)
+/// 
+/// SECURITY (Envelope-Only Identity): No requester_id field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadBlockRangeRequestPayload {
     /// First block height to read (inclusive)
@@ -611,7 +799,7 @@ pub enum BlockQuery {
 // They are NOT redefined here to maintain single source of truth
 ```
 
-### 4.2 Outgoing Event Payloads
+### 4.3 Outgoing Event Payloads
 
 These are the payload types that Block Storage publishes:
 
@@ -620,9 +808,11 @@ These are the payload types that Block Storage publishes:
 /// 
 /// USAGE: These are payloads wrapped in AuthenticatedMessage<T>.
 /// Example: AuthenticatedMessage<BlockStoredPayload>
+/// 
+/// SECURITY (Envelope-Only Identity): No identity fields in payloads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockStorageEventPayload {
-    /// A block was successfully stored
+    /// A block was successfully stored (all 3 components assembled)
     BlockStored(BlockStoredPayload),
     
     /// A block was marked as finalized
@@ -636,9 +826,17 @@ pub enum BlockStorageEventPayload {
     
     /// Critical storage error occurred
     StorageCritical(StorageCriticalPayload),
+    
+    /// Assembly timeout warning (V2.2 - partial block purged)
+    AssemblyTimeout(AssemblyTimeoutPayload),
 }
 
 /// Emitted when a block is successfully written
+/// 
+/// V2.2: This is emitted only after ALL THREE components are assembled:
+/// - BlockValidated from Consensus (8)
+/// - MerkleRootComputed from Transaction Indexing (3)
+/// - StateRootComputed from State Management (4)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockStoredPayload {
     pub block_height: u64,
@@ -716,9 +914,206 @@ pub enum CriticalErrorType {
     /// Unrecoverable I/O error
     IOFailure,
 }
+
+/// Emitted when a partial block assembly times out (V2.2 Choreography)
+/// 
+/// This indicates that one or more of the three required events
+/// (BlockValidated, MerkleRootComputed, StateRootComputed) did not arrive
+/// within the assembly timeout window.
+/// 
+/// This may indicate:
+/// - A subsystem failure (Consensus, TxIndexing, or StateManagement)
+/// - Network partition between subsystems
+/// - Event bus delivery failure
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssemblyTimeoutPayload {
+    /// Block hash of the incomplete assembly
+    pub block_hash: Hash,
+    /// Block height (if BlockValidated was received)
+    pub block_height: Option<u64>,
+    /// Which components were present at timeout
+    pub had_validated_block: bool,
+    pub had_merkle_root: bool,
+    pub had_state_root: bool,
+    /// How long the assembly was pending
+    pub pending_duration_secs: u64,
+    /// Timestamp of purge
+    pub purged_at: Timestamp,
+}
 ```
 
-### 4.3 Request/Response Flow Example (ReadBlock)
+### 4.4 Stateful Assembler Event Handling (V2.2 Choreography)
+
+This section describes how Block Storage handles the three incoming events and assembles them into a complete block:
+
+```rust
+impl BlockStorage {
+    /// Handle incoming BlockValidated event from Consensus (Subsystem 8)
+    async fn handle_block_validated(
+        &mut self,
+        msg: AuthenticatedMessage<BlockValidatedPayload>
+    ) -> Result<(), Error> {
+        // Step 1: Validate envelope (version, signature, timestamp)
+        self.verify_envelope(&msg)?;
+        
+        // Step 2: Verify sender is Consensus (Subsystem 8)
+        if msg.sender_id != SubsystemId::Consensus {
+            return Err(Error::UnauthorizedSender { 
+                sender: msg.sender_id,
+                expected: SubsystemId::Consensus,
+            });
+        }
+        
+        // Step 3: Get or create pending assembly for this block_hash
+        let assembly = self.assembly_buffer
+            .entry(msg.payload.block_hash)
+            .or_insert_with(|| PendingBlockAssembly {
+                block_hash: msg.payload.block_hash,
+                block_height: msg.payload.block_height,
+                started_at: self.time_source.now(),
+                validated_block: None,
+                block_correlation_id: None,
+                merkle_root: None,
+                merkle_correlation_id: None,
+                state_root: None,
+                state_correlation_id: None,
+            });
+        
+        // Step 4: Store the validated block component
+        assembly.validated_block = Some(msg.payload.block.clone());
+        assembly.block_correlation_id = Some(msg.correlation_id);
+        
+        // Step 5: Check if assembly is now complete
+        self.try_complete_assembly(msg.payload.block_hash).await
+    }
+    
+    /// Handle incoming MerkleRootComputed event from Transaction Indexing (Subsystem 3)
+    async fn handle_merkle_root_computed(
+        &mut self,
+        msg: AuthenticatedMessage<MerkleRootComputedPayload>
+    ) -> Result<(), Error> {
+        self.verify_envelope(&msg)?;
+        
+        if msg.sender_id != SubsystemId::TransactionIndexing {
+            return Err(Error::UnauthorizedSender { 
+                sender: msg.sender_id,
+                expected: SubsystemId::TransactionIndexing,
+            });
+        }
+        
+        let assembly = self.assembly_buffer
+            .entry(msg.payload.block_hash)
+            .or_insert_with(|| PendingBlockAssembly::new_empty(
+                msg.payload.block_hash, 
+                self.time_source.now()
+            ));
+        
+        assembly.merkle_root = Some(msg.payload.merkle_root);
+        assembly.merkle_correlation_id = Some(msg.correlation_id);
+        
+        self.try_complete_assembly(msg.payload.block_hash).await
+    }
+    
+    /// Handle incoming StateRootComputed event from State Management (Subsystem 4)
+    async fn handle_state_root_computed(
+        &mut self,
+        msg: AuthenticatedMessage<StateRootComputedPayload>
+    ) -> Result<(), Error> {
+        self.verify_envelope(&msg)?;
+        
+        if msg.sender_id != SubsystemId::StateManagement {
+            return Err(Error::UnauthorizedSender { 
+                sender: msg.sender_id,
+                expected: SubsystemId::StateManagement,
+            });
+        }
+        
+        let assembly = self.assembly_buffer
+            .entry(msg.payload.block_hash)
+            .or_insert_with(|| PendingBlockAssembly::new_empty(
+                msg.payload.block_hash, 
+                self.time_source.now()
+            ));
+        
+        assembly.state_root = Some(msg.payload.state_root);
+        assembly.state_correlation_id = Some(msg.correlation_id);
+        
+        self.try_complete_assembly(msg.payload.block_hash).await
+    }
+    
+    /// Attempt to complete assembly if all components are present
+    async fn try_complete_assembly(&mut self, block_hash: Hash) -> Result<(), Error> {
+        let assembly = match self.assembly_buffer.get(&block_hash) {
+            Some(a) if a.is_complete() => self.assembly_buffer.remove(&block_hash).unwrap(),
+            _ => return Ok(()), // Not yet complete, wait for more events
+        };
+        
+        // All three components present - perform atomic write
+        let validated_block = assembly.validated_block.unwrap();
+        let merkle_root = assembly.merkle_root.unwrap();
+        let state_root = assembly.state_root.unwrap();
+        
+        // Check disk space (INVARIANT-2)
+        self.check_disk_space()?;
+        
+        // Verify parent exists (INVARIANT-1)
+        self.verify_parent_exists(&validated_block)?;
+        
+        // Compute checksum and prepare StoredBlock
+        let stored_block = StoredBlock {
+            block: validated_block.clone(),
+            merkle_root,
+            state_root,
+            stored_at: self.time_source.now(),
+            checksum: self.compute_checksum(&validated_block, &merkle_root, &state_root),
+        };
+        
+        // Atomic batch write (INVARIANT-4)
+        let operations = self.prepare_write_operations(&stored_block)?;
+        self.kv_store.atomic_batch_write(operations)?;
+        
+        // Emit BlockStored event
+        self.emit_block_stored(assembly.block_height, block_hash, merkle_root, state_root).await
+    }
+    
+    /// Periodic garbage collection of timed-out assemblies (INVARIANT-7)
+    async fn gc_expired_assemblies(&mut self) {
+        let now = self.time_source.now();
+        let timeout = self.config.assembly_config.assembly_timeout_secs;
+        
+        let expired: Vec<Hash> = self.assembly_buffer
+            .iter()
+            .filter(|(_, a)| a.is_expired(now, timeout))
+            .map(|(h, _)| *h)
+            .collect();
+        
+        for block_hash in expired {
+            if let Some(assembly) = self.assembly_buffer.remove(&block_hash) {
+                // Emit warning event
+                self.emit_assembly_timeout(AssemblyTimeoutPayload {
+                    block_hash,
+                    block_height: assembly.validated_block.as_ref().map(|b| b.header.block_height),
+                    had_validated_block: assembly.validated_block.is_some(),
+                    had_merkle_root: assembly.merkle_root.is_some(),
+                    had_state_root: assembly.state_root.is_some(),
+                    pending_duration_secs: now.0.saturating_sub(assembly.started_at.0),
+                    purged_at: now,
+                }).await;
+                
+                log::warn!(
+                    "Assembly timeout: block_hash={:?}, had_block={}, had_merkle={}, had_state={}",
+                    block_hash,
+                    assembly.validated_block.is_some(),
+                    assembly.merkle_root.is_some(),
+                    assembly.state_root.is_some()
+                );
+            }
+        }
+    }
+}
+```
+
+### 4.5 Request/Response Flow Example (ReadBlock)
 
 Per Architecture.md Section 3.3, all request/response flows MUST use the correlation ID pattern. Here is the complete flow for reading a block:
 
@@ -1390,26 +1785,85 @@ fn test_serialization_roundtrip()
 // Assert: Result equals original
 ```
 
+#### Test Group 10: Stateful Assembler (V2.2 Choreography)
+
+```rust
+#[test]
+fn test_assembly_completes_when_all_three_events_arrive()
+// Verify: Choreography pattern - complete assembly
+// Setup: Send BlockValidated, MerkleRootComputed, StateRootComputed (any order)
+// Assert: Block is written and BlockStored event emitted
+
+#[test]
+fn test_assembly_buffers_partial_components()
+// Verify: Buffering of incomplete assemblies
+// Setup: Send only BlockValidated and MerkleRootComputed
+// Assert: Block is NOT written yet; assembly is buffered
+
+#[test]
+fn test_assembly_works_regardless_of_event_order()
+// Verify: Order independence
+// Setup: Send events in order: StateRootComputed, BlockValidated, MerkleRootComputed
+// Assert: Block is written correctly when third event arrives
+
+#[test]
+fn test_assembly_timeout_purges_incomplete_blocks()
+// Verify: INVARIANT-7 - timeout defense
+// Setup: Send only BlockValidated; wait > assembly_timeout_secs
+// Action: Trigger GC
+// Assert: Assembly is purged; AssemblyTimeout event emitted
+
+#[test]
+fn test_assembly_buffer_respects_max_pending_limit()
+// Verify: INVARIANT-8 - memory safety
+// Setup: Create max_pending_assemblies + 1 partial assemblies
+// Assert: Oldest assembly is purged; newest is accepted
+
+#[test]
+fn test_assembly_rejects_wrong_sender_for_block_validated()
+// Verify: Sender verification for choreography events
+// Setup: Send BlockValidated with sender_id != Consensus
+// Assert: Rejected with UnauthorizedSender
+
+#[test]
+fn test_assembly_rejects_wrong_sender_for_merkle_root()
+// Verify: Sender verification
+// Setup: Send MerkleRootComputed with sender_id != TransactionIndexing
+// Assert: Rejected with UnauthorizedSender
+
+#[test]
+fn test_assembly_rejects_wrong_sender_for_state_root()
+// Verify: Sender verification
+// Setup: Send StateRootComputed with sender_id != StateManagement
+// Assert: Rejected with UnauthorizedSender
+```
+
 ---
 
 ## 6. SECURITY & CONSTRAINTS
 
-### 6.1 Access Control Matrix
+### 6.1 Access Control Matrix (V2.2 Choreography Pattern)
+
+**Event Subscriptions (Choreography - Block Assembly):**
+
+| Event Type | Allowed Sender | Rejection Action |
+|------------|----------------|------------------|
+| BlockValidated | Subsystem 8 (Consensus) ONLY | Log warning + reject |
+| MerkleRootComputed | Subsystem 3 (Transaction Indexing) ONLY | Log warning + reject |
+| StateRootComputed | Subsystem 4 (State Management) ONLY | Log warning + reject |
+
+**Request/Response Handlers:**
 
 | Request Type | Allowed Sender(s) | Rejection Action |
 |--------------|-------------------|------------------|
-| WriteBlockRequest | Subsystem 8 (Consensus) ONLY | Log warning + reject |
 | MarkFinalizedRequest | Subsystem 9 (Finality) ONLY | Log warning + reject |
 | ReadBlockRequest | Any authorized subsystem | N/A (permissive) |
 | ReadBlockRangeRequest | Any authorized subsystem | N/A (permissive) |
 
-**EXPLICITLY NOT ACCEPTED (No handlers exist):**
-| Invalid Request Type | Reason |
-|---------------------|--------|
-| WriteMerkleRootRequest | merkle_root comes via WriteBlockRequest from Consensus |
-| WriteStateRootRequest | state_root comes via WriteBlockRequest from Consensus |
-
-**Design Rationale:** Consensus (Subsystem 8) is the single orchestrator that assembles the complete block package (ValidatedBlock + merkle_root + state_root) before requesting storage. This ensures atomicity and eliminates race conditions between multiple subsystems writing to storage.
+**V2.2 Architecture Mandate:**
+- There is NO `WriteBlockRequest` - the orchestrator pattern is REJECTED
+- Block Storage SUBSCRIBES to three independent events and ASSEMBLES them
+- This decentralized choreography ensures fault isolation and scalability
 
 ### 6.2 Trust Boundary Enforcement
 
@@ -1420,13 +1874,13 @@ fn test_serialization_roundtrip()
 // ❌ Execute smart contracts
 // ❌ Check consensus rules
 // ❌ Validate state transitions
-// ❌ Accept WriteMerkleRootRequest (invalid message type)
-// ❌ Accept WriteStateRootRequest (invalid message type)
 
 // This subsystem ONLY:
 // ✅ Verifies AuthenticatedMessage envelope (HMAC, timestamp, nonce)
-// ✅ Verifies sender_id matches allowed list per request type
-// ✅ Stores data it receives from authorized sources (Consensus, Finality)
+// ✅ Verifies sender_id matches expected source for each event type
+// ✅ Buffers incoming event components by block_hash
+// ✅ Performs atomic write when all 3 components arrive
+// ✅ Purges timed-out assemblies (resource exhaustion defense)
 // ✅ Verifies data integrity via checksums on read
 // ✅ Provides efficient batch reads for node syncing
 ```
@@ -1515,24 +1969,32 @@ crc32c = "0.6"
 ### 7.3 References
 
 - **IPC Matrix Document:** Section "SUBSYSTEM 2: BLOCK STORAGE ENGINE"
-- **Architecture Document:** 
+- **Architecture Document (V2.2):** 
     - Section 3.2 (AuthenticatedMessage envelope)
+    - Section 3.2.1 (Envelope as Sole Source of Truth - V2.2 Security Mandate)
     - Section 3.3 (Request/Response Correlation Pattern)
     - Section 3.4 (Message Versioning Protocol)
+    - Section 5.1 (Block Validation Flow - Event-Driven Choreography)
     - Section 5.3 (Dead Letter Queue Strategy)
+    - Section 5.4.1 (Deterministic Trigger Conditions - Finality Circuit Breaker)
     - Section 4.1 (Subsystem Catalog - Block Storage)
 
 ### 7.4 Related Specifications
 
-- **SPEC-08-CONSENSUS.md** (provides validated blocks WITH merkle_root AND state_root to this subsystem)
+- **SPEC-08-CONSENSUS.md** (publishes BlockValidated events to event bus)
 - **SPEC-09-FINALITY.md** (triggers finalization in this subsystem)
-- **SPEC-03-TRANSACTION-INDEXING.md** (provides Merkle roots to Consensus, not directly to Storage)
-- **SPEC-04-STATE-MANAGEMENT.md** (provides state roots to Consensus, not directly to Storage)
+- **SPEC-03-TRANSACTION-INDEXING.md** (publishes MerkleRootComputed events to event bus)
+- **SPEC-04-STATE-MANAGEMENT.md** (publishes StateRootComputed events to event bus)
 
-**Data Flow Clarification:**
+**Data Flow (V2.2 Choreography Pattern):**
 ```
-Transaction Indexing (3) ──merkle_root──→ Consensus (8) ──WriteBlockRequest──→ Block Storage (2)
-State Management (4) ────state_root────→ Consensus (8) ──(complete package)──→ Block Storage (2)
+Consensus (8) ────BlockValidated────→ [Event Bus] ──→ Block Storage (2)
+                                                         │
+Tx Indexing (3) ──MerkleRootComputed──→ [Event Bus] ──→ │ (Stateful Assembler)
+                                                         │
+State Mgmt (4) ───StateRootComputed───→ [Event Bus] ──→ │
+                                                         ↓
+                                              [Atomic Write when all 3 present]
 ```
 
 ---
@@ -1544,10 +2006,11 @@ State Management (4) ────state_root────→ Consensus (8) ──(
 - [ ] Implement `StoredBlock` with checksum computation (domain-specific type)
 - [ ] Implement `BlockIndex` for height → hash mapping
 - [ ] Implement `StorageMetadata` tracking
-- [ ] Implement all invariant checks (1-6)
+- [ ] Implement `BlockAssemblyBuffer` and `PendingBlockAssembly` (V2.2 Choreography)
+- [ ] Implement all invariant checks (1-8, including assembly timeout)
 - [ ] Implement `StorageError` enum with all variants
 - [ ] Implement `read_block_range` for efficient batch reads
-- [ ] Write all TDD tests from Section 5.1
+- [ ] Write all TDD tests from Section 5.1 (including Test Group 10)
 
 ### Phase 2: Port Definitions
 - [ ] Define `BlockStorageApi` trait (including `read_block_range`)
@@ -1557,16 +2020,18 @@ State Management (4) ────state_root────→ Consensus (8) ──(
 - [ ] Define `TimeSource` trait
 - [ ] Define `BlockSerializer` trait
 
-### Phase 3: Event Integration
-- [ ] Define `BlockStorageRequestPayload` enum (WriteBlock, MarkFinalized, ReadBlock, ReadBlockRange ONLY)
-- [ ] Define `BlockStorageEventPayload` enum (including ReadBlockRangeResponse)
+### Phase 3: Event Integration (V2.2 Choreography)
+- [ ] Define incoming event payloads: `BlockValidatedPayload`, `MerkleRootComputedPayload`, `StateRootComputedPayload`
+- [ ] Define `BlockStorageRequestPayload` enum (MarkFinalized, ReadBlock, ReadBlockRange)
+- [ ] Define `BlockStorageEventPayload` enum (including AssemblyTimeout)
+- [ ] Implement event handlers for three choreography events
+- [ ] Implement Stateful Assembler logic (buffer, complete, GC)
 - [ ] Implement `AuthenticatedMessage<T>` envelope handling
 - [ ] Implement correlation ID tracking for ReadBlock/ReadBlockRange request/response
-- [ ] Implement sender verification (Consensus for writes, Finality for finalization)
-- [ ] Implement event publishing for BlockStored, BlockFinalized
+- [ ] Implement sender verification per event type
+- [ ] Implement event publishing for BlockStored, BlockFinalized, AssemblyTimeout
 - [ ] Implement StorageCritical event emission with DLQ integration
 - [ ] Implement response routing via `reply_to` topic
-- [ ] **DO NOT implement WriteMerkleRootRequest or WriteStateRootRequest handlers**
 
 ### Phase 4: Adapters (Separate Crate)
 - [ ] Create `block-storage-adapters` crate
@@ -1618,27 +2083,33 @@ State Management (4) ────state_root────→ Consensus (8) ──(
 This specification is considered **complete** when:
 
 1. ✅ All domain entities defined with no implementation
-2. ✅ All invariants explicitly stated (6 invariants)
+2. ✅ All invariants explicitly stated (8 invariants, including V2.2 assembly timeout)
 3. ✅ All ports (Driving + Driven) defined as traits
 4. ✅ All events defined as payloads for AuthenticatedMessage<T>
-5. ✅ Request/Response pattern demonstrated with correlation_id
-6. ✅ All TDD tests listed (names only, no code)
-7. ✅ Security constraints documented (access control matrix)
-8. ✅ Memory limits specified
-9. ✅ Panic policy stated
-10. ✅ DLQ integration documented for critical errors
-11. ✅ Shared types referenced from shared-types crate (not redefined)
-12. ✅ Batch read capability (read_block_range) defined
-13. ✅ Single source of truth for writes (Consensus only) enforced
+5. ✅ Choreography pattern implemented (3 independent event subscriptions)
+6. ✅ Stateful Assembler structures defined (BlockAssemblyBuffer, PendingBlockAssembly)
+7. ✅ Assembly timeout logic specified (resource exhaustion defense)
+8. ✅ Request/Response pattern demonstrated with correlation_id
+9. ✅ All TDD tests listed (names only, no code) including Test Group 10
+10. ✅ Security constraints documented (access control matrix for choreography)
+11. ✅ Memory limits specified
+12. ✅ Panic policy stated
+13. ✅ DLQ integration documented for critical errors
+14. ✅ Shared types referenced from shared-types crate (not redefined)
+15. ✅ Batch read capability (read_block_range) defined
+16. ✅ Envelope-Only Identity enforced (no requester_id in payloads)
+17. ✅ Finality Liveness context documented (circuit breaker awareness)
 
 This specification is considered **approved** when:
 
 1. ✅ Reviewed by senior architect
 2. ✅ Confirmed to match IPC Matrix requirements
-3. ✅ Confirmed to follow Architecture.md v1.1 patterns
+3. ✅ Confirmed to follow Architecture.md v2.2 Choreography Pattern
 4. ✅ Confirmed AuthenticatedMessage envelope used correctly
-5. ✅ Confirmed NO WriteMerkleRootRequest or WriteStateRootRequest handlers
-6. ✅ No implementation code present (only signatures)
+5. ✅ Confirmed Envelope-Only Identity (no payload identity fields)
+6. ✅ Confirmed Stateful Assembler pattern implemented
+7. ✅ Confirmed assembly timeout defense against resource exhaustion
+8. ✅ No implementation code present (only signatures)
 
 ---
 
