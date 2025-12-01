@@ -58,26 +58,36 @@ This blocks malicious actors at the network edge, preventing Mempool spam attack
 4. **Snappy Compression** - Fast compression/decompression (~250 MB/s)
 
 ### Dependencies:
-- **Subsystem 8** (Consensus) - Provides COMPLETE block package (ValidatedBlock + merkle_root + state_root)
+- **Event Bus** - Subscribes to `BlockValidated`, `MerkleRootComputed`, `StateRootComputed`
 - **Subsystem 9** (Finality) - Marks blocks as finalized
 
-**CRITICAL DESIGN DECISION (Atomicity Enforcement):**
-Block Storage does NOT depend on Subsystems 3 or 4 directly.
-Consensus (Subsystem 8) acts as the orchestrator:
-1. Receives merkle_root from Subsystem 3
-2. Receives state_root from Subsystem 4
-3. Assembles complete WriteBlockRequest package
-4. Sends single atomic write to Block Storage
+**CRITICAL DESIGN DECISION (v2.2 Stateful Assembler Pattern):**
+Block Storage acts as a **Stateful Assembler** in the choreography pattern:
 
-This prevents the "Dual Write" vulnerability where separate messages could
-result in partial writes (block without roots) on power failure.
+1. Subscribes to three independent events:
+   - `BlockValidated` from Consensus (8)
+   - `MerkleRootComputed` from Transaction Indexing (3)
+   - `StateRootComputed` from State Management (4)
+2. Buffers components keyed by `block_hash`
+3. Only writes when ALL THREE components for a block_hash are received
+4. Times out incomplete assemblies after 30 seconds
+
+**Why Choreography, Not Orchestration (v2.2):**
+The previous "Orchestrator" pattern made Consensus a bottleneck and single point of failure.
+The Stateful Assembler pattern enables:
+- Parallel processing (each subsystem works independently)
+- Observable metrics (each component emits timing data)
+- Fault isolation (one slow subsystem doesn't block Consensus)
+
+This still prevents the "Dual Write" vulnerability because the atomic write only
+occurs when all components are assembled.
 
 ### Security & Robustness:
 **Attack Vectors:**
 - Disk space exhaustion (blockchain bloat)
 - Data corruption from hardware failures
 - Malicious transactions causing crashes that halt all nodes
-- **Partial writes from separate root messages (NOW PREVENTED)**
+- Incomplete assembly timeout (component never arrives)
 
 **Defenses:**
 1. **Write-Ahead Logging (WAL)** - Survive crashes mid-write
@@ -85,12 +95,13 @@ result in partial writes (block without roots) on power failure.
 3. **Disk Space Monitoring** - Alert when 85% full, reject writes at 95%
 4. **Database Versioning** - Snapshot every 10,000 blocks for recovery
 5. **Atomic Writes** - Either full block write or rollback
-6. **Single Source of Truth** - Only Consensus can trigger block writes
+6. **Assembly Timeout** - Drop incomplete assemblies after 30s, emit alert
 
 **Robustness Measures:**
 - Background compaction to prevent read amplification
 - LRU cache for hot blocks (default 256 MB)
 - Separate data/metadata storage paths
+- Garbage collection of stale pending assemblies
 
 ---
 
@@ -108,13 +119,17 @@ result in partial writes (block without roots) on power failure.
 
 ### Dependencies:
 - **Subsystem 10** (Signature Verification) - Validates transactions before indexing
+- **Event Bus** - Subscribes to `BlockValidated` events
 
-### Provides To:
-- **Subsystem 8** (Consensus) - Sends merkle_root for block assembly
+### Provides To (via Event Bus):
+- **Event Bus** - Emits `MerkleRootComputed` event (block_hash + merkle_root)
 - **Subsystem 13** (Light Clients) - Provides Merkle proofs for SPV
 
-**Note:** This subsystem does NOT write directly to Block Storage.
-It provides merkle_root to Consensus, which assembles the complete package.
+**v2.2 Choreography Pattern:**
+1. Subscribes to `BlockValidated` events from Event Bus
+2. Computes merkle_root for the block's transactions
+3. Emits `MerkleRootComputed` event with block_hash as key
+4. Block Storage assembles this with other components
 
 ### Security & Robustness:
 **Attack Vectors:**
@@ -150,12 +165,16 @@ It provides merkle_root to Consensus, which assembles the complete package.
 
 ### Dependencies:
 - **Subsystem 11** (Smart Contract Execution) - Updates state after transactions
+- **Event Bus** - Subscribes to `BlockValidated` events
 
-### Provides To:
-- **Subsystem 8** (Consensus) - Sends state_root for block assembly
+### Provides To (via Event Bus):
+- **Event Bus** - Emits `StateRootComputed` event (block_hash + state_root)
 
-**Note:** This subsystem does NOT write directly to Block Storage.
-It provides state_root to Consensus, which assembles the complete package.
+**v2.2 Choreography Pattern:**
+1. Subscribes to `BlockValidated` events from Event Bus
+2. Computes state_root for the block's state transitions
+3. Emits `StateRootComputed` event with block_hash as key
+4. Block Storage assembles this with other components
 
 ### Security & Robustness:
 **Attack Vectors:**
@@ -174,6 +193,21 @@ It provides state_root to Consensus, which assembles the complete package.
 - State snapshots every 128 blocks
 - Incremental state sync for fast node startup
 - Separate trie for accounts vs contract storage
+
+### Future Scalability Considerations (V2 Architecture)
+
+**Identified Limitation:** The current single, lock-protected state trie will become a 
+serialization bottleneck at enterprise scale. All state reads and writes funnel through
+a single trie structure, limiting parallelism.
+
+**Planned V2 Solution:**
+- **Sharded State Model:** Partition state into multiple independent tries based on
+  address ranges (e.g., first 2 bytes of address)
+- **Parallel Access:** Each shard can be read/written concurrently without locking others
+- **Merkle Forest:** Root hash computed as merkle tree of shard roots
+- **Cross-Shard Transactions:** Handled via atomic commit protocol across affected shards
+
+**Migration Path:** V1 single-trie → V1.5 read-only sharding → V2 full sharded writes
 
 ---
 
@@ -224,16 +258,39 @@ It provides state_root to Consensus, which assembles the complete package.
 2. **Nonce Tracking** - Maintain sequential order per account
 3. **LRU Eviction Policy** - Remove lowest fee transactions when full
 4. **Replace-by-Fee (RBF)** - Allow higher-fee transaction to replace existing
+5. **Two-Phase Commit for Transaction Removal** - Transactions only deleted upon storage confirmation
+
+### Two-Phase Transaction Removal Protocol
+
+**CRITICAL:** Transactions are NEVER deleted when proposed for a block. They are only 
+deleted when Block Storage confirms the block was successfully written.
+
+**Transaction States:**
+```
+[PENDING] ──propose for block──→ [PENDING_INCLUSION] ──storage confirmed──→ [DELETED]
+                                         │
+                                         └── block rejected/timeout ──→ [PENDING] (rollback)
+```
+
+**Protocol:**
+1. **Proposal Phase:** When Consensus requests transactions, move them to `pending_inclusion` state
+2. **Confirmation Phase:** Upon receiving `BlockStorageConfirmation`, permanently delete
+3. **Rollback Phase:** If block rejected or 30-second timeout, move back to `pending`
+
+This prevents the "Transaction Loss" vulnerability where transactions could be deleted
+from mempool but the block fails to store, resulting in permanent transaction loss.
 
 ### Dependencies:
 - **Subsystem 10** (Signature Verification) - Validates transactions before mempool entry
 - **Subsystem 4** (State Management) - Checks account balance/nonce
+- **Subsystem 2** (Block Storage) - Receives BlockStorageConfirmation for two-phase commit
 
 ### Security & Robustness:
 **Attack Vectors:**
 - Mempool spam (flood with low-fee transactions)
 - Nonce gap attacks (block transactions with missing nonces)
 - Front-running attacks by reordering transactions
+- **Transaction loss from storage failures (NOW PREVENTED)**
 
 **Defenses:**
 1. **Minimum Gas Price** - Reject transactions below threshold (e.g., 1 gwei)
@@ -241,11 +298,13 @@ It provides state_root to Consensus, which assembles the complete package.
 3. **Mempool Size Cap** - Max 5000 transactions (configurable)
 4. **Nonce Gap Timeout** - Drop transactions with nonce gaps after 10 minutes
 5. **Private Mempools** - Flashbots-style private transaction ordering
+6. **Two-Phase Commit** - Never delete until storage confirmed
 
 **Robustness Measures:**
 - Periodic mempool cleanup (every 5 minutes)
 - Concurrent transaction validation
 - Separate pools for high/low fee transactions
+- **Automatic rollback on block rejection/timeout**
 
 ---
 
@@ -305,24 +364,26 @@ It provides state_root to Consensus, which assembles the complete package.
 4. **View Change** - Leader rotation if timeout (Byzantine leader detected)
 
 ### Dependencies:
-- **Subsystem 3** (Transaction Indexing) - Provides merkle_root for block assembly
-- **Subsystem 4** (State Management) - Provides state_root for block assembly
 - **Subsystem 5** (Block Propagation) - Receives blocks from network
 - **Subsystem 6** (Mempool) - Source of transactions for block building
 - **Subsystem 10** (Signature Verification) - Validates block signatures
 
-### Orchestrator Role (CRITICAL):
-Consensus is the **single orchestrator** for block storage writes:
+### Role (v2.2 UPDATED - Validation Only, NOT Orchestration):
+Consensus performs **validation only**. It does NOT orchestrate block storage writes.
+
+**v2.2 Change:** The "Orchestrator" anti-pattern was rejected because it created:
+- Single point of failure
+- Performance bottleneck
+- Hidden latency sources
+- Complex retry logic ("god object")
+
+**Current Responsibility:**
 1. Validates block cryptographically
-2. Requests merkle_root from Subsystem 3
-3. Requests state_root from Subsystem 4
-4. Assembles complete WriteBlockRequest package
-5. Sends single atomic write to Subsystem 2
+2. Emits `BlockValidated` event to the bus
+3. Other subsystems react independently (choreography pattern)
 
-**This ensures atomicity:** Either all data (block + merkle_root + state_root) is written, or none.
-
-### Provides To:
-- **Subsystem 2** (Block Storage) - Sends complete WriteBlockRequest package
+### Provides To (via Event Bus):
+- **Event Bus** - Emits `BlockValidated` event (block + consensus proof)
 - **Subsystem 9** (Finality) - Validated blocks for finalization checking
 
 ### Security & Robustness:
@@ -338,6 +399,7 @@ Consensus is the **single orchestrator** for block storage writes:
 3. **Finality Gadget (Casper FFG)** - Economic finality after 2 epochs
 4. **Validator Set Limits** - Cap individual stake at 5% total
 5. **Inactivity Leak** - Penalize offline validators during chain split
+6. **Zero-Trust Signature Verification** - Independently re-verify all critical signatures; does not trust the `valid` flag from Signature Verification subsystem
 
 **Defenses (PBFT):**
 1. **Node Authentication** - PKI-based identity verification
@@ -345,6 +407,7 @@ Consensus is the **single orchestrator** for block storage writes:
 3. **Byzantine Fault Tolerance** - Tolerate f Byzantine nodes where n > 3f
 4. **View Change Timeout** - Replace leader after 30 seconds of inactivity
 5. **Cryptographic Commitments** - Bind nodes to their votes
+6. **Zero-Trust Signature Verification** - All validator signatures re-verified independently
 
 **Robustness Measures:**
 - PBFT handles high throughput but struggles with scalability as nodes increase
@@ -375,6 +438,7 @@ Consensus is the **single orchestrator** for block storage writes:
 - Finality reversion (fork after finalized block)
 - Validators refusing to finalize due to censorship
 - Supermajority collusion
+- **Livelock from repeated sync failures (NOW PREVENTED)**
 
 **Defenses:**
 1. **Slashing for Double Finality** - Burn all stake if validator finalizes conflicting chains
@@ -382,11 +446,20 @@ Consensus is the **single orchestrator** for block storage writes:
 3. **Inactivity Leak** - Bleed stake from offline validators during no-finality
 4. **Social Consensus** - Community coordination for extreme scenarios
 5. **Fork Choice Rule** - Always follow finalized chain
+6. **Zero-Trust Signature Verification** - Independently re-verify all attestation signatures; does not trust pre-validation flags from Signature Verification subsystem
+7. **Circuit Breaker with Livelock Prevention** - Halts node after 3 failed sync attempts to await manual intervention or network recovery
+
+### Circuit Breaker Behavior (See Architecture.md Section 5.4):
+- If finality cannot be achieved, node enters SYNC mode
+- If sync fails 3 consecutive times, node enters HALTED_AWAITING_INTERVENTION
+- In HALTED state, node ceases block production/validation
+- Requires manual intervention OR significant network recovery to resume
 
 **Robustness Measures:**
 - Finality delay up to 2 epochs acceptable
 - Graceful recovery from <33% participation
 - Automatic fork pruning of non-finalized chains
+- **Livelock prevention via circuit breaker**
 
 ---
 
@@ -535,6 +608,22 @@ Consensus is the **single orchestrator** for block storage writes:
 - Graceful fallback to full sync if SPV fails
 - Local proof caching
 
+### Future Scalability Considerations (V2 Architecture)
+
+**Identified Limitation:** The current SPV model requires a number of Merkle proofs 
+proportional to transaction volume. As the chain grows and users monitor more addresses,
+the proof overhead becomes unsustainable for mobile and IoT clients.
+
+**Planned V2 Solution:**
+- **Proof Aggregation:** Use cryptographic accumulators (Utreexo-style) to achieve O(log n) 
+  or even O(1) proof sizes regardless of transaction volume
+- **ZK-SNARK Proofs:** State validity proofs that compress entire block verification into 
+  a single constant-size proof (~200 bytes)
+- **Stateless Verification:** Clients verify proofs without maintaining any local state
+- **Incremental Updates:** Proof updates are small and efficient
+
+**Migration Path:** V1 SPV → V1.5 Utreexo accumulators → V2 ZK-validity proofs
+
 ---
 
 ## SUBSYSTEM 14: SHARDING (ADVANCED)
@@ -570,6 +659,26 @@ Consensus is the **single orchestrator** for block storage writes:
 - Shard rebalancing on load imbalance
 - Emergency shard merging if validator count drops
 - Redundant shard storage (erasure coding)
+
+### Future Scalability Considerations (V2 Architecture)
+
+**Identified Limitation:** The current conceptual Two-Phase Commit (2PC) protocol for 
+cross-shard transactions is synchronous and creates significant latency. As shard count
+increases, 2PC becomes a coordination bottleneck that limits throughput.
+
+**Planned V2 Solution:**
+- **Asynchronous Receipt-Based Protocol:** Cross-shard transactions are non-blocking
+  - Source shard commits transaction and emits a receipt
+  - Receipt is relayed to destination shard asynchronously
+  - Destination shard processes receipt in next block
+- **Fraud Proofs:** If a receipt is invalid, anyone can submit a fraud proof to slash
+  the malicious validator
+- **Optimistic Execution:** Destination assumes receipt is valid, executes immediately
+- **Challenge Period:** Short window for fraud proof submission before finality
+
+**Migration Path:** V1 synchronous 2PC → V1.5 batched 2PC → V2 async receipts + fraud proofs
+
+**Expected Improvement:** 10x throughput increase for cross-shard transactions
 
 ---
 

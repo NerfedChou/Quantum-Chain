@@ -104,7 +104,7 @@ If identity_valid == true:  Add to routing table
 ## SUBSYSTEM 2: BLOCK STORAGE ENGINE
 
 ### I Am Allowed To Talk To:
-- **None** (Pure storage layer, only responds to requests)
+- **Subsystem 6 (Mempool)** - Send BlockStorageConfirmation after successful block storage
 
 ### Who Is Allowed To Talk To Me:
 - **Subsystem 8 (Consensus)** - Store validated blocks (COMPLETE PACKAGE with merkle_root and state_root)
@@ -128,6 +128,25 @@ struct StorageResponse {
     error: Option<StorageError>,
 }
 
+/// NEW: Confirmation sent to Mempool after successful block storage
+/// This completes the Two-Phase Commit for transaction removal
+struct BlockStorageConfirmation {
+    version: u16,
+    sender_id: SubsystemId,          // Always 2 (Block Storage)
+    correlation_id: [u8; 16],
+    
+    // Block that was successfully stored
+    block_hash: [u8; 32],
+    block_height: u64,
+    
+    // Transactions that were included and stored
+    included_transactions: Vec<[u8; 32]>,
+    
+    // Storage timestamp (for audit trail)
+    storage_timestamp: u64,
+    signature: Signature,
+}
+
 enum StorageError {
     NotFound,
     Corrupted,
@@ -143,6 +162,9 @@ enum StorageError {
 /// 
 /// ATOMICITY GUARANTEE: Either all of (block, merkle_root, state_root) are
 /// written together, or none are written. Partial writes are impossible.
+///
+/// POST-STORAGE ACTION: Upon successful write, Block Storage MUST send
+/// BlockStorageConfirmation to Mempool to complete Two-Phase Commit.
 struct WriteBlockRequest {
     version: u16,                    // Protocol version - MUST be validated first
     requester_id: SubsystemId,       // MUST be 8 (Consensus) ONLY
@@ -153,6 +175,9 @@ struct WriteBlockRequest {
     block: ValidatedBlock,           // From Consensus
     merkle_root: [u8; 32],           // Consensus received this from Subsystem 3
     state_root: [u8; 32],            // Consensus received this from Subsystem 4
+    
+    // Transaction hashes for Mempool confirmation
+    transaction_hashes: Vec<[u8; 32]>,
     
     signature: Signature,
 }
@@ -204,25 +229,35 @@ struct MarkFinalizedRequest {
 - ✅ Accept: MarkFinalizedRequest from Subsystem 9 (Finality) ONLY
 - ✅ Accept: ReadBlockRequest from any authorized subsystem (read-only)
 - ✅ Accept: ReadBlockRangeRequest from any authorized subsystem (read-only)
+- ✅ Send: BlockStorageConfirmation to Subsystem 6 (Mempool) after successful write
 - ❌ **REMOVED: WriteMerkleRootRequest (atomicity violation)**
 - ❌ **REMOVED: WriteStateRootRequest (atomicity violation)**
 - ❌ Reject: Write requests without valid Consensus signature
 - ❌ Reject: Duplicate block writes
 - ❌ Reject: Writes when disk >95% full
 
+### Post-Write Action (Two-Phase Commit):
+After successfully writing a block, Block Storage MUST:
+1. Extract transaction hashes from the stored block
+2. Send BlockStorageConfirmation to Mempool (Subsystem 6)
+3. This allows Mempool to permanently delete included transactions
+
 ---
 
 ## SUBSYSTEM 3: TRANSACTION INDEXING
 
 ### I Am Allowed To Talk To:
-- **Subsystem 2 (Block Storage)** - Store Merkle roots
+- **Subsystem 8 (Consensus)** - Provide merkle_root for block assembly
 - **Subsystem 7 (Bloom Filters)** - Provide transaction hashes
 - **Subsystem 13 (Light Clients)** - Provide Merkle proofs
 
 ### Who Is Allowed To Talk To Me:
-- **Subsystem 8 (Consensus)** - Add transactions to Merkle tree
+- **Subsystem 8 (Consensus)** - Request Merkle tree construction
 - **Subsystem 7 (Bloom Filters)** - Request transaction hashes
 - **Subsystem 13 (Light Clients)** - Request Merkle proofs
+
+**Note:** This subsystem provides merkle_root to Consensus, which assembles the
+complete block package. It does NOT write directly to Block Storage.
 
 ### Strict Message Types:
 
@@ -460,16 +495,18 @@ struct BlockRequestReceived {
 
 ### I Am Allowed To Talk To:
 - **Subsystem 4 (State Management)** - Check balance/nonce
-- **Subsystem 8 (Consensus)** - Provide transactions for blocks
+- **Subsystem 8 (Consensus)** - Provide transactions for blocks (via ProposeTransactionBatch)
 
 ### Who Is Allowed To Talk To Me:
 - **Subsystem 10 (Signature Verification)** - Add verified transactions
 - **Subsystem 8 (Consensus)** - Request transactions for block
+- **Subsystem 2 (Block Storage)** - Confirm transaction inclusion (BlockStorageConfirmation)
 
 ### Strict Message Types:
 
 **OUTGOING:**
 ```rust
+/// Standard batch of transactions for informational purposes
 struct TransactionBatch {
     transactions: Vec<ValidatedTransaction>,
     total_gas: u64,
@@ -477,8 +514,25 @@ struct TransactionBatch {
     timestamp: u64,
 }
 
+/// NEW: Two-Phase Commit - Propose transactions for inclusion
+/// Transactions are moved to pending_inclusion state, NOT deleted
+struct ProposeTransactionBatch {
+    version: u16,
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    
+    // Transactions proposed for this block
+    transactions: Vec<ValidatedTransaction>,
+    total_gas: u64,
+    
+    // Block context
+    target_block_height: u64,
+    proposal_timestamp: u64,
+}
+
 struct MempoolStatus {
     pending_count: u32,
+    pending_inclusion_count: u32,  // NEW: Transactions awaiting confirmation
     total_gas: u64,
     memory_usage: u64,
 }
@@ -487,42 +541,129 @@ struct MempoolStatus {
 **INCOMING:**
 ```rust
 struct AddTransactionRequest {
+    version: u16,
     requester_id: SubsystemId,        // Must be 10
+    correlation_id: [u8; 16],
     transaction: SignedTransaction,
     signature_valid: bool,            // Pre-verified by Subsystem 10
     signature: Signature,
 }
 
 struct GetTransactionsRequest {
+    version: u16,
     requester_id: SubsystemId,        // Must be 8
+    correlation_id: [u8; 16],
+    reply_to: Topic,
     max_count: u32,
     max_gas: u64,
     signature: Signature,
 }
 
+/// DEPRECATED: Direct removal is replaced by Two-Phase Commit
+/// Kept for backward compatibility with InvalidTransaction/Expired reasons only
 struct RemoveTransactionsRequest {
+    version: u16,
     requester_id: SubsystemId,        // Must be 8
+    correlation_id: [u8; 16],
     transaction_hashes: Vec<[u8; 32]>,
     reason: RemovalReason,
     signature: Signature,
 }
 
 enum RemovalReason {
-    Included,
+    // Included,  // DEPRECATED - use BlockStorageConfirmation instead
     Invalid,
     Expired,
 }
+
+/// NEW: Two-Phase Commit - Confirmation from Block Storage
+/// Only upon receiving this message are transactions permanently deleted
+struct BlockStorageConfirmation {
+    version: u16,
+    requester_id: SubsystemId,        // Must be 2
+    correlation_id: [u8; 16],
+    
+    // Block that was successfully stored
+    block_hash: [u8; 32],
+    block_height: u64,
+    
+    // Transactions that were included and stored
+    included_transactions: Vec<[u8; 32]>,
+    
+    // Storage timestamp (for audit trail)
+    storage_timestamp: u64,
+    signature: Signature,
+}
+
+/// NEW: Block rejection notification (triggers rollback)
+struct BlockRejectedNotification {
+    version: u16,
+    requester_id: SubsystemId,        // Must be 8 or 2
+    correlation_id: [u8; 16],
+    
+    // Block that was rejected
+    block_hash: [u8; 32],
+    block_height: u64,
+    
+    // Transactions to roll back to pending pool
+    affected_transactions: Vec<[u8; 32]>,
+    
+    rejection_reason: BlockRejectionReason,
+    signature: Signature,
+}
+
+enum BlockRejectionReason {
+    ConsensusRejected,
+    StorageFailure,
+    Timeout,
+    Reorg,
+}
+```
+
+### Two-Phase Transaction Removal Protocol
+
+**CRITICAL:** Transactions are NEVER deleted upon proposal. They are only deleted upon
+confirmed storage. This prevents the "Transaction Loss" vulnerability.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TWO-PHASE TRANSACTION REMOVAL                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Phase 1: PROPOSE (Mempool → Consensus)                                     │
+│  ├─ Mempool sends ProposeTransactionBatch                                   │
+│  ├─ Transactions moved from 'pending' to 'pending_inclusion' state          │
+│  └─ Transactions are NOT deleted                                            │
+│                                                                             │
+│  Phase 2a: CONFIRM (Block Storage → Mempool)                                │
+│  ├─ Block Storage sends BlockStorageConfirmation                            │
+│  ├─ Transactions in included_transactions are PERMANENTLY DELETED           │
+│  └─ Space is freed in mempool                                               │
+│                                                                             │
+│  Phase 2b: ROLLBACK (Consensus/Storage → Mempool)                           │
+│  ├─ If block is rejected, BlockRejectedNotification is sent                 │
+│  ├─ Transactions moved from 'pending_inclusion' back to 'pending'           │
+│  └─ Transactions become available for next block                            │
+│                                                                             │
+│  TIMEOUT HANDLING:                                                          │
+│  ├─ If no confirmation/rejection within 30 seconds, auto-rollback           │
+│  └─ Prevents transactions from being stuck in limbo                         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Security Boundaries:
 - ✅ Accept: AddTransactionRequest from Subsystem 10 only (must be pre-verified)
 - ✅ Accept: GetTransactionsRequest from Subsystem 8 only
-- ✅ Accept: RemoveTransactionsRequest from Subsystem 8 only
+- ✅ Accept: RemoveTransactionsRequest from Subsystem 8 only (Invalid/Expired reasons)
+- ✅ Accept: BlockStorageConfirmation from Subsystem 2 only
+- ✅ Accept: BlockRejectedNotification from Subsystems 2, 8 only
 - ❌ Reject: Transactions with signature_valid=false
 - ❌ Reject: Transactions with gas price <1 gwei
 - ❌ Reject: >16 pending transactions per account
 - ❌ Reject: Total mempool size >5000 transactions
 - ❌ Reject: Direct transaction additions from Subsystem 11 or others
+- ❌ Reject: BlockStorageConfirmation with unknown correlation_id (prevents replay)
 
 ---
 
@@ -685,14 +826,53 @@ enum PBFTPhase {
 
 ### Security Boundaries:
 - ✅ Accept: ValidateBlockRequest from Subsystem 5 only
-- ✅ Accept: AttestationReceived from Subsystem 10 only (pre-verified)
-- ✅ Accept: PBFTMessage from Subsystem 10 only (pre-verified)
+- ✅ Accept: AttestationReceived from Subsystem 10 only
+- ✅ Accept: PBFTMessage from Subsystem 10 only
 - ❌ Reject: Blocks without valid transactions
 - ❌ Reject: Blocks with invalid Merkle root
 - ❌ Reject: Blocks with invalid state transitions
-- ❌ Reject: Attestations without signature_valid=true
 - ❌ Reject: >33% Byzantine validators (safety threshold)
 - ❌ Reject: Blocks older than 2 epochs
+
+### Zero-Trust Signature Re-Verification (CRITICAL)
+
+**SECURITY MANDATE:** Consensus MUST NOT trust the `signature_valid` flag from 
+Signature Verification (Subsystem 10). All critical signatures MUST be 
+independently re-verified before processing.
+
+```rust
+// WRONG - Trusting pre-validation flag
+if attestation.signature_valid {
+    process_attestation(attestation);  // VULNERABLE!
+}
+
+// CORRECT - Zero-trust re-verification
+fn handle_attestation(attestation: AttestationReceived) -> Result<(), Error> {
+    // Step 1: Verify envelope (standard checks)
+    verify_envelope(&attestation)?;
+    
+    // Step 2: INDEPENDENTLY re-verify signature (ZERO TRUST)
+    let message = attestation.block_hash;
+    let recovered_signer = ecrecover(message, &attestation.signature)?;
+    
+    if recovered_signer != attestation.validator {
+        return Err(Error::SignatureVerificationFailed);
+    }
+    
+    // Step 3: Verify validator is in active set
+    if !self.validator_set.contains(&recovered_signer) {
+        return Err(Error::UnknownValidator);
+    }
+    
+    // Now safe to process
+    self.process_attestation(attestation)?;
+    Ok(())
+}
+```
+
+**Rationale:** If Subsystem 10 is compromised, an attacker could inject 
+attestations with `signature_valid=true` for signatures they never verified.
+By re-verifying, Consensus becomes independently secure.
 
 ---
 
@@ -757,6 +937,59 @@ struct Attestation {
 - ❌ Reject: Conflicting finalizations (slashable offense)
 - ❌ Reject: Finalization of non-consecutive checkpoints
 - ❌ Reject: Attestations from unknown validators
+
+### Zero-Trust Signature Re-Verification (CRITICAL)
+
+**SECURITY MANDATE:** Finality MUST NOT trust any pre-validation flags. All 
+attestation signatures MUST be independently re-verified before counting toward 
+supermajority. This is especially critical for finality because:
+
+1. Finality is IRREVERSIBLE - once finalized, blocks cannot be reverted
+2. A compromised Subsystem 10 could fake 67% attestation support
+3. Economic finality requires cryptographic certainty, not trust
+
+```rust
+fn verify_attestations_for_finality(
+    attestations: &[Attestation],
+    checkpoint: u64,
+) -> Result<FinalityResult, Error> {
+    let mut valid_stake = 0u128;
+    let total_stake = self.get_total_active_stake();
+    
+    for attestation in attestations {
+        // ZERO TRUST: Re-verify every signature independently
+        let message = keccak256(&encode_attestation(attestation));
+        let recovered = ecrecover(message, &attestation.signature)?;
+        
+        // Verify recovered address matches claimed validator
+        if recovered != attestation.validator {
+            log::warn!("Invalid attestation signature from {:?}", attestation.validator);
+            continue;  // Skip invalid, don't fail entire batch
+        }
+        
+        // Verify validator is in active set for this epoch
+        if let Some(stake) = self.validator_stakes.get(&recovered) {
+            valid_stake += stake;
+        }
+    }
+    
+    // Check supermajority (67%)
+    if valid_stake * 3 >= total_stake * 2 {
+        Ok(FinalityResult::Finalized { checkpoint })
+    } else {
+        Err(Error::InsufficientAttestations {
+            have: valid_stake,
+            need: (total_stake * 2) / 3,
+        })
+    }
+}
+```
+
+### Circuit Breaker Integration
+
+See Architecture.md Section 5.4 for Finality Circuit Breaker behavior.
+If finality cannot be achieved after repeated attempts, the node transitions
+to HALTED_AWAITING_INTERVENTION state to prevent livelock.
 
 ---
 
@@ -1585,8 +1818,27 @@ struct Topic {
 }
 
 impl<T> AuthenticatedMessage<T> {
-    fn verify(&self, expected_sender: SubsystemId, shared_secret: &[u8]) -> Result<(), AuthError> {
-        // 0. Check version FIRST (before any deserialization of payload)
+    /// Verify message authenticity with time-bounded replay prevention
+    /// 
+    /// CRITICAL: See Architecture.md Section 3.5 for full implementation.
+    /// The order of checks is security-critical to prevent DoS attacks.
+    fn verify(
+        &self, 
+        expected_sender: SubsystemId, 
+        shared_secret: &[u8],
+        nonce_cache: &mut TimeBoundedNonceCache,  // v2.1: Time-bounded cache
+    ) -> Result<(), AuthError> {
+        let now = current_timestamp();
+        
+        // 0. TIMESTAMP CHECK FIRST (bounds all subsequent operations)
+        // This MUST come before nonce check to prevent cache exhaustion attacks
+        let min_valid = now.saturating_sub(60);
+        let max_valid = now.saturating_add(10);
+        if self.timestamp < min_valid || self.timestamp > max_valid {
+            return Err(AuthError::TimestampOutOfRange);
+        }
+        
+        // 1. Check version (before any payload deserialization)
         if self.version < MIN_SUPPORTED_VERSION || self.version > MAX_SUPPORTED_VERSION {
             return Err(AuthError::UnsupportedVersion { 
                 received: self.version,
@@ -1594,26 +1846,26 @@ impl<T> AuthenticatedMessage<T> {
             });
         }
         
-        // 1. Check sender_id matches expected
+        // 2. Check sender_id matches expected
         if self.sender_id != expected_sender {
             return Err(AuthError::InvalidSender);
         }
         
-        // 2. Check timestamp (reject if >60s old)
-        let now = current_timestamp();
-        if now - self.timestamp > 60 {
-            return Err(AuthError::MessageTooOld);
-        }
-        
-        // 3. Check nonce (prevent replay)
-        if !nonce_tracker.check_and_mark(self.nonce) {
-            return Err(AuthError::NonceReused);
-        }
-        
-        // 4. Verify HMAC
+        // 3. Verify HMAC
         let computed_hmac = compute_hmac(shared_secret, &self.serialize_without_sig());
         if !constant_time_eq(&computed_hmac, &self.signature) {
             return Err(AuthError::InvalidSignature);
+        }
+        
+        // 4. Check nonce AFTER timestamp (v2.1: time-bounded cache)
+        // Cache auto-expires entries after 120s, preventing memory exhaustion
+        nonce_cache.check_and_add(self.nonce, self.timestamp)?;
+        
+        // 5. Reply-to validation (for requests with reply_to)
+        if let Some(ref reply_to) = self.reply_to {
+            if reply_to.subsystem_id != self.sender_id {
+                return Err(AuthError::ReplyToMismatch);
+            }
         }
         
         Ok(())
@@ -1630,22 +1882,51 @@ impl<T> AuthenticatedMessage<T> {
 3. **Signature Validation** - Cryptographic proof of authenticity
 4. **Rate Limiting** - Prevents flooding attacks
 5. **Input Sanitization** - Bounds checking on all inputs
-6. **Nonce Tracking** - Prevents replay attacks
-7. **Timestamp Validation** - Prevents old message replay
+6. **Time-Bounded Nonce Tracking** - Prevents replay attacks with bounded memory (v2.1)
+7. **Timestamp-First Validation** - Bounds all operations, prevents cache exhaustion (v2.1)
 8. **Compartmentalization** - Breaching one subsystem doesn't compromise others
 9. **Version Validation** - Protocol version checked BEFORE payload deserialization
 10. **Correlation IDs** - Enables non-blocking request/response without deadlocks
 11. **Dead Letter Queues** - Critical events never lost, always recoverable
-12. **Atomicity Enforcement** - Block writes bundled into single message (Dual Write Fix)
+12. **Atomicity Enforcement** - Block writes assembled by Stateful Assembler (v2.2 choreography)
 13. **Edge Defense** - Peer Discovery can verify signatures to block DDoS at network edge
-14. **Finality Circuit Breaker** - Consensus failures trigger sync mode, not infinite retries
+14. **Finality Circuit Breaker** - Consensus failures trigger sync mode with deterministic triggers
+15. **Two-Phase Transaction Removal** - Mempool never deletes until storage confirmed (Transaction Loss Fix)
+16. **Zero-Trust Signature Verification** - Consensus/Finality re-verify all signatures independently
+17. **Reply-To Validation** - Prevents forwarding attacks by validating reply_to matches sender_id
+18. **Livelock Prevention** - Circuit breaker halts node after 3 failed sync attempts (deterministic)
+19. **Time-Bounded Nonce Cache** - Nonces expire after 120s, preventing memory exhaustion attacks (v2.1)
+20. **Envelope-Only Identity** - Payloads have NO identity fields; envelope.sender_id is sole truth (v2.2)
+21. **Choreography Pattern** - Decentralized event flow, no centralized orchestrator (v2.2)
 
-**System.md Compliance Achieved:**
+**System.md Compliance Achieved (V2.2):**
 
 | System.md Requirement | IPC-MATRIX Implementation |
 |-----------------------|---------------------------|
-| Atomic Writes (Subsystem 2) | WriteBlockRequest is complete package; no separate root writes |
+| Atomic Writes (Subsystem 2) | Stateful Assembler buffers components, writes atomically |
 | DDoS Defense (Subsystem 6) | Peer Discovery can verify signatures before accepting data |
-| Safety over Liveness (Subsystem 9) | Finality failures trigger circuit breaker, not retries |
+| Safety over Liveness (Subsystem 9) | Finality failures trigger circuit breaker with deterministic triggers |
+| Transaction Integrity (Subsystem 6) | Two-Phase Commit prevents transaction loss on storage failure |
+| Zero-Trust Security (Subsystems 8, 9) | Critical signatures re-verified independently |
+| Livelock Prevention (Subsystem 9) | HALTED state after 3 failed sync attempts (testable conditions) |
+| Memory Safety (All subsystems) | Time-bounded nonce cache prevents OOM attacks |
+| Decentralization (All subsystems) | Choreography pattern, no orchestrator bottleneck |
 
-**Result:** Even if an attacker fully compromises one subsystem, they are trapped in that compartment and cannot spread to others without breaking multiple layers of authentication. The system now correctly prioritizes data integrity (atomicity), network defense (edge verification), and consensus safety (circuit breaker) as mandated by System.md.
+**Architecture v2.2 Amendments Applied:**
+- Amendment 1.1: Two-Phase Mempool Protocol (Transaction Loss Fix)
+- Amendment 1.2: Enhanced Circuit Breaker with Livelock Prevention
+- Amendment 2.1: Zero-Trust Signature Re-Verification
+- Amendment 2.2: Reply-To Forwarding Attack Prevention
+- Amendment 2.3: Time-Bounded Nonce Cache (Memory Exhaustion Fix) (v2.1)
+- Amendment 3: Future Scalability Considerations (documented in System.md)
+- **Amendment 4.1: Choreography Pattern (Orchestrator Decentralization)** (v2.2 NEW)
+- **Amendment 4.2: Envelope-Only Identity (Payload Impersonation Fix)** (v2.2 NEW)
+- **Amendment 4.3: Deterministic Circuit Breaker Triggers (Testability Fix)** (v2.2 NEW)
+
+**IMPORTANT (v2.2): Payload Identity Fields Deprecated**
+Some legacy message definitions contain `requester_id` fields. These are DEPRECATED.
+The `sender_id` in the `AuthenticatedMessage` envelope is the ONLY source of truth.
+All new implementations MUST use envelope identity, not payload identity.
+See Architecture.md Section 3.2.1 for details.
+
+**Result:** Even if an attacker fully compromises one subsystem, they are trapped in that compartment and cannot spread to others without breaking multiple layers of authentication. The system now correctly prioritizes data integrity (atomicity + two-phase commit), network defense (edge verification), consensus safety (circuit breaker + livelock prevention + deterministic triggers), zero-trust security (independent signature verification), resource safety (bounded memory via time-limited nonce caching), decentralization (choreography, not orchestration), and audit integrity (envelope-only identity).

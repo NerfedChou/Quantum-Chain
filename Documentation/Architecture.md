@@ -1,7 +1,7 @@
 # ARCHITECTURE.md
 ## Modular Blockchain - Hybrid Architecture Specification
 
-**Version:** 1.0  
+**Version:** 2.2  
 **Project:** Rust-based Modular Blockchain  
 **Enforcement Level:** STRICT / ZERO TOLERANCE  
 **Architecture Patterns:** DDD + Hexagonal + EDA + TDD
@@ -286,10 +286,11 @@ pub fn validate_block(block: &Block) -> Result<(), ValidationError> {
 
 **Reference:** See IPC-MATRIX.md for complete message type definitions.
 
-**CRITICAL UPDATE (Atomicity Enforcement):**
-Subsystem 2 (Block Storage) no longer depends on Subsystems 3 and 4 directly.
-Subsystem 8 (Consensus) is the orchestrator that collects roots from 3 and 4,
-then sends a single atomic WriteBlockRequest to Subsystem 2.
+**CRITICAL UPDATE (v2.2 Choreography Model):**
+Subsystem 8 (Consensus) is NO LONGER an orchestrator. The system uses 
+event-driven choreography where each subsystem reacts independently.
+Block Storage (2) acts as a Stateful Assembler, buffering components
+until a complete block can be written atomically.
 
 ```
 Dependency Flow (A → B means "A depends on B"):
@@ -299,7 +300,7 @@ LEVEL 0 (No Dependencies):
 └─ [10] Signature Verification
 
 LEVEL 1 (Depends on Level 0):
-├─ [1] Peer Discovery → [10] (NEW: DDoS defense - verify node identity at edge)
+├─ [1] Peer Discovery → [10] (DDoS defense - verify node identity at edge)
 ├─ [6] Mempool → [10]
 ├─ [7] Bloom Filters → [1]
 └─ [13] Light Clients → [1]
@@ -310,11 +311,11 @@ LEVEL 2 (Depends on Level 0-1):
 └─ [4] State Management (partial)
 
 LEVEL 3 (Depends on Level 0-2):
-├─ [8] Consensus → [3, 4, 5, 6, 10] (ORCHESTRATOR: collects merkle_root from 3, state_root from 4)
+├─ [8] Consensus → [5, 6, 10] (v2.2: Validation only, NOT orchestration)
 └─ [11] Smart Contracts → [4, 10]
 
 LEVEL 4 (Depends on Level 0-3):
-├─ [2] Block Storage → [8] (UPDATED: receives complete package from Consensus ONLY)
+├─ [2] Block Storage → subscribes to events from [3, 4, 8] (Stateful Assembler)
 ├─ [9] Finality → [8, 10]
 ├─ [12] Transaction Ordering → [4, 11]
 └─ [14] Sharding → [4, 8]
@@ -323,13 +324,24 @@ LEVEL 5 (Depends on Level 0-4):
 └─ [15] Cross-Chain → [8, 9, 11]
 ```
 
-**Data Flow for Block Writes (Atomicity Guarantee):**
+**Data Flow for Block Writes (v2.2 Choreography Pattern):**
 ```
-[3] Transaction Indexing ──merkle_root──→ [8] Consensus ──WriteBlockRequest──→ [2] Block Storage
-[4] State Management ────state_root────→ [8] Consensus ──(complete package)──→ [2] Block Storage
+[8] Consensus ─────BlockValidated────────→ [Event Bus]
+                                               │
+         ┌─────────────────────────────────────┼─────────────────────────┐
+         ↓                                     ↓                         ↓
+[3] Transaction Indexing          [4] State Management          [2] Block Storage
+         │                                     │                    (buffers block)
+         ↓                                     ↓
+    MerkleRootComputed                 StateRootComputed
+         │                                     │
+         └──────────────→ [Event Bus] ←────────┘
+                               ↓
+                      [2] Block Storage
+                      (receives all 3, writes atomically)
 
-IMPORTANT: Subsystems 3 and 4 do NOT write directly to Block Storage.
-           Consensus assembles the complete package to ensure atomicity.
+IMPORTANT: No subsystem "orchestrates". Each reacts to events independently.
+           Block Storage assembles components, then writes atomically.
 ```
 
 ### 3.2 Message Flow Architecture
@@ -370,6 +382,70 @@ struct Topic {
 }
 ```
 
+### 3.2.1 Envelope as Sole Source of Truth (v2.2 Security Mandate)
+
+**SECURITY VULNERABILITY FIXED:** The "Payload Impersonation" attack.
+
+In earlier versions, some message payloads contained redundant identity fields 
+(e.g., `requester_id`, `source_subsystem`). This created an audit trail poisoning 
+vulnerability where an attacker could set the envelope `sender_id` to pass 
+signature verification but use a victim's ID in the payload to misdirect logging.
+
+**MANDATORY RULES:**
+
+| Rule | Description |
+|------|-------------|
+| **Rule 1: No Redundant Identity** | Payloads MUST NOT contain identity fields (e.g., `requester_id`, `source_id`) |
+| **Rule 2: Envelope is Truth** | The `sender_id` in the AuthenticatedMessage envelope is the ONLY source of truth |
+| **Rule 3: Logging/Metrics** | ALL logging, metrics, and authorization checks MUST use `msg.sender_id` |
+| **Rule 4: Audit Trail** | Forensic audit trails MUST be based solely on envelope metadata |
+
+**Attack Scenario (Now Prevented):**
+```
+BEFORE (Vulnerable):
+1. Attacker controls Subsystem A
+2. Attacker sends message with:
+   - Envelope: sender_id = A (passes signature check)
+   - Payload: requester_id = B (victim)
+3. Logs show "Request from B" (WRONG!)
+4. Forensic investigation misdirected
+
+AFTER (Fixed):
+1. Payloads have NO identity fields
+2. All logging uses envelope.sender_id
+3. Logs correctly show "Request from A"
+4. Attacker cannot poison audit trail
+```
+
+**Implementation Requirement:**
+
+```rust
+// CORRECT: Payload has no identity field
+struct ReadBlockRequestPayload {
+    block_hash: [u8; 32],
+    include_transactions: bool,
+}
+
+// WRONG: Do NOT include requester_id in payload
+struct ReadBlockRequestPayload_FORBIDDEN {
+    requester_id: SubsystemId,  // ❌ FORBIDDEN - redundant, unverified
+    block_hash: [u8; 32],
+    include_transactions: bool,
+}
+
+// When logging, ALWAYS use envelope
+fn handle_request(msg: AuthenticatedMessage<ReadBlockRequestPayload>) {
+    // ✅ CORRECT: Use envelope sender_id
+    log::info!("Request from {:?}: read block {:?}", 
+        msg.sender_id,  // From signed envelope
+        msg.payload.block_hash
+    );
+    
+    // ❌ WRONG: Do not use payload identity (doesn't exist now anyway)
+    // log::info!("Request from {:?}", msg.payload.requester_id);
+}
+```
+
 ### 3.3 Request/Response Correlation Pattern
 
 **CRITICAL:** All request/response flows MUST use the correlation ID pattern to maintain EDA principles while enabling stateful conversations.
@@ -406,6 +482,84 @@ struct Topic {
 2. **ALWAYS CORRELATE** - Every response MUST include the original `correlation_id`
 3. **TIMEOUT HANDLING** - Requester MUST implement timeout for pending requests (default: 30s)
 4. **ORPHAN CLEANUP** - Pending request map MUST be garbage-collected periodically
+5. **REPLY_TO VALIDATION** - Responder MUST validate reply_to matches sender_id (see below)
+
+### 3.3.1 Reply-To Forwarding Attack Prevention
+
+**SECURITY VULNERABILITY:** The `reply_to` field creates an attack vector where a compromised
+subsystem could forward requests with a malicious `reply_to` pointing to a victim subsystem.
+
+**Attack Scenario:**
+```
+Attacker compromises Subsystem A
+Attacker sends request to Subsystem B with:
+  - sender_id: A (legitimate)
+  - reply_to: C.responses (victim - Subsystem C)
+
+Subsystem B processes request and sends response to C.responses
+Subsystem C receives unsolicited responses, potentially:
+  - Filling up its pending_requests map (DoS)
+  - Causing confusion/state corruption
+  - Enabling further attacks via crafted response payloads
+```
+
+**MANDATORY VALIDATION RULE:**
+
+A responder subsystem MUST validate that the `reply_to.subsystem_id` field in a request 
+message matches the `sender_id` of that same message. If they do not match, the message 
+MUST be rejected as a malicious forwarding attempt.
+
+```rust
+fn validate_request<T>(msg: &AuthenticatedMessage<T>) -> Result<(), SecurityError> {
+    // Standard envelope validation
+    msg.verify_signature(&self.shared_secret)?;
+    msg.verify_timestamp()?;
+    msg.verify_nonce(&self.nonce_cache)?;
+    
+    // CRITICAL: Reply-To Forwarding Attack Prevention
+    if let Some(ref reply_to) = msg.reply_to {
+        if reply_to.subsystem_id != msg.sender_id {
+            log::warn!(
+                "SECURITY: Rejected forwarding attack. sender_id={:?}, reply_to={:?}",
+                msg.sender_id, reply_to.subsystem_id
+            );
+            return Err(SecurityError::ReplyToMismatch {
+                sender: msg.sender_id,
+                reply_to: reply_to.subsystem_id,
+            });
+        }
+    }
+    
+    Ok(())
+}
+
+// When sending a response, also validate the original request
+fn send_response<T, R>(
+    original_request: &AuthenticatedMessage<T>,
+    response_payload: R,
+) -> Result<(), Error> {
+    // Validate reply_to matches sender_id
+    let reply_to = original_request.reply_to.as_ref()
+        .ok_or(Error::MissingReplyTo)?;
+    
+    if reply_to.subsystem_id != original_request.sender_id {
+        return Err(Error::ReplyToMismatch);
+    }
+    
+    // Safe to send response
+    self.bus.publish(&reply_to.to_topic_string(), AuthenticatedMessage {
+        version: PROTOCOL_VERSION,
+        sender_id: self.subsystem_id,
+        recipient_id: original_request.sender_id,  // Send to original sender
+        correlation_id: original_request.correlation_id,
+        reply_to: None,  // Responses don't need reply_to
+        // ...
+        payload: response_payload,
+    });
+    
+    Ok(())
+}
+```
 
 ```rust
 // Requester implementation pattern
@@ -422,9 +576,10 @@ impl Subsystem {
         // Publish request (NON-BLOCKING)
         self.bus.publish(AuthenticatedMessage {
             version: PROTOCOL_VERSION,
+            sender_id: self.subsystem_id,  // Our ID
             correlation_id: correlation_id.as_bytes(),
             reply_to: Some(Topic { 
-                subsystem_id: SubsystemId::BlockPropagation,
+                subsystem_id: self.subsystem_id,  // MUST match sender_id!
                 channel: "responses".into(),
             }),
             // ... other fields
@@ -490,6 +645,260 @@ fn deserialize_message<T>(bytes: &[u8]) -> Result<AuthenticatedMessage<T>, Error
 | Removing field | Bump major version, deprecate for 4 epochs before removal |
 | Changing field type | FORBIDDEN - create new field, deprecate old |
 
+### 3.5 Time-Bounded Replay Prevention
+
+**CRITICAL SECURITY FIX (v2.1):** The original replay prevention design had a fatal flaw 
+that could lead to unbounded memory growth and eventual node crash.
+
+#### The Vulnerability: Nonce Cache Exhaustion
+
+**The Problem:**
+The original design validated timestamp and nonce independently:
+1. Check if timestamp is within 60-second window → OK
+2. Check if nonce exists in cache → If not, add to cache forever
+
+**The Attack Vector:**
+```
+Attacker sends 1 million messages per second, each with:
+- Valid timestamp (within 60s window)
+- Unique nonce (incrementing counter)
+
+Result: Nonce cache grows unboundedly at 1M entries/second
+After 1 hour: 3.6 billion entries in cache (~144 GB RAM)
+Node crashes due to OOM (Out of Memory)
+```
+
+**Why This Happens:**
+- Timestamp check ensures message is "fresh" but doesn't limit cache
+- Nonce check prevents replay but stores nonces FOREVER
+- No garbage collection = unbounded memory growth
+- This is a classic resource exhaustion DoS attack
+
+#### The Solution: Time-Bounded Nonce Validity
+
+**Core Insight:** A nonce only needs to be unique within the timestamp validity window.
+After the window expires, the timestamp check will reject the message anyway.
+
+**MANDATORY RULES:**
+
+| Rule | Description |
+|------|-------------|
+| **Rule 1: Nonce Subservience** | A nonce's uniqueness is ONLY relevant within the valid timestamp window |
+| **Rule 2: Bounded Window** | Nonce cache MUST only store nonces for 120 seconds (2x timestamp window) |
+| **Rule 3: Garbage Collection** | Nonces with expired timestamps MUST be continuously purged from cache |
+
+**Correct Validation Order (CRITICAL):**
+
+```rust
+/// Time-Bounded Nonce Cache
+/// 
+/// SECURITY: This cache automatically expires entries to prevent
+/// unbounded memory growth (Nonce Cache Exhaustion attack).
+struct TimeBoundedNonceCache {
+    /// Map of nonce -> timestamp when nonce was first seen
+    cache: HashMap<u64, u64>,
+    
+    /// Nonce validity window (2x message timestamp window)
+    validity_window_secs: u64,  // Default: 120 seconds
+    
+    /// Last garbage collection timestamp
+    last_gc: u64,
+    
+    /// GC interval
+    gc_interval_secs: u64,  // Default: 10 seconds
+}
+
+impl TimeBoundedNonceCache {
+    const DEFAULT_VALIDITY_WINDOW: u64 = 120;  // 2x the 60s message window
+    const DEFAULT_GC_INTERVAL: u64 = 10;
+    
+    fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
+            validity_window_secs: Self::DEFAULT_VALIDITY_WINDOW,
+            last_gc: current_timestamp(),
+            gc_interval_secs: Self::DEFAULT_GC_INTERVAL,
+        }
+    }
+    
+    /// Check if nonce is valid (not seen before) and add to cache
+    /// 
+    /// PRECONDITION: Timestamp MUST be validated BEFORE calling this!
+    fn check_and_add(&mut self, nonce: u64, timestamp: u64) -> Result<(), ReplayError> {
+        let now = current_timestamp();
+        
+        // Garbage collect expired nonces periodically
+        if now - self.last_gc > self.gc_interval_secs {
+            self.garbage_collect(now);
+            self.last_gc = now;
+        }
+        
+        // Check if nonce exists in cache
+        if self.cache.contains_key(&nonce) {
+            return Err(ReplayError::NonceReused { nonce });
+        }
+        
+        // Add nonce with its timestamp for later expiration
+        self.cache.insert(nonce, timestamp);
+        
+        Ok(())
+    }
+    
+    /// Remove all nonces whose timestamps have expired
+    fn garbage_collect(&mut self, now: u64) {
+        let expiry_threshold = now.saturating_sub(self.validity_window_secs);
+        
+        self.cache.retain(|_nonce, timestamp| {
+            *timestamp > expiry_threshold
+        });
+        
+        log::debug!(
+            "Nonce cache GC complete. Remaining entries: {}",
+            self.cache.len()
+        );
+    }
+}
+```
+
+**Correct Message Verification (v2.1):**
+
+```rust
+impl<T> AuthenticatedMessage<T> {
+    /// Verify message authenticity with time-bounded replay prevention
+    /// 
+    /// SECURITY: The order of checks is CRITICAL for DoS prevention.
+    fn verify(
+        &self, 
+        expected_sender: SubsystemId, 
+        shared_secret: &[u8],
+        nonce_cache: &mut TimeBoundedNonceCache,
+    ) -> Result<(), AuthError> {
+        let now = current_timestamp();
+        
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║  STEP 1: TIMESTAMP CHECK (MUST BE FIRST!)                     ║
+        // ║                                                               ║
+        // ║  Reject messages outside the valid time window BEFORE any    ║
+        // ║  other processing. This bounds all subsequent operations.    ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+        
+        // Allow 10s clock skew into future, 60s into past
+        let min_valid_timestamp = now.saturating_sub(60);
+        let max_valid_timestamp = now.saturating_add(10);
+        
+        if self.timestamp < min_valid_timestamp {
+            return Err(AuthError::MessageTooOld { 
+                timestamp: self.timestamp,
+                threshold: min_valid_timestamp,
+            });
+        }
+        
+        if self.timestamp > max_valid_timestamp {
+            return Err(AuthError::MessageFromFuture {
+                timestamp: self.timestamp,
+                threshold: max_valid_timestamp,
+            });
+        }
+        
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║  STEP 2: VERSION CHECK                                        ║
+        // ║                                                               ║
+        // ║  Reject unsupported versions before any deserialization.     ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+        
+        if self.version < MIN_SUPPORTED_VERSION || self.version > MAX_SUPPORTED_VERSION {
+            return Err(AuthError::UnsupportedVersion { 
+                received: self.version,
+                supported_range: (MIN_SUPPORTED_VERSION, MAX_SUPPORTED_VERSION),
+            });
+        }
+        
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║  STEP 3: SENDER CHECK                                         ║
+        // ║                                                               ║
+        // ║  Verify the sender is who we expect (from IPC-MATRIX rules). ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+        
+        if self.sender_id != expected_sender {
+            return Err(AuthError::InvalidSender {
+                expected: expected_sender,
+                received: self.sender_id,
+            });
+        }
+        
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║  STEP 4: SIGNATURE CHECK                                      ║
+        // ║                                                               ║
+        // ║  Verify HMAC before trusting any message content.            ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+        
+        let computed_hmac = compute_hmac(shared_secret, &self.serialize_without_sig());
+        if !constant_time_eq(&computed_hmac, &self.signature) {
+            return Err(AuthError::InvalidSignature);
+        }
+        
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║  STEP 5: NONCE CHECK (ONLY AFTER TIMESTAMP!)                  ║
+        // ║                                                               ║
+        // ║  SECURITY: We only check/store nonces for messages that      ║
+        // ║  passed the timestamp check. This bounds cache size.         ║
+        // ║                                                               ║
+        // ║  The cache will automatically expire this nonce after 120s.  ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+        
+        nonce_cache.check_and_add(self.nonce, self.timestamp)?;
+        
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║  STEP 6: REPLY-TO VALIDATION (for requests only)              ║
+        // ║                                                               ║
+        // ║  Prevent forwarding attacks by ensuring reply_to matches     ║
+        // ║  sender_id. See Section 3.3.1 for details.                   ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+        
+        if let Some(ref reply_to) = self.reply_to {
+            if reply_to.subsystem_id != self.sender_id {
+                return Err(AuthError::ReplyToMismatch {
+                    sender: self.sender_id,
+                    reply_to: reply_to.subsystem_id,
+                });
+            }
+        }
+        
+        Ok(())
+    }
+}
+```
+
+**Memory Bounds Analysis:**
+
+```
+Given:
+- Message window: 60 seconds
+- Nonce cache window: 120 seconds
+- Max message rate per subsystem: 10,000/second (rate limited)
+- Number of subsystems: 15
+
+Worst case cache size:
+= 10,000 msg/s × 120s × 15 subsystems
+= 18,000,000 entries
+× 16 bytes per entry (u64 nonce + u64 timestamp)
+= 288 MB
+
+With garbage collection every 10s:
+- Cache never grows beyond 120s worth of messages
+- Memory is bounded and predictable
+- OOM attack is impossible
+```
+
+**Attack Mitigation Summary:**
+
+| Attack | Before (Vulnerable) | After (Fixed) |
+|--------|---------------------|---------------|
+| Nonce flood | Cache grows forever → OOM crash | Cache bounded to 120s window |
+| Replay attack | Blocked by nonce check | Still blocked (nonce valid for 120s) |
+| Old message replay | Blocked by timestamp + nonce | Blocked by timestamp (first check) |
+| Memory exhaustion | Possible with unique nonces | Impossible due to GC |
+
 ---
 
 ## 4. SUBSYSTEM CATALOG
@@ -537,11 +946,56 @@ crates/
 
 **Reference:** See IPC Matrix for complete message type catalog.
 
-**Example: Block Validation Flow (Updated for Atomicity)**
+**Example: Block Validation Flow (v2.2 - Event-Driven Choreography)**
 
-The block validation flow has been updated to ensure atomicity. Consensus now acts as the
-orchestrator, collecting roots from Subsystems 3 and 4 before sending a single atomic
-WriteBlockRequest to Block Storage.
+The block validation flow uses **decentralized choreography**, NOT centralized orchestration.
+Each subsystem reacts to events independently and publishes its results to the bus.
+Block Storage acts as a **Stateful Assembler**, buffering components until complete.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    BLOCK VALIDATION: CHOREOGRAPHY PATTERN                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   [Block Propagation]                                                       │
+│          │                                                                  │
+│          ↓ BlockReceived                                                    │
+│   [Consensus (8)]                                                           │
+│          │                                                                  │
+│          ↓ BlockValidated { block, merkle_root: TBD, state_root: TBD }      │
+│          │                                                                  │
+│    ┌─────┴─────┬─────────────┐                                              │
+│    ↓           ↓             ↓                                              │
+│ [Subsystem 3] [Subsystem 4] [Block Storage (2)]                             │
+│ Transaction   State         (buffers BlockValidated,                        │
+│ Indexing      Management     waits for roots)                               │
+│    │           │                   │                                        │
+│    ↓           ↓                   │                                        │
+│ MerkleRootComputed  StateRootComputed                                       │
+│    │           │                   │                                        │
+│    └─────┬─────┘                   │                                        │
+│          ↓                         ↓                                        │
+│    [Block Storage (2)] ────────────┘                                        │
+│    Receives all 3 components                                                │
+│          │                                                                  │
+│          ↓ Atomic Write (only when block_hash matches all 3)                │
+│    BlockStoredPayload                                                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**WHY CHOREOGRAPHY, NOT ORCHESTRATION (v2.2 Design Decision):**
+
+The previous v2.0/v2.1 design made Consensus an "orchestrator" that collected roots
+via request/response. This was rejected by the Architecture Council for these reasons:
+
+| Problem with Orchestration | Why Choreography is Better |
+|---------------------------|---------------------------|
+| Single point of failure | Each subsystem operates independently |
+| Performance bottleneck | Parallel processing, no waiting |
+| Hidden latency source | Each component emits timing metrics |
+| Complex retry logic in Consensus | Each component handles own failures |
+| Violates EDA principles | True event-driven, loosely coupled |
 
 ```rust
 // Step 1: Block Propagation receives block from network
@@ -553,75 +1007,168 @@ BlockchainEvent::BlockReceived {
 
 // Step 2: Consensus subscribes to BlockReceived
 // ↓ validates block cryptographically
-// ↓ publishes result to indicate block is valid
+// ↓ publishes BlockValidated (NOTE: roots are TBD)
 BlockchainEvent::BlockValidated {
+    block_hash: [u8; 32],
     block: ValidatedBlock,
     consensus_proof: ConsensusProof,
+    // v2.2: These are NOT filled in by Consensus
+    // They serve as placeholders indicating "to be computed"
+    merkle_root: None,  // TBD by Subsystem 3
+    state_root: None,   // TBD by Subsystem 4
 }
 
-// Step 3: Consensus orchestrates data collection (NON-BLOCKING, parallel)
-// ↓ requests merkle_root from Transaction Indexing
-// ↓ requests state_root from State Management
-
-// 3a: Request to Transaction Indexing
-ConsensusToTransactionIndexing::BuildMerkleTreeRequest {
-    correlation_id: uuid_a,
-    reply_to: "consensus.responses",
-    block_number: block.header.block_height,
-    transactions: block.transactions,
-}
-
-// 3b: Request to State Management (parallel with 3a)
-ConsensusToStateManagement::ComputeStateRootRequest {
-    correlation_id: uuid_b,
-    reply_to: "consensus.responses",
-    block_number: block.header.block_height,
-    state_transitions: block.state_transitions,
-}
-
-// Step 4: Consensus receives responses (via correlation IDs)
-// ↓ from Transaction Indexing
-TransactionIndexingToConsensus::MerkleRootResponse {
-    correlation_id: uuid_a,  // Matches request
+// Step 3a: Transaction Indexing subscribes to BlockValidated
+// ↓ computes Merkle root for block's transactions
+// ↓ publishes result (PARALLEL with Step 3b)
+TransactionIndexingEvent::MerkleRootComputed {
+    block_hash: [u8; 32],  // Key for assembly
     merkle_root: [u8; 32],
+    computation_time_ms: u64,  // For observability
 }
 
-// ↓ from State Management
-StateManagementToConsensus::StateRootResponse {
-    correlation_id: uuid_b,  // Matches request
+// Step 3b: State Management subscribes to BlockValidated (PARALLEL)
+// ↓ computes State root for block's state transitions
+// ↓ publishes result
+StateManagementEvent::StateRootComputed {
+    block_hash: [u8; 32],  // Key for assembly
     state_root: [u8; 32],
+    computation_time_ms: u64,  // For observability
 }
 
-// Step 5: Consensus assembles COMPLETE PACKAGE and sends to Block Storage
-// This is the ONLY message that triggers a block write.
-// ATOMICITY GUARANTEE: Either all data is written, or none.
-ConsensusToBlockStorage::WriteBlockRequest {
-    correlation_id: uuid_c,
-    reply_to: "consensus.responses",
-    
-    // === COMPLETE PACKAGE ===
-    block: ValidatedBlock,
-    merkle_root: [u8; 32],   // From Step 4 (Transaction Indexing)
-    state_root: [u8; 32],    // From Step 4 (State Management)
-}
-
-// Step 6: Block Storage writes atomically
-// ↓ Either all data (block + merkle_root + state_root) is written
-// ↓ Or nothing is written (rollback on failure)
-// ↓ Emits BlockStoredPayload on success
-
-// Step 7: Finality checks if epoch boundary reached (separate flow)
-// ↓ This happens after block is stored, not in parallel
+// Step 4: Block Storage subscribes to ALL THREE events
+// ↓ Uses Stateful Assembler pattern to buffer components
+// ↓ Only writes when all 3 components with matching block_hash are received
 ```
 
-**IMPORTANT: What Changed (Atomicity Fix)**
+### 5.1.1 Stateful Assembler Pattern (Block Storage)
 
-| Before (Flawed) | After (Correct) |
-|-----------------|-----------------|
-| Subsystems 3, 4 wrote roots directly to Storage | Subsystems 3, 4 send roots to Consensus |
-| Three separate writes (potential partial failure) | Single atomic write (all or nothing) |
-| Power failure = corrupted database | Power failure = clean rollback |
-| Block Storage depended on 3 and 4 | Block Storage depends only on 8 |
+Block Storage (Subsystem 2) implements the **Stateful Assembler** pattern to
+enable decentralized choreography while maintaining atomicity guarantees.
+
+```rust
+/// Block Storage maintains a pending assembly buffer
+/// 
+/// This is a NECESSARY, CONTAINED piece of statefulness that enables
+/// system-wide decentralization. Without it, we'd need a centralized
+/// orchestrator (which we rejected in v2.2).
+struct BlockAssemblyBuffer {
+    /// Pending assemblies keyed by block_hash
+    pending: HashMap<[u8; 32], PendingBlockAssembly>,
+    
+    /// Timeout for incomplete assemblies (default: 30 seconds)
+    assembly_timeout: Duration,
+}
+
+struct PendingBlockAssembly {
+    block_hash: [u8; 32],
+    created_at: Instant,
+    
+    // The three components (None until received)
+    validated_block: Option<ValidatedBlock>,
+    merkle_root: Option<[u8; 32]>,
+    state_root: Option<[u8; 32]>,
+}
+
+impl BlockAssemblyBuffer {
+    /// Handle incoming BlockValidated event
+    fn on_block_validated(&mut self, event: BlockValidated) -> Option<WriteAction> {
+        let entry = self.pending
+            .entry(event.block_hash)
+            .or_insert_with(|| PendingBlockAssembly::new(event.block_hash));
+        
+        entry.validated_block = Some(event.block);
+        self.try_complete_assembly(event.block_hash)
+    }
+    
+    /// Handle incoming MerkleRootComputed event
+    fn on_merkle_root(&mut self, event: MerkleRootComputed) -> Option<WriteAction> {
+        if let Some(entry) = self.pending.get_mut(&event.block_hash) {
+            entry.merkle_root = Some(event.merkle_root);
+            return self.try_complete_assembly(event.block_hash);
+        }
+        // Event arrived before BlockValidated - buffer it
+        let entry = self.pending
+            .entry(event.block_hash)
+            .or_insert_with(|| PendingBlockAssembly::new(event.block_hash));
+        entry.merkle_root = Some(event.merkle_root);
+        None
+    }
+    
+    /// Handle incoming StateRootComputed event
+    fn on_state_root(&mut self, event: StateRootComputed) -> Option<WriteAction> {
+        if let Some(entry) = self.pending.get_mut(&event.block_hash) {
+            entry.state_root = Some(event.state_root);
+            return self.try_complete_assembly(event.block_hash);
+        }
+        // Event arrived before BlockValidated - buffer it
+        let entry = self.pending
+            .entry(event.block_hash)
+            .or_insert_with(|| PendingBlockAssembly::new(event.block_hash));
+        entry.state_root = Some(event.state_root);
+        None
+    }
+    
+    /// Check if all components are present and trigger atomic write
+    fn try_complete_assembly(&mut self, block_hash: [u8; 32]) -> Option<WriteAction> {
+        let entry = self.pending.get(&block_hash)?;
+        
+        // All three components must be present
+        if entry.validated_block.is_some() 
+            && entry.merkle_root.is_some() 
+            && entry.state_root.is_some() 
+        {
+            // Remove from pending and return write action
+            let complete = self.pending.remove(&block_hash)?;
+            return Some(WriteAction::AtomicWrite {
+                block: complete.validated_block.unwrap(),
+                merkle_root: complete.merkle_root.unwrap(),
+                state_root: complete.state_root.unwrap(),
+            });
+        }
+        
+        None  // Not yet complete, keep waiting
+    }
+    
+    /// Garbage collect stale pending assemblies (called periodically)
+    fn gc_stale_assemblies(&mut self) {
+        let now = Instant::now();
+        self.pending.retain(|hash, entry| {
+            let is_stale = now.duration_since(entry.created_at) > self.assembly_timeout;
+            if is_stale {
+                log::warn!(
+                    "Dropping incomplete block assembly {:?} after {:?} timeout. \
+                     Had: block={}, merkle={}, state={}",
+                    hash,
+                    self.assembly_timeout,
+                    entry.validated_block.is_some(),
+                    entry.merkle_root.is_some(),
+                    entry.state_root.is_some(),
+                );
+            }
+            !is_stale
+        });
+    }
+}
+```
+
+**Assembly Timeout Handling:**
+
+| Scenario | Cause | Action |
+|----------|-------|--------|
+| Timeout with missing merkle_root | Subsystem 3 failed/slow | Log warning, drop assembly, alert ops |
+| Timeout with missing state_root | Subsystem 4 failed/slow | Log warning, drop assembly, alert ops |
+| Timeout with missing block | Race condition (roots arrived first) | Log debug, drop assembly |
+
+**IMPORTANT: What Changed (v2.2 Choreography Fix)**
+
+| v2.0/v2.1 (Orchestrator - REJECTED) | v2.2 (Choreography - ADOPTED) |
+|-------------------------------------|-------------------------------|
+| Consensus requests roots via RPC | Subsystems publish roots to bus |
+| Consensus waits for responses | Block Storage buffers asynchronously |
+| Single bottleneck in Consensus | Parallel independent processing |
+| Consensus = god object | Consensus = validation only |
+| Hidden latency | Observable per-component metrics |
 
 ### 5.2 Security Boundaries
 
@@ -739,74 +1286,239 @@ impl Mempool {
 3. The node may be on a minority fork and needs to sync with the majority chain
 4. Continuous retries create a "Zombie State" - the node appears alive but cannot make progress
 
-**Circuit Breaker Implementation:**
+### 5.4.1 Deterministic Trigger Conditions (v2.2 Testability Fix)
+
+**PROBLEM (Fixed in v2.2):** The previous specification was untestable because it used
+ambiguous language like "cannot find a chain with a higher finalized checkpoint" without
+defining timeouts, peer quorum, or partial response handling.
+
+**MANDATORY: All conditions MUST be expressed as deterministic, measurable predicates.**
 
 ```rust
-/// Finality failure handling - DO NOT RETRY
-impl FinalityCircuitBreaker {
-    /// Handle finality failure events
-    async fn handle_finality_failure(
-        &mut self,
-        failure: FinalityFailureEvent
-    ) -> Result<(), Error> {
-        // Step 1: DO NOT RETRY - this is a circuit breaker, not a retry handler
-        log::error!("Finality circuit breaker triggered: {:?}", failure);
+/// Configuration constants for deterministic behavior
+/// 
+/// These values MUST be configurable but have sensible defaults.
+/// All timeouts and thresholds are explicit and testable.
+struct CircuitBreakerConfig {
+    /// Timeout for sync operation (default: 120 seconds)
+    /// After this duration, sync is considered failed.
+    sync_timeout: Duration,
+    
+    /// Maximum sync attempts before entering HALTED state (default: 3)
+    max_sync_attempts: u8,
+    
+    /// Minimum peer responses required for valid sync (default: 3)
+    /// Prevents basing decisions on single malicious peer.
+    min_peer_quorum: usize,
+    
+    /// Percentage of peers that must respond within timeout (default: 50%)
+    /// If fewer than this respond, treat as network partition.
+    peer_response_threshold: f64,
+    
+    /// Minimum checkpoint height advantage to consider sync successful (default: 1)
+    /// Must find a chain at least this many checkpoints ahead.
+    min_checkpoint_advantage: u64,
+}
+
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        Self {
+            sync_timeout: Duration::from_secs(120),
+            max_sync_attempts: 3,
+            min_peer_quorum: 3,
+            peer_response_threshold: 0.5,
+            min_checkpoint_advantage: 1,
+        }
+    }
+}
+```
+
+**ALGORITHM: Deterministic Sync Attempt (Testable)**
+
+```rust
+/// Sync Attempt Algorithm - Fully Deterministic
+/// 
+/// PRECONDITION: Node has detected a finality failure
+/// POSTCONDITION: Either node syncs to better chain, or sync_failure_counter++
+/// 
+/// This algorithm is designed to be FULLY TESTABLE with mocked peers.
+async fn execute_sync_attempt(&mut self) -> SyncResult {
+    let start_time = Instant::now();
+    let config = &self.config;
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 1: Broadcast ChainHeadRequest to all connected peers
+    // ═══════════════════════════════════════════════════════════════════
+    let connected_peers = self.peer_manager.get_connected_peers();
+    let peer_count = connected_peers.len();
+    
+    log::info!(
+        "Sync attempt {}/{}: broadcasting ChainHeadRequest to {} peers",
+        self.sync_failure_counter + 1,
+        config.max_sync_attempts,
+        peer_count
+    );
+    
+    for peer in &connected_peers {
+        self.send_message(peer, ChainHeadRequest {
+            our_finalized_checkpoint: self.current_chain.finalized_checkpoint,
+            timestamp: now(),
+        }).await;
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 2: Wait for responses with DETERMINISTIC timeout
+    // ═══════════════════════════════════════════════════════════════════
+    let mut responses: Vec<ChainHeadResponse> = Vec::new();
+    let deadline = start_time + config.sync_timeout;
+    
+    while Instant::now() < deadline {
+        if let Some(response) = self.receive_chain_head_response(Duration::from_millis(100)).await {
+            responses.push(response);
+        }
         
-        // Step 2: Determine failure type
-        match failure.failure_type {
-            FinalityFailureType::InsufficientAttestations => {
-                // <67% attestations - likely on minority fork
-                self.trigger_sync_mode(SyncReason::MinorityFork).await?;
+        // Early exit if we have enough responses
+        let response_ratio = responses.len() as f64 / peer_count as f64;
+        if response_ratio >= config.peer_response_threshold 
+            && responses.len() >= config.min_peer_quorum 
+        {
+            break;
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 3: Evaluate responses with DETERMINISTIC predicates
+    // ═══════════════════════════════════════════════════════════════════
+    
+    // Predicate A: Did we receive enough responses?
+    if responses.len() < config.min_peer_quorum {
+        log::warn!(
+            "Sync failed: insufficient peer responses ({}/{} required)",
+            responses.len(),
+            config.min_peer_quorum
+        );
+        return SyncResult::Failure(SyncFailureReason::InsufficientPeers {
+            received: responses.len(),
+            required: config.min_peer_quorum,
+        });
+    }
+    
+    // Predicate B: Is there a chain with a higher finalized checkpoint?
+    let our_checkpoint = self.current_chain.finalized_checkpoint;
+    let best_peer_chain = responses
+        .iter()
+        .max_by_key(|r| r.finalized_checkpoint);
+    
+    let Some(best) = best_peer_chain else {
+        return SyncResult::Failure(SyncFailureReason::NoPeerData);
+    };
+    
+    // Predicate C: Is the advantage significant enough?
+    let advantage = best.finalized_checkpoint.saturating_sub(our_checkpoint);
+    if advantage < config.min_checkpoint_advantage {
+        log::warn!(
+            "Sync failed: no chain with sufficient advantage \
+             (best peer checkpoint: {}, ours: {}, min advantage: {})",
+            best.finalized_checkpoint,
+            our_checkpoint,
+            config.min_checkpoint_advantage
+        );
+        return SyncResult::Failure(SyncFailureReason::NoSuperiorChain {
+            our_checkpoint,
+            best_found: best.finalized_checkpoint,
+        });
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 4: SUCCESS - Reorg to the better chain
+    // ═══════════════════════════════════════════════════════════════════
+    log::info!(
+        "Sync success: found superior chain at checkpoint {} (ours: {})",
+        best.finalized_checkpoint,
+        our_checkpoint
+    );
+    
+    SyncResult::Success {
+        new_checkpoint: best.finalized_checkpoint,
+        peer_id: best.peer_id,
+    }
+}
+
+#[derive(Debug, Clone)]
+enum SyncResult {
+    Success {
+        new_checkpoint: u64,
+        peer_id: PeerId,
+    },
+    Failure(SyncFailureReason),
+}
+
+#[derive(Debug, Clone)]
+enum SyncFailureReason {
+    InsufficientPeers { received: usize, required: usize },
+    NoPeerData,
+    NoSuperiorChain { our_checkpoint: u64, best_found: u64 },
+    Timeout,
+}
+```
+
+**Testability Matrix:**
+
+| Test Case | Mock Setup | Expected Outcome |
+|-----------|------------|------------------|
+| Happy path | 5 peers respond with checkpoint+2 | SyncResult::Success |
+| Insufficient peers | 2 peers respond | SyncResult::Failure(InsufficientPeers) |
+| No superior chain | 5 peers respond with same checkpoint | SyncResult::Failure(NoSuperiorChain) |
+| Timeout | Peers don't respond within 120s | SyncResult::Failure(Timeout) |
+| Quorum met early | 3 peers respond quickly, 2 slow | SyncResult evaluated at 3 responses |
+
+**Circuit Breaker State Machine (with Deterministic Triggers):**
+                }
             }
-            FinalityFailureType::ConflictingCheckpoints => {
-                // Validators disagree on checkpoint - network partition
-                self.trigger_sync_mode(SyncReason::NetworkPartition).await?;
-            }
-            FinalityFailureType::StaleCheckpoint => {
-                // Checkpoint too old - node fell behind
-                self.trigger_sync_mode(SyncReason::NodeBehind).await?;
-            }
-            FinalityFailureType::InvalidProof => {
-                // Byzantine behavior detected
-                self.alert_security("Invalid finality proof detected", &failure)?;
-                self.trigger_sync_mode(SyncReason::ByzantineBehavior).await?;
+            Err(e) => {
+                log::error!("Failed to identify majority chain: {:?}", e);
+                self.sync_failure_counter += 1;
             }
         }
         
-        // Step 3: Emit state change event
-        self.emit_event(NodeStateChanged {
-            previous_state: NodeState::Finalizing,
-            new_state: NodeState::Syncing,
-            reason: format!("Finality circuit breaker: {:?}", failure.failure_type),
-            timestamp: now(),
-        }).await?;
+        // 5. LIVELOCK PREVENTION: Check if we've exceeded max attempts
+        if self.sync_failure_counter >= Self::MAX_SYNC_ATTEMPTS {
+            return self.enter_halted_state(reason).await;
+        }
         
-        // Step 4: DO NOT send to DLQ - this is not a retry-able error
-        // The message is acknowledged and the node transitions to sync mode
+        // 6. Not halted yet - stay in sync mode, wait for network changes
+        log::warn!("Sync attempt {} failed. Remaining in sync mode.", 
+            self.sync_failure_counter);
         
         Ok(())
     }
     
-    /// Transition node to sync mode to find majority chain
-    async fn trigger_sync_mode(&mut self, reason: SyncReason) -> Result<(), Error> {
-        log::warn!("Entering sync mode: {:?}", reason);
+    /// Enter HALTED_AWAITING_INTERVENTION state
+    /// 
+    /// In this state, the node:
+    /// - Ceases ALL block production and validation
+    /// - Only listens for network state changes
+    /// - Requires manual intervention OR significant network recovery
+    async fn enter_halted_state(&mut self, reason: SyncReason) -> Result<(), Error> {
+        log::error!(
+            "CRITICAL: Node entering HALTED state after {} failed sync attempts. \
+             Reason: {:?}. Manual intervention required.",
+            Self::MAX_SYNC_ATTEMPTS, reason
+        );
         
-        // 1. Pause block production
-        self.pause_block_production()?;
+        // Emit critical alert
+        self.alert_ops(AlertLevel::Critical, format!(
+            "Node halted due to unrecoverable finality failure: {:?}", reason
+        ))?;
         
-        // 2. Request peer chain heads
-        self.request_chain_heads_from_peers().await?;
+        // Transition to halted state
+        self.emit_state_change(NodeState::HaltedAwaitingIntervention, reason).await?;
         
-        // 3. Identify longest finalized chain
-        let majority_chain = self.identify_majority_chain().await?;
-        
-        // 4. If our chain diverges, reorg to majority
-        if majority_chain.tip != self.current_chain.tip {
-            self.reorg_to_chain(majority_chain).await?;
-        }
-        
-        // 5. Resume normal operation
-        self.resume_block_production()?;
+        // The node now enters a minimal operation mode:
+        // - No block production
+        // - No block validation
+        // - Only listening for peer announcements of significantly higher finalized checkpoints
+        // - Can be manually recovered via admin API
         
         Ok(())
     }
@@ -833,19 +1545,50 @@ enum NodeState {
     Syncing,
     Finalizing,
     Producing,
-    Halted,
+    HaltedAwaitingIntervention,  // NEW: Prevents livelock
 }
+```
+
+**Livelock Prevention Logic:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FINALITY CIRCUIT BREAKER STATE MACHINE                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  [PRODUCING] ──finality failure──→ [SYNCING]                                │
+│       ↑                                │                                    │
+│       │                                ├── find better chain → [PRODUCING]  │
+│       │                                │   (reset counter)                  │
+│       │                                │                                    │
+│       │                                └── no better chain                  │
+│       │                                    (increment counter)              │
+│       │                                         │                           │
+│       │                                         ↓                           │
+│       │                              counter < 3? ──yes──→ [SYNCING]        │
+│       │                                         │          (retry)          │
+│       │                                         no                          │
+│       │                                         │                           │
+│       │                                         ↓                           │
+│       │                              [HALTED_AWAITING_INTERVENTION]         │
+│       │                                         │                           │
+│       └────────manual intervention──────────────┘                           │
+│            OR network recovery with                                         │
+│            significantly higher checkpoint                                  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key Differences from Standard DLQ Handling:**
 
 | Aspect | Standard DLQ | Finality Circuit Breaker |
 |--------|-------------|-------------------------|
-| Retry Count | 3-5 attempts | **0 attempts** |
+| Retry Count | 3-5 attempts | **0 retries (uses sync instead)** |
 | Backoff | Exponential | **None** |
 | DLQ Routing | Yes | **No** |
 | Action | Wait and retry | **State change to Sync Mode** |
-| Goal | Eventually succeed | **Find correct chain** |
+| Livelock Prevention | N/A | **HALTED after 3 failed syncs** |
+| Goal | Eventually succeed | **Find correct chain or halt safely** |
 
 **DLQ Message Format:**
 
