@@ -32,7 +32,8 @@ array-size-threshold = 512000
 min-ident-chars-threshold = 1
 
 # MSRV (Minimum Supported Rust Version)
-msrv = "1.75.0"
+# Must be 1.78+ for Cargo.lock v4 compatibility
+msrv = "1.78.0"
 
 # Allowed prefixes for documentation
 doc-valid-idents = [
@@ -62,9 +63,7 @@ doc-valid-idents = [
     "RSA",
 ]
 
-# Allowed wildcard dependencies (discouraged)
-# Note: Wildcards should generally be avoided
-allow-wildcard-dependencies = false
-
-# Enable verbose output for debugging lint issues
-verbose = false
+# ==============================================================================
+# Note: Wildcard dependencies should be avoided in production.
+# This is enforced via cargo-deny in deny.toml, not clippy.
+# ==============================================================================

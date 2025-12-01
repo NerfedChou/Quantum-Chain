@@ -86,8 +86,8 @@ env:
   RUSTUP_MAX_RETRIES: 10
   # Subsystem count for validation
   EXPECTED_SUBSYSTEM_COUNT: 15
-  # Minimum supported Rust version
-  MSRV: "1.75.0"
+  # Minimum supported Rust version (1.78+ required for Cargo.lock v4)
+  MSRV: "1.78.0"
 
 jobs:
   # ============================================================================
@@ -170,6 +170,12 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.MSRV }}
+      
+      - name: Regenerate Cargo.lock for MSRV
+        run: |
+          # Cargo.lock v4 requires Rust 1.78+
+          # Regenerate to ensure compatibility
+          cargo generate-lockfile
       
       - name: Check MSRV compatibility
         run: cargo check --all --all-features
