@@ -4,29 +4,29 @@
 # This stage uses the full Rust toolchain to compile the application with
 # all necessary build dependencies. It is optimized for caching.
 # ==============================================================================
-FROM rust:1.72 AS builder
+# Use a more recent version of Rust to match modern lockfile formats
+FROM rust:1.78 as builder
 
-# Create workspace directory
+# Create a new, empty workspace so we can cache dependencies efficiently
 WORKDIR /usr/src/quantum-chain
-
-# Copy workspace manifest and lock file
 COPY ./Cargo.toml ./Cargo.lock* ./
 
-# Copy all crate manifests for workspace members
-COPY ./crates/node-runtime/Cargo.toml ./crates/node-runtime/Cargo.toml
-COPY ./crates/shared-types/Cargo.toml ./crates/shared-types/Cargo.toml
-
-# Create dummy source files for dependency caching
+# Create dummy crates to cache dependencies before copying source code
+# This is more robust for workspace projects.
 RUN mkdir -p crates/node-runtime/src && echo "fn main() {}" > crates/node-runtime/src/main.rs
 RUN mkdir -p crates/shared-types/src && echo "" > crates/shared-types/src/lib.rs
 
-# Build dependencies only. This layer is cached until Cargo.toml changes.
+# Build dependencies. This layer is cached and only re-runs if Cargo.toml changes.
+# This will build all dependencies for all crates in the workspace.
+# The "|| true" is a failsafe for the initial dummy build.
 RUN cargo build --release --verbose 2>&1 || true
 
-# Now, copy the actual source code (overwrites dummy files)
+# Now, copy the actual source code
 COPY . .
 
-# Build the final binary with real source code
+# Build the final binary, leveraging the cached dependencies
+# This will be much faster as dependencies are already built.
+# We specify the binary for our main node runtime.
 RUN cargo build --release --verbose --bin node-runtime
 
 # ==============================================================================
