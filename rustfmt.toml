@@ -1,0 +1,68 @@
+# ==============================================================================
+# Rustfmt Configuration
+# ==============================================================================
+# Code formatting rules for Quantum-Chain
+# Architecture Reference: Documentation/Architecture.md V2.3
+#
+# Run: cargo fmt --all
+# Check: cargo fmt --all -- --check
+#
+# NOTE: This configuration uses only stable rustfmt features.
+# Unstable features are commented out for nightly users.
+# ==============================================================================
+
+# Stable features only
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+newline_style = "Unix"
+use_small_heuristics = "Default"
+
+# Import organization (stable)
+reorder_imports = true
+reorder_modules = true
+
+# Function formatting (stable)
+fn_params_layout = "Tall"
+
+# Misc (stable)
+use_field_init_shorthand = true
+use_try_shorthand = true
+force_explicit_abi = true
+
+# Chain formatting (stable)
+chain_width = 60
+
+# ==============================================================================
+# UNSTABLE FEATURES (require nightly)
+# ==============================================================================
+# To enable these, run: cargo +nightly fmt
+# And uncomment the features below:
+#
+# unstable_features = true
+# imports_granularity = "Module"
+# group_imports = "StdExternalCrate"
+# format_code_in_doc_comments = true
+# format_macro_matchers = true
+# format_macro_bodies = true
+# format_strings = true
+# wrap_comments = true
+# comment_width = 80
+# normalize_comments = true
+# normalize_doc_attributes = true
+# struct_lit_single_line = true
+# fn_single_line = false
+# control_brace_style = "AlwaysSameLine"
+# match_block_trailing_comma = true
+# match_arm_blocks = true
+# force_multiline_blocks = false
+# trailing_comma = "Vertical"
+# trailing_semicolon = true
+# spaces_around_ranges = false
+# binop_separator = "Front"
+# blank_lines_upper_bound = 1
+# blank_lines_lower_bound = 0
+# overflow_delimited_expr = false
+# struct_field_align_threshold = 0
+# reorder_impl_items = false

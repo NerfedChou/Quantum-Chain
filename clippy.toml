@@ -1,0 +1,70 @@
+# ==============================================================================
+# Clippy Configuration
+# ==============================================================================
+# Linting rules for Quantum-Chain
+# Architecture Reference: Documentation/Architecture.md V2.3
+#
+# Run: cargo clippy --all-targets --all-features
+# ==============================================================================
+
+# Cognitive complexity threshold for functions
+cognitive-complexity-threshold = 25
+
+# Maximum allowed nesting for blocks
+excessive-nesting-threshold = 5
+
+# Maximum lines for functions (excluding documentation)
+too-many-lines-threshold = 100
+
+# Maximum arguments for functions
+too-many-arguments-threshold = 7
+
+# Type complexity threshold
+type-complexity-threshold = 250
+
+# Trivially copy types size threshold (in bytes)
+trivial-copy-size-limit = 16
+
+# Array indexing limit before suggesting iterators
+array-size-threshold = 512000
+
+# Minimum identifier length
+min-ident-chars-threshold = 1
+
+# MSRV (Minimum Supported Rust Version)
+msrv = "1.75.0"
+
+# Allowed prefixes for documentation
+doc-valid-idents = [
+    "Quantum-Chain",
+    "QC",
+    "IPC",
+    "EDA",
+    "DHT",
+    "Kademlia",
+    "Merkle",
+    "MPT",
+    "ECDSA",
+    "BLS",
+    "HTLC",
+    "SPV",
+    "PoS",
+    "P2P",
+    "RPC",
+    "JSON-RPC",
+    "WebSocket",
+    "TCP",
+    "UDP",
+    "TLS",
+    "SSL",
+    "SHA",
+    "AES",
+    "RSA",
+]
+
+# Allowed wildcard dependencies (discouraged)
+# Note: Wildcards should generally be avoided
+allow-wildcard-dependencies = false
+
+# Enable verbose output for debugging lint issues
+verbose = false
