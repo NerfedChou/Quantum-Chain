@@ -579,6 +579,117 @@ pub trait TimeSource: Send + Sync {
 }
 ```
 
+### 3.3 V2.3 Cache Miss Handling (BlockDataProvider Integration)
+
+When generating a Merkle proof for a transaction, the local tree cache may have evicted the
+required block's Merkle tree (INVARIANT-5 limits memory usage). In this case, the subsystem
+MUST query Block Storage (Subsystem 2) to reconstruct the tree.
+
+```rust
+impl TransactionIndexing {
+    /// Generate a Merkle proof, handling cache misses via BlockDataProvider (V2.3)
+    /// 
+    /// This method implements the two-tier lookup strategy:
+    /// 1. Try local cache first (O(1) lookup)
+    /// 2. On cache miss, query Block Storage and rebuild tree
+    async fn generate_proof_with_fallback(
+        &mut self,
+        transaction_hash: Hash,
+    ) -> Result<MerkleProof, IndexingError> {
+        // Step 1: Get transaction location from local index
+        let location = self.store.get_location(transaction_hash)?
+            .ok_or(IndexingError::TransactionNotFound { tx_hash: transaction_hash })?;
+        
+        // Step 2: Try to get Merkle tree from local cache
+        if let Some(tree) = self.trees.get(&location.block_hash) {
+            // Cache hit - generate proof directly
+            return tree.generate_proof(location.tx_index)
+                .map_err(|e| IndexingError::InvalidIndex {
+                    index: location.tx_index,
+                    max: tree.leaf_count(),
+                });
+        }
+        
+        // Step 3: Cache miss - query Block Storage for transaction hashes (V2.3)
+        log::info!(
+            "Cache miss for block {:?}, querying Block Storage for reconstruction",
+            hex::encode(&location.block_hash.0[..8])
+        );
+        
+        let block_data = self.block_data_provider
+            .get_transaction_hashes_for_block(location.block_hash)
+            .await
+            .map_err(|e| IndexingError::StorageError {
+                message: format!("Block Storage query failed: {:?}", e),
+            })?;
+        
+        // Step 4: Rebuild Merkle tree from fetched hashes
+        let tree = MerkleTree::build(block_data.transaction_hashes);
+        
+        // Step 5: Verify reconstructed root matches expected (INVARIANT-4)
+        if tree.root() != location.merkle_root {
+            return Err(IndexingError::StorageError {
+                message: format!(
+                    "Reconstructed Merkle root mismatch: expected {:?}, got {:?}",
+                    hex::encode(&location.merkle_root.0[..8]),
+                    hex::encode(&tree.root().0[..8])
+                ),
+            });
+        }
+        
+        // Step 6: Cache the reconstructed tree for future requests
+        self.cache_tree(location.block_hash, tree.clone())?;
+        
+        // Step 7: Generate proof from reconstructed tree
+        tree.generate_proof(location.tx_index)
+            .map_err(|e| IndexingError::InvalidIndex {
+                index: location.tx_index,
+                max: tree.leaf_count(),
+            })
+    }
+}
+```
+
+**V2.3 Cache Miss Flow:**
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                   PROOF GENERATION (V2.3)                           │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  generate_proof_with_fallback(tx_hash)                              │
+│          │                                                          │
+│          ↓                                                          │
+│  [1] Get location from TransactionStore                             │
+│          │                                                          │
+│          ↓                                                          │
+│  [2] Check local tree cache                                         │
+│          │                                                          │
+│    ┌─────┴─────────────────────────────────┐                        │
+│    ↓                                       ↓                        │
+│  [Cache Hit]                          [Cache Miss]                  │
+│    │                                       │                        │
+│    ↓                                       ↓                        │
+│  Generate proof                   [3] Query BlockDataProvider       │
+│    │                                       │                        │
+│    │                                       ↓                        │
+│    │                              [4] Rebuild MerkleTree            │
+│    │                                       │                        │
+│    │                                       ↓                        │
+│    │                              [5] Verify root matches           │
+│    │                                       │                        │
+│    │                                       ↓                        │
+│    │                              [6] Cache tree (INVARIANT-5)      │
+│    │                                       │                        │
+│    │                                       ↓                        │
+│    │                              [7] Generate proof                │
+│    │                                       │                        │
+│    └───────────────┬───────────────────────┘                        │
+│                    ↓                                                │
+│              Return MerkleProof                                     │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## 4. EVENT SCHEMA (EDA)

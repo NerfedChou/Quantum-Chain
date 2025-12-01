@@ -1,6 +1,6 @@
 # DATA ARCHITECTURE VISUALIZATION
 ## Quantum-Chain System Entities Class Diagram
-**Version:** 2.2 | **Generated:** 2025-12-01 | **Status:** Architecture v2.2 Compliant
+**Version:** 2.3 | **Generated:** 2025-12-01 | **Status:** Architecture v2.3 Compliant
 
 ---
 
@@ -9,11 +9,12 @@
 This document provides Mermaid.js Class Diagrams representing all system entities
 as defined in the IPC-MATRIX.md, System.md, and Architecture.md specifications.
 
-**Key Architectural Compliance (v2.2):**
+**Key Architectural Compliance (v2.3):**
 - All messages wrapped in `AuthenticatedMessage<T>` envelope
 - Envelope `sender_id` is the SOLE source of truth for identity (no payload identity fields)
 - Block Storage uses Stateful Assembler pattern (choreography, not orchestration)
 - Time-bounded nonce cache for replay prevention
+- V2.3: Transaction Indexing can query Block Storage for proof generation (Data Retrieval Path)
 
 > **Note:** Diagrams are split by domain cluster for clarity.
 

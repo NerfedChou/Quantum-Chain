@@ -1,12 +1,12 @@
 # SPECIFICATION: BLOCK STORAGE ENGINE
 
-**Version:** 2.2  
+**Version:** 2.3  
 **Subsystem ID:** 2  
 **Bounded Context:** Persistence & Data Reliability  
 **Crate Name:** `crates/block-storage`  
 **Author:** Systems Architecture Team  
 **Date:** 2024-12-01  
-**Architecture Compliance:** Architecture.md v2.3 (Choreography Pattern, Stateful Assembler, Envelope-Only Identity, Deterministic Failure Awareness, Transaction Location Lookup)
+**Architecture Compliance:** Architecture.md v2.3 (Choreography Pattern, Stateful Assembler, Envelope-Only Identity, Deterministic Failure Awareness, Transaction Lookup Contract)
 
 ---
 

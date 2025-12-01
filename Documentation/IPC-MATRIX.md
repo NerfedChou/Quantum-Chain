@@ -103,20 +103,39 @@ If identity_valid == true:  Add to routing table
 
 ## SUBSYSTEM 2: BLOCK STORAGE ENGINE
 
+**V2.3 ROLE: STATEFUL ASSEMBLER (Choreography Pattern)**
+Block Storage is the **assembler** in the V2.3 choreography. It does NOT receive
+direct write requests from Consensus. Instead, it subscribes to three independent
+events and assembles them into a complete block for atomic storage.
+
 ### I Am Allowed To Talk To:
-- **Subsystem 3 (Transaction Indexing)** - Respond to transaction location queries for Merkle proof generation
+- **Subsystem 3 (Transaction Indexing)** - Respond to transaction location and hash queries for Merkle proof generation (V2.3)
 - **Subsystem 6 (Mempool)** - Send BlockStorageConfirmation after successful block storage
 
 ### Who Is Allowed To Talk To Me:
-- **Subsystem 3 (Transaction Indexing)** - Request transaction locations for Merkle proof generation (V2.3)
-- **Subsystem 8 (Consensus)** - Store validated blocks (COMPLETE PACKAGE with merkle_root and state_root)
+- **Event Bus (Subsystem 8 origin)** - Subscribe to `BlockValidated` events (V2.3 Choreography)
+- **Event Bus (Subsystem 3 origin)** - Subscribe to `MerkleRootComputed` events (V2.3 Choreography)
+- **Event Bus (Subsystem 4 origin)** - Subscribe to `StateRootComputed` events (V2.3 Choreography)
+- **Subsystem 3 (Transaction Indexing)** - Request transaction locations and hashes for Merkle proof generation (V2.3)
 - **Subsystem 9 (Finality)** - Mark blocks as finalized
 
-**CRITICAL DESIGN DECISION (V2.2 Choreography + V2.3 Transaction Lookup):**
-Block Storage operates as a Stateful Assembler in the V2.2 choreography pattern:
-- Subscribes to BlockValidated, MerkleRootComputed, StateRootComputed events
-- Assembles complete blocks when all three components arrive
-- Transaction Indexing (Subsystem 3) may query stored transaction locations for proof generation
+**REMOVED (V2.3 - Orchestrator Anti-Pattern Eliminated):**
+- ~~Subsystem 8 (Consensus) - Store validated blocks~~ → Now via Event Bus subscription
+
+**V2.3 CHOREOGRAPHY + DATA RETRIEVAL PATTERN:**
+```
+WRITE PATH (Choreography):
+  Event Bus ──BlockValidated──────→ [Block Storage] ──buffers──→ PendingAssembly
+  Event Bus ──MerkleRootComputed──→ [Block Storage] ──buffers──→ PendingAssembly
+  Event Bus ──StateRootComputed───→ [Block Storage] ──buffers──→ PendingAssembly
+                                          │
+                                          ↓ (when all 3 arrive)
+                                    ATOMIC WRITE + BlockStorageConfirmation
+
+READ PATH (V2.3 Data Retrieval):
+  [Subsystem 3] ──GetTransactionHashesRequest──→ [Block Storage]
+  [Block Storage] ──TransactionHashesResponse──→ [Subsystem 3]
+```
 
 ### Strict Message Types:
 
@@ -295,24 +314,27 @@ struct GetTransactionHashesRequest {
 }
 ```
 
-### Security Boundaries:
-- ✅ Accept: WriteBlockRequest from Subsystem 8 (Consensus) ONLY
+### Security Boundaries (V2.3 Choreography):
+- ✅ Subscribe: `BlockValidated` from Event Bus (Subsystem 8 origin) - triggers assembly
+- ✅ Subscribe: `MerkleRootComputed` from Event Bus (Subsystem 3 origin) - assembly component
+- ✅ Subscribe: `StateRootComputed` from Event Bus (Subsystem 4 origin) - assembly component
 - ✅ Accept: MarkFinalizedRequest from Subsystem 9 (Finality) ONLY
 - ✅ Accept: ReadBlockRequest from any authorized subsystem (read-only)
 - ✅ Accept: ReadBlockRangeRequest from any authorized subsystem (read-only)
 - ✅ Accept: GetTransactionLocationRequest from Subsystem 3 (Transaction Indexing) ONLY (V2.3)
 - ✅ Accept: GetTransactionHashesRequest from Subsystem 3 (Transaction Indexing) ONLY (V2.3)
-- ✅ Send: BlockStorageConfirmation to Subsystem 6 (Mempool) after successful write
+- ✅ Send: BlockStorageConfirmation to Subsystem 6 (Mempool) after successful assembly
 - ✅ Send: TransactionLocationResponse to Subsystem 3 (Transaction Indexing) (V2.3)
 - ✅ Send: TransactionHashesResponse to Subsystem 3 (Transaction Indexing) (V2.3)
+- ❌ **REMOVED (V2.3): WriteBlockRequest from Consensus** - now via Event Bus subscription
 - ❌ **REMOVED: WriteMerkleRootRequest (atomicity violation)**
 - ❌ **REMOVED: WriteStateRootRequest (atomicity violation)**
-- ❌ Reject: Write requests without valid Consensus signature
+- ❌ Reject: Events from unauthorized senders (verify envelope.sender_id)
 - ❌ Reject: Duplicate block writes
 - ❌ Reject: Writes when disk >95% full
 
-### Post-Write Action (Two-Phase Commit):
-After successfully writing a block, Block Storage MUST:
+### Post-Assembly Action (Two-Phase Commit):
+After successfully assembling and writing a block (all 3 events received), Block Storage MUST:
 1. Extract transaction hashes from the stored block
 2. Send BlockStorageConfirmation to Mempool (Subsystem 6)
 3. This allows Mempool to permanently delete included transactions
@@ -321,27 +343,47 @@ After successfully writing a block, Block Storage MUST:
 
 ## SUBSYSTEM 3: TRANSACTION INDEXING
 
+**V2.3 ROLE: CHOREOGRAPHY PARTICIPANT + DATA PROVIDER**
+Transaction Indexing is a **choreography participant** that computes Merkle roots
+and provides Merkle proofs. It subscribes to BlockValidated from the Event Bus
+(NOT direct from Consensus) and publishes MerkleRootComputed.
+
 ### I Am Allowed To Talk To:
-- **Subsystem 2 (Block Storage)** - Query transaction locations for Merkle proof generation (V2.3)
+- **Event Bus** - Publish `MerkleRootComputed` events (V2.3 Choreography - PRIMARY OUTPUT)
+- **Subsystem 2 (Block Storage)** - Query transaction locations and hashes for proof generation (V2.3 Data Retrieval)
 - **Subsystem 7 (Bloom Filters)** - Provide transaction hashes
 - **Subsystem 13 (Light Clients)** - Provide Merkle proofs
-- **Event Bus** - Publish MerkleRootComputed events (V2.2 Choreography)
 
 ### Who Is Allowed To Talk To Me:
-- **Subsystem 8 (Consensus)** - BlockValidated events trigger Merkle tree construction (V2.2 Choreography)
+- **Event Bus (Subsystem 8 origin)** - Subscribe to `BlockValidated` events (V2.3 Choreography Trigger)
 - **Subsystem 7 (Bloom Filters)** - Request transaction hashes
 - **Subsystem 13 (Light Clients)** - Request Merkle proofs
 
-**CRITICAL DESIGN DECISION (V2.2 Choreography + V2.3 Transaction Lookup):**
-This subsystem participates in the V2.2 choreography pattern:
-- Subscribes to BlockValidated events from Consensus
-- Computes Merkle tree and publishes MerkleRootComputed to event bus
-- Block Storage consumes MerkleRootComputed as part of Stateful Assembler
+**V2.3 CHOREOGRAPHY + DATA RETRIEVAL PATTERN:**
+```
+WRITE PATH (Choreography - Computing Merkle Root):
+  Event Bus ──BlockValidated──→ [Transaction Indexing]
+                                       │
+                                       ↓ compute merkle tree
+                                       │
+                               MerkleRootComputed ──→ Event Bus ──→ [Block Storage]
 
-For Merkle proof generation, this subsystem may query Block Storage (V2.3):
-- When a Light Client requests a proof for a transaction
-- Transaction Indexing queries Block Storage for transaction location
-- Uses cached location data to generate proof path
+READ PATH (Data Retrieval - Generating Proofs):
+  [Light Client] ──MerkleProofRequest──→ [Transaction Indexing]
+                                               │
+                                               ↓ check local cache
+                                               │
+  ┌────────────────────────────────────────────┴─────────────────────────┐
+  ↓ [Cache Hit]                                                   [Cache Miss] ↓
+  Generate proof                                                          │
+  from cache                                                              ↓
+       │                           [Transaction Indexing] ──GetTransactionHashesRequest──→ [Block Storage]
+       │                           [Block Storage] ──TransactionHashesResponse──→ [Transaction Indexing]
+       │                                                                  │
+       │                                                                  ↓ rebuild tree, cache it
+       │                                                            Generate proof
+       └──────────────────────────────────→ MerkleProofResponse ←─────────┘
+```
 
 ### Strict Message Types:
 
@@ -446,26 +488,43 @@ struct TransactionHashRequest {
 ## SUBSYSTEM 4: STATE MANAGEMENT
 
 ### I Am Allowed To Talk To:
-- **Subsystem 2 (Block Storage)** - Store state roots
+- **Event Bus** - Publish `StateRootComputed` events (V2.3 Choreography)
 - **Subsystem 6 (Mempool)** - Provide balance/nonce checks
 - **Subsystem 11 (Smart Contracts)** - Provide state reads
 - **Subsystem 12 (Transaction Ordering)** - Provide conflict detection
 
 ### Who Is Allowed To Talk To Me:
+- **Event Bus** - Subscribe to `BlockValidated` events from Subsystem 8 (V2.3 Choreography)
 - **Subsystem 6 (Mempool)** - Check balance/nonce
 - **Subsystem 11 (Smart Contracts)** - Read/write state
 - **Subsystem 12 (Transaction Ordering)** - Detect conflicts
 - **Subsystem 14 (Sharding)** - Access partitioned state
 
+**V2.3 CHOREOGRAPHY PATTERN:**
+State Management is a **choreography participant**, NOT an orchestrator target.
+It subscribes to `BlockValidated` events, computes the state root, and publishes
+`StateRootComputed` to the Event Bus. Block Storage (Subsystem 2) assembles this
+with other components. There is NO direct State Management → Block Storage path.
+
 ### Strict Message Types:
 
-**OUTGOING:**
+**OUTGOING (V2.3 Choreography Event):**
 ```rust
-struct StateRootStored {
-    block_number: u64,
+/// V2.3: Published to Event Bus after computing state root for a validated block
+/// Block Storage (Subsystem 2) subscribes to this as part of the Stateful Assembler pattern
+/// 
+/// SECURITY (Envelope-Only Identity): No requester_id in payload.
+struct StateRootComputedPayload {
+    /// Block hash this state root corresponds to (correlation key)
+    block_hash: [u8; 32],
+    /// Block height for ordering
+    block_height: u64,
+    /// The computed state root
     state_root: [u8; 32],
+    /// Number of accounts modified
     accounts_modified: u32,
-    timestamp: u64,
+    /// Computation time in milliseconds (observability)
+    computation_time_ms: u64,
 }
 
 struct AccountState {
@@ -497,6 +556,15 @@ enum ConflictType {
 
 **INCOMING:**
 ```rust
+/// V2.3: Subscribed from Event Bus (published by Consensus, Subsystem 8)
+/// This triggers state root computation as part of the choreography
+struct BlockValidatedPayload {
+    block_hash: [u8; 32],
+    block_height: u64,
+    block: ValidatedBlock,
+    consensus_proof: ConsensusProof,
+}
+
 struct StateReadRequest {
     requester_id: SubsystemId,     // Must be 6, 11, 12, or 14
     address: [u8; 20],
@@ -862,30 +930,67 @@ struct TransactionHashUpdate {
 
 ## SUBSYSTEM 8: CONSENSUS MECHANISM
 
+**V2.3 CRITICAL DESIGN CHANGE (Choreography, NOT Orchestration):**
+Consensus is a **validation-only** subsystem. It does NOT orchestrate block storage.
+It validates blocks and publishes `BlockValidated` to the Event Bus. Subsystems 3, 4,
+and 2 independently react to this event. This eliminates the single-point-of-failure
+bottleneck that existed in the rejected v2.0/v2.1 Orchestrator pattern.
+
 ### I Am Allowed To Talk To:
-- **Subsystem 2 (Block Storage)** - Store validated blocks
-- **Subsystem 3 (Transaction Indexing)** - Verify Merkle roots
-- **Subsystem 5 (Block Propagation)** - Propagate validated blocks
-- **Subsystem 6 (Mempool)** - Get transactions for blocks
-- **Subsystem 9 (Finality)** - Provide attestations
+- **Event Bus** - Publish `BlockValidated` events (V2.3 Choreography - PRIMARY OUTPUT)
+- **Subsystem 5 (Block Propagation)** - Propagate validated blocks to network
+- **Subsystem 6 (Mempool)** - Get transactions for block proposal
+- **Subsystem 9 (Finality)** - Provide attestations for PoS finality
+- **Subsystem 10 (Signature Verification)** - Verify validator signatures
 - **Subsystem 12 (Transaction Ordering)** - Order transactions (optional)
 - **Subsystem 14 (Sharding)** - Coordinate shards (optional)
 - **Subsystem 15 (Cross-Chain)** - Provide finality proofs (optional)
 
 ### Who Is Allowed To Talk To Me:
-- **Subsystem 5 (Block Propagation)** - Receive new blocks
-- **Subsystem 10 (Signature Verification)** - Provide validator signatures
+- **Subsystem 5 (Block Propagation)** - Receive new blocks from network
+- **Subsystem 6 (Mempool)** - Propose transaction batches for new blocks
+- **Subsystem 10 (Signature Verification)** - Provide verified validator signatures
 - **External Validators** - Receive attestations (PoS) or block proposals (PBFT)
+
+**REMOVED (V2.3 - Orchestrator Anti-Pattern Eliminated):**
+- ~~Subsystem 2 (Block Storage) - Store validated blocks~~ → Now via Event Bus
+- ~~Subsystem 3 (Transaction Indexing) - Verify Merkle roots~~ → Subsystem 3 subscribes to Event Bus
 
 ### Strict Message Types:
 
-**OUTGOING:**
+**OUTGOING (V2.3 Choreography Event - PRIMARY):**
 ```rust
+/// V2.3: Published to Event Bus after successful block validation
+/// 
+/// CHOREOGRAPHY: This is the trigger for the entire block processing flow.
+/// - Subsystem 3 (Transaction Indexing) subscribes → computes MerkleRootComputed
+/// - Subsystem 4 (State Management) subscribes → computes StateRootComputed
+/// - Subsystem 2 (Block Storage) subscribes → buffers as Stateful Assembler
+/// 
+/// CRITICAL (V2.3): merkle_root and state_root are NOT computed by Consensus.
+/// They are set to None/placeholder and filled in by the Stateful Assembler
+/// after receiving MerkleRootComputed and StateRootComputed events.
+/// 
+/// SECURITY (Envelope-Only Identity): No requester_id in payload.
+struct BlockValidatedPayload {
+    /// Hash of the validated block (correlation key for assembly)
+    block_hash: [u8; 32],
+    /// Block height
+    block_height: u64,
+    /// The validated block (header + transactions)
+    block: ValidatedBlock,
+    /// Consensus proof (PoS attestations or PBFT votes)
+    consensus_proof: ConsensusProof,
+}
+
+/// V2.3: Block structure - merkle_root and state_root are TBD
 struct ValidatedBlock {
     header: BlockHeader,
     transactions: Vec<ValidatedTransaction>,
-    merkle_root: [u8; 32],
-    state_root: [u8; 32],
+    /// V2.3: These are computed by Subsystems 3 and 4, NOT by Consensus
+    /// Set to None here; Block Storage fills them in during assembly
+    // merkle_root: REMOVED - computed by Subsystem 3
+    // state_root: REMOVED - computed by Subsystem 4
     consensus_proof: ConsensusProof,
     validator_signatures: Vec<Signature>,
 }
@@ -902,12 +1007,15 @@ enum ConsensusType {
     PBFT,
 }
 
+/// V2.3: Block header - merkle_root and state_root are placeholders
 struct BlockHeader {
     parent_hash: [u8; 32],
     block_number: u64,
     timestamp: u64,
-    merkle_root: [u8; 32],
-    state_root: [u8; 32],
+    /// V2.3: Placeholder - actual value comes from Subsystem 3 via Event Bus
+    merkle_root: Option<[u8; 32]>,
+    /// V2.3: Placeholder - actual value comes from Subsystem 4 via Event Bus
+    state_root: Option<[u8; 32]>,
     difficulty: u256,
     gas_used: u64,
     gas_limit: u64,
