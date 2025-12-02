@@ -21,6 +21,7 @@
 
 pub mod domain;
 pub mod ports;
+pub mod service;
 
 // Re-export public API
 pub use domain::bls::{aggregate_bls_signatures, verify_bls, verify_bls_aggregate};
@@ -32,3 +33,4 @@ pub use domain::entities::{
 pub use domain::errors::SignatureError;
 pub use ports::inbound::SignatureVerificationApi;
 pub use ports::outbound::MempoolGateway;
+pub use service::SignatureVerificationService;
