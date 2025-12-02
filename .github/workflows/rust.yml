@@ -86,8 +86,12 @@ env:
   RUSTUP_MAX_RETRIES: 10
   # Subsystem count for validation
   EXPECTED_SUBSYSTEM_COUNT: 15
-  # Minimum supported Rust version (1.82+ required for Cargo.lock v4)
-  MSRV: "1.82.0"
+  # Minimum supported Rust version
+  # Note: MSRV is effectively 1.85+ due to edition2024 dependencies (base64ct 1.8.0)
+  # The MSRV job is kept for documentation but may fail until edition2024 stabilizes
+  MSRV: "1.85.0"
+  # CI Rust version (stable now supports edition2024 as of Rust 1.85+)
+  RUST_CI_VERSION: "stable"
 
 jobs:
   # ============================================================================
@@ -108,10 +112,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
+      - name: Install Rust toolchain (stable for edition2024 support)
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.82.0"
+          toolchain: ${{ env.RUST_CI_VERSION }}
           components: rustfmt, clippy
       
       - name: Verify toolchain version
@@ -216,10 +220,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
+      - name: Install Rust toolchain (stable for edition2024 support)
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.82.0"
+          toolchain: stable
       
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -272,10 +276,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
+      - name: Install Rust toolchain (stable for edition2024 support)
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.82.0"
+          toolchain: stable
       
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -314,10 +318,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
+      - name: Install Rust toolchain (stable for edition2024 support)
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.82.0"
+          toolchain: stable
           components: llvm-tools-preview
       
       - name: Install cargo-llvm-cov
@@ -368,10 +372,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
+      - name: Install Rust toolchain (stable for edition2024 support)
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.82.0"
+          toolchain: stable
       
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -441,10 +445,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
+      - name: Install Rust toolchain (stable for edition2024 support)
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.82.0"
+          toolchain: stable
       
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -529,10 +533,10 @@ jobs:
         with:
           persist-credentials: false
       
-      - name: Install Rust toolchain (1.82+ for Cargo.lock v4)
+      - name: Install Rust toolchain (stable for edition2024 support)
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.82.0"
+          toolchain: stable
       
       - name: Cache cargo registry
         uses: actions/cache@v4

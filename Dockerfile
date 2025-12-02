@@ -37,8 +37,9 @@
 # ==============================================================================
 # STAGE 1: Build Stage
 # ==============================================================================
-ARG RUST_VERSION=1.82
-FROM rust:${RUST_VERSION}-slim-bookworm AS builder
+# Use Rust slim-bookworm image (supports edition2024 via latest stable)
+# Note: rust:slim-bookworm automatically uses the latest stable Rust
+FROM rust:slim-bookworm AS builder
 
 # Build arguments for reproducibility
 ARG BUILD_DATE

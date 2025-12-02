@@ -2,7 +2,7 @@
 
 **A Modular Blockchain System with Quantum-Inspired Architecture**
 
-[![Rust](https://img.shields.io/badge/rust-1.82%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-stable%20(1.85%2B)-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
 [![Architecture](https://img.shields.io/badge/architecture-v2.3-green.svg)](Documentation/Architecture.md)
 [![CI](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/rust.yml/badge.svg)](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/rust.yml)
@@ -104,7 +104,7 @@ The system uses **event-driven choreography**, NOT centralized orchestration:
 | 5 | `qc-05-block-propagation` | Network Broadcast | 🟡 In Progress |
 | 6 | `qc-06-mempool` | Transaction Queue | 🟡 In Progress |
 | 8 | `qc-08-consensus` | Agreement | 🟡 In Progress |
-| 10 | `qc-10-signature-verification` | Cryptography | 🟡 In Progress |
+| 10 | `qc-10-signature-verification` | Cryptography | 🟢 Implemented |
 
 ### Optional Subsystems (Advanced Features)
 
@@ -120,10 +120,11 @@ The system uses **event-driven choreography**, NOT centralized orchestration:
 
 ### Infrastructure Crates
 
-| Crate | Purpose |
-|-------|---------|
-| `shared-types` | Common types (Hash, Address, Signature) |
-| `node-runtime` | Application binary that wires everything together |
+| Crate | Purpose | Status |
+|-------|---------|--------|
+| `shared-types` | Common types (Hash, Address, Signature) | 🟢 Implemented |
+| `shared-bus` | Event-driven communication (Choreography) | 🟢 Implemented |
+| `node-runtime` | Application binary that wires everything together | 🟡 In Progress |
 
 ---
 
@@ -131,9 +132,11 @@ The system uses **event-driven choreography**, NOT centralized orchestration:
 
 ### Prerequisites
 
-- **Rust** 1.82 or later (required for Cargo.lock v4)
+- **Rust** stable toolchain (1.85+, required for edition2024 dependencies)
 - **Cargo** (comes with Rust)
 - **Docker** (optional, for containerized deployment)
+
+> **Note:** This project runs on **stable Rust** (1.85+). The `edition2024` feature used by some dependencies (e.g., `base64ct`) requires Rust 1.85 or later. CI/CD pipelines use the `stable` toolchain.
 
 ### Build from Source
 
@@ -528,4 +531,4 @@ This project is licensed under the [Unlicense](LICENSE) - see the LICENSE file f
 
 ---
 
-**Version:** 0.1.0 | **Architecture:** V2.3 | **Last Updated:** December 2024
+**Version:** 0.1.0 | **Architecture:** V2.3 | **Last Updated:** 2024-12-02

@@ -24,12 +24,12 @@
 # Build arguments - REQUIRED
 ARG SUBSYSTEM_ID
 ARG SUBSYSTEM_NAME
-ARG RUST_VERSION=1.82
 
 # ==============================================================================
 # STAGE 1: Build Stage
 # ==============================================================================
-FROM rust:${RUST_VERSION}-slim-bookworm AS builder
+# Use Rust slim-bookworm image (latest stable, supports edition2024)
+FROM rust:slim-bookworm AS builder
 
 # Re-declare ARGs after FROM
 ARG SUBSYSTEM_ID

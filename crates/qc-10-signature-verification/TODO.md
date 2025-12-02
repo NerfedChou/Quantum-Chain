@@ -1,0 +1,164 @@
+# TODO: Subsystem 10 - Signature Verification
+
+**Specification:** `SPECS/SPEC-10-SIGNATURE-VERIFICATION.md` v2.3  
+**Crate:** `crates/qc-10-signature-verification`  
+**Created:** 2025-12-02  
+**Last Updated:** 2025-12-02  
+**Status:** 🟢 COMPLETE (Library Ready + Bus Integration)
+
+---
+
+## CURRENT PHASE
+
+```
+[x] Phase 1: RED       - Domain tests ✅ COMPLETE (34 tests)
+[x] Phase 2: GREEN     - Domain implementation ✅ COMPLETE
+[x] Phase 3: REFACTOR  - Code cleanup ✅ COMPLETE
+[x] Phase 4: SERVICE   - SignatureVerificationService ✅ COMPLETE (9 tests)
+[x] Phase 5: IPC       - Security boundaries & rate limiting ✅ COMPLETE (9 tests)
+[x] Phase 6: DOCS      - Rustdoc examples & README ✅ COMPLETE (1 doc test)
+[x] Phase 7: BUS       - Event bus adapter for V2.3 choreography ✅ COMPLETE (5 tests)
+[ ] Phase 8: RUNTIME   - Wire to node runtime (deferred)
+```
+
+**Test Results:** 58 tests passing
+- 34 domain tests (7 BLS + 27 ECDSA)
+- 9 service layer tests
+- 9 IPC security tests
+- 5 bus adapter tests
+- 1 doc test
+- ✅ Clippy clean with `-D warnings`
+- ✅ cargo fmt applied
+
+---
+
+## COMPLIANCE AUDIT
+
+### SPEC-10 Compliance ✅
+
+| Section | Requirement | Status |
+|---------|-------------|--------|
+| 2.1 | Core Entities | ✅ All entities implemented |
+| 2.2 | Invariants (3 total) | ✅ All tested |
+| 3.1 | Driving Ports API | ✅ SignatureVerificationApi trait |
+| 3.2 | Driven Ports SPI | ✅ MempoolGateway trait |
+| 4.0 | Event Schema | ✅ IPC payloads + Bus events |
+| 5.1 | Unit Tests | ✅ All specified tests |
+| 6.0 | Error Handling | ✅ SignatureError enum |
+
+### IPC-MATRIX.md Compliance ✅
+
+| Requirement | Status |
+|-------------|--------|
+| Authorized senders (1,5,6,8,9) | ✅ Enforced in `adapters/ipc.rs` |
+| Forbidden senders (2,3,4,7,11-15) | ✅ Explicitly rejected |
+| Envelope-Only Identity | ✅ sender_id from AuthenticatedMessage |
+| Rate limiting (100/1000/∞) | ✅ Per-subsystem limits |
+| Batch size limit (1000) | ✅ MAX_BATCH_SIZE constant |
+
+### Architecture.md Compliance ✅
+
+| Principle | Status |
+|-----------|--------|
+| DDD - Bounded Context | ✅ Isolated crate |
+| Hexagonal - Ports/Adapters | ✅ ports/, adapters/ |
+| TDD - Tests First | ✅ All tests pass |
+| Zero direct subsystem calls | ✅ Via IPC only |
+| V2.3 Choreography | ✅ EventBusAdapter for events |
+
+---
+
+## COMPLETED COMPONENTS
+
+### Domain Layer ✅
+| Component | File | Tests |
+|-----------|------|-------|
+| Entities | `domain/entities.rs` | - |
+| ECDSA Logic | `domain/ecdsa.rs` | 27 |
+| BLS Logic | `domain/bls.rs` | 7 |
+| Errors | `domain/errors.rs` | - |
+
+### Ports Layer ✅
+| Component | File |
+|-----------|------|
+| `SignatureVerificationApi` | `ports/inbound.rs` |
+| `MempoolGateway` | `ports/outbound.rs` |
+
+### Service Layer ✅
+| Component | File | Tests |
+|-----------|------|-------|
+| `SignatureVerificationService` | `service.rs` | 9 |
+| `MockMempoolGateway` | `service.rs` (test) | - |
+
+### Adapters Layer ✅
+| Component | File | Tests |
+|-----------|------|-------|
+| `IpcHandler` | `adapters/ipc.rs` | 9 |
+| `EventBusAdapter` | `adapters/bus.rs` | 5 |
+| Security boundary checks | `adapters/ipc.rs` | ✅ |
+| Rate limiter | `adapters/ipc.rs` | ✅ |
+
+---
+
+## V2.3 CHOREOGRAPHY INTEGRATION
+
+### Event Bus Adapter (`adapters/bus.rs`)
+
+The `EventBusAdapter` enables V2.3 choreography by publishing events to the shared bus:
+
+```rust
+// Usage example:
+let mempool = DummyMempool;
+let service = Arc::new(SignatureVerificationService::new(mempool));
+let bus = Arc::new(InMemoryEventBus::new());
+let adapter = EventBusAdapter::new(service, bus);
+
+// Publish events
+adapter.publish_verified(validated_tx).await;
+adapter.publish_invalid(tx_hash, reason).await;
+```
+
+### Events Published
+
+| Event | When | Consumed By |
+|-------|------|-------------|
+| `TransactionVerified` | Signature valid | Mempool (6) |
+| `TransactionInvalid` | Signature invalid | Logged/DLQ |
+
+---
+
+## ARCHITECTURE
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   ADAPTERS LAYER ✅                      │
+│  IpcHandler (security boundaries, rate limiting)        │
+│  EventBusAdapter (V2.3 choreography events)             │
+├─────────────────────────────────────────────────────────┤
+│                    PORTS LAYER ✅                        │
+│  SignatureVerificationApi (inbound)                     │
+│  MempoolGateway (outbound)                              │
+│  SignatureVerificationBusAdapter (bus events)           │
+├─────────────────────────────────────────────────────────┤
+│                   SERVICE LAYER ✅                       │
+│  SignatureVerificationService                           │
+├─────────────────────────────────────────────────────────┤
+│                   DOMAIN LAYER ✅                        │
+│  entities.rs, ecdsa.rs, bls.rs, errors.rs              │
+└─────────────────────────────────────────────────────────┘
+```
+
+## SECURITY NOTES
+
+### Implemented ✅
+1. **Malleability Prevention (EIP-2):** S ≤ half curve order enforced
+2. **Authorized Senders:** Only 1, 5, 6, 8, 9 accepted
+3. **Forbidden Senders:** 2, 3, 4, 7, 11-15 explicitly rejected
+4. **Rate Limiting:** Per-subsystem (100/1000/∞ req/sec)
+5. **Envelope-Only Identity:** Uses AuthenticatedMessage.sender_id
+6. **Batch Size Limit:** Max 1000 signatures (DoS protection)
+
+### For Consumers (Zero-Trust)
+- Subsystems 8 (Consensus) and 9 (Finality) MUST re-verify signatures
+- Do NOT trust `signature_valid` flag blindly
+- See IPC-MATRIX.md "Zero-Trust Signature Re-Verification"
