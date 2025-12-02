@@ -4,7 +4,7 @@
 **Crate:** `crates/qc-10-signature-verification`  
 **Created:** 2025-12-02  
 **Last Updated:** 2025-12-02  
-**Status:** 🟢 COMPLETE (Library Ready, Runtime Integration Deferred)
+**Status:** 🟢 COMPLETE (Library Ready + Bus Integration)
 
 ---
 
@@ -17,13 +17,15 @@
 [x] Phase 4: SERVICE   - SignatureVerificationService ✅ COMPLETE (9 tests)
 [x] Phase 5: IPC       - Security boundaries & rate limiting ✅ COMPLETE (9 tests)
 [x] Phase 6: DOCS      - Rustdoc examples & README ✅ COMPLETE (1 doc test)
-[ ] Phase 7: RUNTIME   - Wire to event bus (deferred to runtime crate)
+[x] Phase 7: BUS       - Event bus adapter for V2.3 choreography ✅ COMPLETE (5 tests)
+[ ] Phase 8: RUNTIME   - Wire to node runtime (deferred)
 ```
 
-**Test Results:** 53 tests passing
+**Test Results:** 58 tests passing
 - 34 domain tests (7 BLS + 27 ECDSA)
 - 9 service layer tests
 - 9 IPC security tests
+- 5 bus adapter tests
 - 1 doc test
 - ✅ Clippy clean with `-D warnings`
 - ✅ cargo fmt applied
@@ -40,7 +42,7 @@
 | 2.2 | Invariants (3 total) | ✅ All tested |
 | 3.1 | Driving Ports API | ✅ SignatureVerificationApi trait |
 | 3.2 | Driven Ports SPI | ✅ MempoolGateway trait |
-| 4.0 | Event Schema | ✅ IPC payloads supported |
+| 4.0 | Event Schema | ✅ IPC payloads + Bus events |
 | 5.1 | Unit Tests | ✅ All specified tests |
 | 6.0 | Error Handling | ✅ SignatureError enum |
 
@@ -62,6 +64,7 @@
 | Hexagonal - Ports/Adapters | ✅ ports/, adapters/ |
 | TDD - Tests First | ✅ All tests pass |
 | Zero direct subsystem calls | ✅ Via IPC only |
+| V2.3 Choreography | ✅ EventBusAdapter for events |
 
 ---
 
@@ -91,20 +94,36 @@
 | Component | File | Tests |
 |-----------|------|-------|
 | `IpcHandler` | `adapters/ipc.rs` | 9 |
+| `EventBusAdapter` | `adapters/bus.rs` | 5 |
 | Security boundary checks | `adapters/ipc.rs` | ✅ |
 | Rate limiter | `adapters/ipc.rs` | ✅ |
 
 ---
 
-## REMAINING TASKS
+## V2.3 CHOREOGRAPHY INTEGRATION
 
-### Task 16: Final Documentation ✅ COMPLETE
-- [x] Add rustdoc examples
-- [x] Document security considerations in README
+### Event Bus Adapter (`adapters/bus.rs`)
 
-### Task 17: Runtime Integration (Deferred)
-- [ ] Wire to event bus (in runtime crate, not this library)
-- [ ] Integration tests with real subsystems
+The `EventBusAdapter` enables V2.3 choreography by publishing events to the shared bus:
+
+```rust
+// Usage example:
+let mempool = DummyMempool;
+let service = Arc::new(SignatureVerificationService::new(mempool));
+let bus = Arc::new(InMemoryEventBus::new());
+let adapter = EventBusAdapter::new(service, bus);
+
+// Publish events
+adapter.publish_verified(validated_tx).await;
+adapter.publish_invalid(tx_hash, reason).await;
+```
+
+### Events Published
+
+| Event | When | Consumed By |
+|-------|------|-------------|
+| `TransactionVerified` | Signature valid | Mempool (6) |
+| `TransactionInvalid` | Signature invalid | Logged/DLQ |
 
 ---
 
@@ -114,10 +133,12 @@
 ┌─────────────────────────────────────────────────────────┐
 │                   ADAPTERS LAYER ✅                      │
 │  IpcHandler (security boundaries, rate limiting)        │
+│  EventBusAdapter (V2.3 choreography events)             │
 ├─────────────────────────────────────────────────────────┤
 │                    PORTS LAYER ✅                        │
 │  SignatureVerificationApi (inbound)                     │
 │  MempoolGateway (outbound)                              │
+│  SignatureVerificationBusAdapter (bus events)           │
 ├─────────────────────────────────────────────────────────┤
 │                   SERVICE LAYER ✅                       │
 │  SignatureVerificationService                           │
