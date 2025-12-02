@@ -5,5 +5,33 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Cryptographic signature verification for Quantum-Chain (ECDSA/BLS)"
 
 [dependencies]
+# Internal
+shared-types.workspace = true
+
+# Cryptography
+k256.workspace = true
+blst.workspace = true
+sha3.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_with.workspace = true
+
+# Async
+async-trait.workspace = true
+
+# Error Handling
+thiserror.workspace = true
+
+# Parallelism
+rayon.workspace = true
+
+# Logging
+tracing.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+rand.workspace = true
