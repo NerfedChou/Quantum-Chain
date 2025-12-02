@@ -21,6 +21,8 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/qc-15-cross-chain/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/qc-01-peer-discovery/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/shared-bus/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/integration-tests/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/crates/integration-tests" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
