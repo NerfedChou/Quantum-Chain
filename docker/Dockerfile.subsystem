@@ -24,7 +24,8 @@
 # Build arguments - REQUIRED
 ARG SUBSYSTEM_ID
 ARG SUBSYSTEM_NAME
-ARG RUST_VERSION=1.82
+# Use stable Rust for edition2024 support (required by base64ct 1.8.0+)
+ARG RUST_VERSION=stable
 
 # ==============================================================================
 # STAGE 1: Build Stage
