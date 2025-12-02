@@ -8,6 +8,7 @@
 //! - **Domain Layer** (`domain/`): Pure cryptographic logic, no I/O
 //! - **Ports Layer** (`ports/`): Trait definitions for inbound/outbound interfaces
 //! - **Service Layer** (`service.rs`): Wires domain logic to ports
+//! - **Adapters Layer** (`adapters/`): Infrastructure implementations (IPC, etc.)
 //!
 //! ## Specification Reference
 //!
@@ -18,7 +19,9 @@
 //! - **Malleability Prevention (EIP-2)**: Signatures with high S values are rejected
 //! - **Zero-Trust**: Subsystems 8 and 9 should re-verify signatures independently
 //! - **Authorized Consumers**: Only subsystems 1, 5, 6, 8, 9 may request verification
+//! - **Rate Limiting**: Per-subsystem limits enforced (IPC-MATRIX.md)
 
+pub mod adapters;
 pub mod domain;
 pub mod ports;
 pub mod service;
@@ -34,3 +37,6 @@ pub use domain::errors::SignatureError;
 pub use ports::inbound::SignatureVerificationApi;
 pub use ports::outbound::MempoolGateway;
 pub use service::SignatureVerificationService;
+
+// Re-export IPC handler and security constants
+pub use adapters::ipc::{authorized, forbidden, IpcError, IpcHandler, RateLimits, SUBSYSTEM_ID};
