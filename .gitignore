@@ -23,3 +23,4 @@ Thumbs.db
 /SPECS/SPEC-AUDIT-REPORT.md
 /Documentation/SURGICAL-REVISION-WORKFLOW-V2.4.md
 /crates/integration-tests/
+/tests/

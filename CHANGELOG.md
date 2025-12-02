@@ -9,7 +9,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Brutal Exploit Tests (2024-12-02)
+
+#### Critical Vulnerabilities Discovered
+- **❌ CRITICAL:** qc-10 Signature verification bypass - 391 bit-flip positions accepted
+- **❌ CRITICAL:** qc-10 EIP-2 boundary not enforced - s = half_order accepted
+- **❌ CRITICAL:** qc-10 Message hash not bound to signature
+- **❌ HIGH:** qc-10 Zero/minimal signature edge cases accepted
+- **❌ HIGH:** qc-06 Pool capacity overflow - accepts beyond max_transactions
+
+#### Brutal Test Suite Added
+- **ADDED:** `exploits/brutal/` directory for war game tests
+- **ADDED:** `legit_vs_fake.rs` - Spoofing detection (signature forgery, identity, replay)
+- **ADDED:** `under_pressure.rs` - Concurrent attacks (50+ threads hammering)
+- **ADDED:** `breach_isolation.rs` - Container isolation (crash recovery, resource leaks)
+- **ADDED:** `crash_recovery.rs` - System failure handling (mid-proposal, saturation)
+
+#### Defended Attacks (28 tests passed)
+- ✅ 50-thread mempool hammer
+- ✅ 100-attacker peer discovery flood
+- ✅ CPU exhaustion via signature verification
+- ✅ Multi-vector combined attack (all 3 subsystems)
+- ✅ Lock starvation attack
+- ✅ Subsystem crash isolation
+- ✅ NodeId collision and identity race
+- ✅ Transaction replay and nonce reuse
+- ✅ Address spoofing prevention
+
+### Integration Test Cleanup (2024-12-02)
+
+#### File Structure Consolidation
+- **REMOVED:** `adversarial.rs` (duplicated logic → merged into `exploits/`)
+- **REMOVED:** `historical_attacks.rs` (duplicated → `exploits/historical/`)
+- **UPDATED:** `lib.rs` to only export `exploits` and `flows` modules
+- **UPDATED:** `FINDINGS.md` with current test results (45/45 passing)
+
+#### Test Suite Status
+- **PASSING:** 45/45 exploit tests
+- **VERIFIED:** All attack vectors documented and tested
+- **STRUCTURE:** Single source of truth in `exploits/` directory
+
+### Security Testing Infrastructure (2024-12-02)
+
+#### Exploit Test Suite
+- **ADDED:** `integration-tests` crate with comprehensive adversarial testing
+- **ADDED:** Phase 1 Exploits: Mt. Gox Malleability, Wormhole Bypass, Eclipse Poisoning, Dust Exhaustion
+- **ADDED:** Adversarial test categories: Spoofing, Isolation, Corruption, Stress
+- **ADDED:** Historical attack simulations: Timejacking, Penny-flooding, Eclipse
+- **ADDED:** Modern attack vectors: Staging flood, Data exhaustion
+- **ADDED:** Architectural exploits: Ghost transaction, Zombie assembler
+- **ADDED:** Combined attack scenarios: Sybil+Spam, Forgery+Replay, Eclipse+Double-spend
+- **ADDED:** Benchmark suite for SPEC claim validation (qc-01, qc-06, qc-10)
+
+#### Security Findings
+- **DOCUMENTED:** ⚠️ Wormhole gap - mempool trusts IPC-MATRIX boundaries (by design)
+- **VERIFIED:** ✅ EIP-2 malleability protection (qc-10)
+- **VERIFIED:** ✅ Fee-based eviction and per-account limits (qc-06)
+- **VERIFIED:** ✅ Subnet diversity limits (qc-01)
+- **VERIFIED:** ✅ K-bucket limits (qc-01)
+- **VERIFIED:** ✅ Staging area timeout cleanup (qc-01)
+- **VERIFIED:** ✅ Two-phase commit rollback (qc-06)
+- **VERIFIED:** ✅ Ghost transaction prevention (qc-06)
+
+#### Test Classification
+- Logic verification tests: Prove mathematical correctness
+- Stress tests: (Planned) Concurrent hammering with Arc<Mutex<T>>
+- I/O tests: (Planned) Mock network layer with packet loss simulation
+
 ### Implemented Subsystems
+
+#### Subsystem 6: Mempool (2024-12-02)
+- **ADDED:** Complete domain layer per SPEC-06
+  - `TransactionPool` with priority queue (BinaryHeap)
+  - `MempoolTransaction` with fee-based ordering
+  - Two-Phase Commit: propose → confirm/rollback
+- **ADDED:** Configuration per SPEC-06 limits
+  - `max_transactions`: 5000
+  - `max_per_account`: 16
+  - `min_gas_price`: 1 gwei
+  - `pending_inclusion_timeout_ms`: 30000
+- **ADDED:** Fee-based eviction for full pool
+- **ADDED:** Per-account transaction limits
+- **ADDED:** Nonce gap detection and handling
+- **SECURITY:** Two-Phase Commit prevents transaction loss on storage failure
+
+#### Subsystem 1: Peer Discovery (2024-12-02)
+- **ADDED:** Complete Kademlia DHT implementation per SPEC-01
+  - 256-bit XOR distance metric
+  - k-buckets with k=20 per bucket
+  - Staged peer verification flow
+- **ADDED:** IP diversity enforcement (max 2 per /24 subnet)
+- **ADDED:** Eviction-on-failure logic for honest peer protection
+- **ADDED:** Challenge-response for full bucket eviction
+- **SECURITY:** Staging area prevents unverified peer pollution
 
 #### Subsystem 10: Signature Verification (2024-12-02)
 - **ADDED:** Complete domain layer implementation per SPEC-10

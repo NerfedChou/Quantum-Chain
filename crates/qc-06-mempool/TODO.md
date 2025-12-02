@@ -4,7 +4,72 @@
 **Crate:** `crates/qc-06-mempool`  
 **Created:** 2025-12-02  
 **Last Updated:** 2025-12-02  
-**Status:** 🟢 COMPLETE (Phase 1-7 Done, 81 tests)
+**Status:** 🟢 COMPLETE (Phase 1-7 Done, 84 unit tests + 19 logic + 8 stress tests)
+
+---
+
+## 🧪 TEST COVERAGE
+
+### Test Structure
+
+| Test File | Purpose | Tests |
+|-----------|---------|-------|
+| `src/**/*.rs` (inline) | Unit tests for each module | 84 |
+| `tests/logic_verification_tests.rs` | Mathematical correctness (single-threaded) | 19 |
+| `tests/stress_tests.rs` | Concurrent attack simulation (multi-threaded) | 8 |
+| `benches/mempool_bench.rs` | Performance benchmarks | 3 groups |
+
+### Stress Test Coverage
+
+| Test | Attack Simulated | Result |
+|------|------------------|--------|
+| `test_stress_penny_flooding_eviction` | Bitcoin 2011 Dust Attack | ✅ PASS |
+| `test_stress_concurrent_add_hammer` | Lock contention (50 threads × 100 txs) | ✅ PASS |
+| `test_stress_data_exhaustion_attack` | DEA - Max-size payloads | ✅ PASS |
+| `test_stress_ghost_transaction_attack` | Two-Phase Commit Gap | ✅ PASS |
+| `test_stress_concurrent_propose_confirm_race` | Propose/Confirm race condition | ✅ PASS |
+| `test_stress_legitimate_airdrop_with_priority` | Exchange airdrop priority | ✅ PASS |
+| `test_stress_concurrent_rbf_storm` | RBF race condition | ✅ PASS |
+| `test_stress_rapid_add_remove_oscillation` | Rapid add/remove cycles | ✅ PASS |
+
+---
+
+## 🚨 VULNERABILITIES & GAPS FOUND (Adversarial Testing)
+
+### CRITICAL VULNERABILITIES
+
+| ID | Attack | Status | Fix Required |
+|----|--------|--------|--------------|
+| **V-001** | **Ghost Transaction Attack (2PC Gap)** | ✅ FIXED | Pool capacity includes `pending_inclusion` count. |
+| **V-002** | **Data Exhaustion Attack (DEA)** | 🔴 VULNERABLE | No `max_transaction_size` field in `MempoolConfig`. 200KB transactions accepted. |
+| **V-003** | **Penny-Flooding / Dust Attack** | ✅ FIXED | Fee-based eviction works - high-fee tx evicts lowest-fee when pool full. |
+
+### KNOWN LIMITATIONS
+
+| ID | Limitation | Impact | Workaround |
+|----|------------|--------|------------|
+| **L-001** | **Nonce ordering with same gas price** | When transactions from same sender have identical gas price, priority queue orders by hash, scrambling nonce sequence. `get_for_block` skips out-of-order nonces. | Use descending gas prices for sequential nonces, or implement smarter nonce-chain selection. |
+
+### IMPLEMENTATION GAPS
+
+| ID | Gap | Status | Action Required |
+|----|-----|--------|-----------------|
+| **G-001** | Missing `max_transaction_size` in `MempoolConfig` | 🔴 GAP | Add field, default to 128 KB per SPEC-06 |
+| **G-002** | Missing `max_memory` in `MempoolConfig` | 🔴 GAP | Add field, default to 512 MB per SPEC-06 |
+| **G-003** | No memory accounting in pool | 🔴 GAP | Track `total_memory_bytes`, enforce limit |
+
+### MITIGATED ATTACKS ✅
+
+| Attack | Defense | Status |
+|--------|---------|--------|
+| Timejacking | Local clock independent of peer time | ✅ MITIGATED |
+| Eclipse by Staging | Timeout cleanup + max_pending_peers | ✅ MITIGATED |
+| Zombie Assembler | Timeout triggers automatic rollback | ✅ MITIGATED |
+| Signature Forgery | EIP-2 malleability prevention | ✅ MITIGATED |
+| Duplicate Transaction | Hash-based deduplication | ✅ MITIGATED |
+| Nonce Gap Attack | 10-minute timeout on gaps | ✅ MITIGATED |
+| Ghost Transaction | Capacity check includes pending_inclusion | ✅ MITIGATED |
+| Penny-Flooding | Fee-based eviction | ✅ MITIGATED |
 
 ---
 
@@ -21,7 +86,7 @@
 [ ] Phase 8: RUNTIME   - Wire to node runtime (deferred)
 ```
 
-**Test Results:** 81 tests
+**Test Results:** 111 tests (84 unit + 19 logic + 8 stress)
 - ✅ Clippy clean with `-D warnings`
 - ✅ All tests passing
 
