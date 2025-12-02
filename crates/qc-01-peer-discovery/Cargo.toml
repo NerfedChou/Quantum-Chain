@@ -5,5 +5,12 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Kademlia DHT-based peer discovery for Quantum-Chain"
+keywords = ["blockchain", "peer-discovery", "kademlia", "dht"]
+categories = ["network-programming", "cryptography"]
 
 [dependencies]
+# No dependencies in domain layer - pure Rust
+
+[dev-dependencies]
+# Testing utilities will be added as needed
