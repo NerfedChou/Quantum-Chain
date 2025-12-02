@@ -90,7 +90,8 @@ env:
   REGISTRY: ghcr.io
   # NOTE: IMAGE_NAME will be set dynamically in jobs to ensure lowercase
   # GitHub Container Registry requires all lowercase repository names
-  RUST_VERSION: "1.82"
+  # Use stable Rust for edition2024 support (required by base64ct 1.8.0+)
+  RUST_VERSION: "stable"
 
 jobs:
   # ============================================================================

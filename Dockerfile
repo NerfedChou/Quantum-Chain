@@ -37,7 +37,8 @@
 # ==============================================================================
 # STAGE 1: Build Stage
 # ==============================================================================
-ARG RUST_VERSION=1.82
+# Use stable Rust for edition2024 support (required by base64ct 1.8.0+)
+ARG RUST_VERSION=stable
 FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 
 # Build arguments for reproducibility
