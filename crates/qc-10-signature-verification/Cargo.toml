@@ -10,6 +10,7 @@ description = "Cryptographic signature verification for Quantum-Chain (ECDSA/BLS
 [dependencies]
 # Internal
 shared-types.workspace = true
+shared-bus.workspace = true
 
 # Cryptography
 k256.workspace = true

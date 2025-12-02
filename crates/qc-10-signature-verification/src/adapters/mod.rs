@@ -4,4 +4,5 @@
 //!
 //! Reference: Architecture.md Section 2.2 (Hexagonal Architecture)
 
+pub mod bus;
 pub mod ipc;

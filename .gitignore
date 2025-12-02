@@ -1,2 +1,24 @@
+# Build artifacts
+/target/
+target/
+**/*.rs.bk
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Documentation artifacts (generated)
 /SPECS/SPEC-AUDIT-REPORT.md
 /Documentation/SURGICAL-REVISION-WORKFLOW-V2.4.md

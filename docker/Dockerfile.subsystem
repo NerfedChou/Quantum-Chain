@@ -24,13 +24,12 @@
 # Build arguments - REQUIRED
 ARG SUBSYSTEM_ID
 ARG SUBSYSTEM_NAME
-# Use stable Rust for edition2024 support (required by base64ct 1.8.0+)
-ARG RUST_VERSION=stable
 
 # ==============================================================================
 # STAGE 1: Build Stage
 # ==============================================================================
-FROM rust:${RUST_VERSION}-slim-bookworm AS builder
+# Use Rust slim-bookworm image (latest stable, supports edition2024)
+FROM rust:slim-bookworm AS builder
 
 # Re-declare ARGs after FROM
 ARG SUBSYSTEM_ID

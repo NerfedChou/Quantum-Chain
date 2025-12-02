@@ -90,8 +90,7 @@ env:
   REGISTRY: ghcr.io
   # NOTE: IMAGE_NAME will be set dynamically in jobs to ensure lowercase
   # GitHub Container Registry requires all lowercase repository names
-  # Use stable Rust for edition2024 support (required by base64ct 1.8.0+)
-  RUST_VERSION: "stable"
+  # Rust version is handled by the Dockerfile (uses rust:slim-bookworm which is latest stable)
 
 jobs:
   # ============================================================================
@@ -181,7 +180,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            RUST_VERSION=${{ env.RUST_VERSION }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
           platforms: linux/amd64
@@ -292,7 +290,6 @@ jobs:
           build-args: |
             SUBSYSTEM_ID=${{ matrix.subsystem.id }}
             SUBSYSTEM_NAME=${{ matrix.subsystem.name }}
-            RUST_VERSION=${{ env.RUST_VERSION }}
           cache-from: type=gha,scope=subsystem-${{ matrix.subsystem.id }}
           cache-to: type=gha,mode=max,scope=subsystem-${{ matrix.subsystem.id }}
 

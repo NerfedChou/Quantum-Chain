@@ -733,6 +733,7 @@ dependencies = [
  "serde",
  "serde_with",
  "sha3",
+ "shared-bus",
  "shared-types",
  "thiserror",
  "tokio",

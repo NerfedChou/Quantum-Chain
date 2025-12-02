@@ -9,6 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Implemented Subsystems
+
+#### Subsystem 10: Signature Verification (2024-12-02)
+- **ADDED:** Complete domain layer implementation per SPEC-10
+  - `SignatureType` enum (Ecdsa, Bls, Ed25519, Schnorr, MultiSig)
+  - `VerificationResult` value object with security metadata
+  - `SignatureVerificationService` with batch verification
+- **ADDED:** Ports layer (Hexagonal Architecture)
+  - `SignatureVerifier` inbound port
+  - `KeyStore`, `SignatureCache`, `MetricsRecorder` outbound ports
+- **ADDED:** Event definitions for shared bus
+  - `SignatureVerifiedEvent`, `SignatureBatchVerifiedEvent`
+  - `SignatureRejectedEvent`, `VerificationFailedEvent`
+- **ADDED:** Comprehensive test suite (TDD compliant)
+  - Unit tests for domain logic
+  - Integration tests for port contracts
+  - Property-based tests for cryptographic verification
+- **SECURITY:** Zero external dependencies for core crypto (uses `k256`, `sha2`)
+
+#### Infrastructure: Shared Bus (2024-12-02)
+- **ADDED:** `shared-bus` crate implementing Choreography pattern per Architecture.md V2.3
+  - `Event` domain entity with envelope metadata
+  - `EventMetadata` with correlation_id, causation_id, timestamp
+  - `EventBus` inbound port trait
+  - `EventStore`, `EventSerializer`, `MetricsRecorder` outbound ports
+  - `EventPublished`, `EventReceived`, `EventProcessingFailed` events
+- **ALIGNED:** IPC-MATRIX.md communication rules enforced at type level
+
+### DevOps
+
+#### CI/CD Toolchain Update (2024-12-02)
+- **FIXED:** Docker image tag `rust:stable-slim-bookworm` → `rust:slim-bookworm`
+- **FIXED:** Updated MSRV from `1.82.0` to `1.85.0` for `edition2024` support
+- **FIXED:** Removed `RUST_VERSION` build-arg from Dockerfiles (uses latest stable)
+- **REASON:** `base64ct v1.8.0` requires `edition2024` feature, needs Rust 1.85+
+- **UPDATED:** README.md to reflect Rust 1.85+ requirement
+
+#### CI/CD Stabilization (2024-12-02)
+- **FIXED:** Changed CI toolchain from `1.82.0` to `stable` in `rust.yml`
+- **FIXED:** Changed Docker build toolchain to `stable` in `docker-publish.yml`
+- **REASON:** `edition2024` feature in `base64ct v1.8.0` required stable toolchain support
+- **NOTE:** Project now runs on stable Rust (1.85+), no nightly required
+
 ### Architecture Evolution
 
 #### V2.4 - Hybrid Docker Architecture (2024-12-01)
@@ -134,7 +177,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | SPEC-01 | V2.4 | 2024-12-01 |
 | SPEC-02 | V2.3 | 2024-12-01 |
 | SPEC-03 | V2.3 | 2024-12-01 |
-| SPEC-04 through SPEC-15 | V2.3 | 2024-12-01 |
+| SPEC-04 through SPEC-09 | V2.3 | 2024-12-01 |
+| **SPEC-10** | **V2.3** | **2024-12-02** |
+| SPEC-11 through SPEC-15 | V2.3 | 2024-12-01 |
 
 ---
 

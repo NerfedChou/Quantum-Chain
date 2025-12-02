@@ -103,3 +103,6 @@ pub use service::SignatureVerificationService;
 
 // Re-export IPC handler and security constants
 pub use adapters::ipc::{authorized, forbidden, IpcError, IpcHandler, RateLimits, SUBSYSTEM_ID};
+
+// Re-export bus adapter for V2.3 choreography
+pub use adapters::bus::{EventBusAdapter, SignatureVerificationBusAdapter};
