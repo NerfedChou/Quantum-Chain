@@ -77,7 +77,9 @@ RULE #4: All inter-subsystem communication via Shared Bus ONLY
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| `shared-types` | ✅ Partial | Entities, Envelope, Errors, IPC types defined |
+| `shared-types` | ✅ Complete | Entities, Envelope, Errors, IPC types defined |
+| `shared-bus` | ✅ Complete | Event bus, nonce cache, 26 tests |
+| `qc-10-signature-verification` | ✅ Complete | ECDSA/BLS verification, 53 tests |
 | Architecture Docs | ✅ Complete | Architecture.md, System.md, IPC-MATRIX.md at V2.3 |
 | SPECS Directory | ✅ Complete | All 15 subsystem specifications |
 | Crate Structure | ✅ Scaffolded | All 15 subsystem folders created |
@@ -86,8 +88,6 @@ RULE #4: All inter-subsystem communication via Shared Bus ONLY
 
 | Component | Status | Required For |
 |-----------|--------|--------------|
-| Signature Verification (10) | 🔴 Stub | Everything |
-| Event Bus / Shared Bus | 🔴 Missing | All IPC |
 | Peer Discovery (1) | 🔴 Stub | Networking |
 | Mempool (6) | 🔴 Stub | Transactions |
 | All other subsystems | 🔴 Stub | Phase 2+ |

@@ -27,12 +27,15 @@ pub type Signature = [u8; 64];
 pub type PublicKey = [u8; 32];
 
 /// Unique identifier for a node in the network.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct NodeId(pub [u8; 32]);
+
+/// A peer identifier (alias for `NodeId` in peer contexts).
+pub type PeerId = NodeId;
 
 /// The header of a block containing metadata and root hashes.
 #[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BlockHeader {
     /// Protocol version for this block.
     pub version: u16,
@@ -54,7 +57,7 @@ pub struct BlockHeader {
 ///
 /// This is the output of the Consensus subsystem and the input to
 /// the Block Storage subsystem via the choreographed assembly pattern.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ValidatedBlock {
     /// The block header.
     pub header: BlockHeader,
@@ -123,7 +126,7 @@ pub struct Attestation {
 }
 
 /// Proof that a block has reached consensus (2/3+ validators).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConsensusProof {
     /// The block hash this proof applies to.
     pub block_hash: Hash,

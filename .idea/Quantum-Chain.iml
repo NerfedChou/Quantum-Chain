@@ -19,6 +19,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/qc-13-light-client-sync/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/qc-14-sharding/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/qc-15-cross-chain/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/shared-bus/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

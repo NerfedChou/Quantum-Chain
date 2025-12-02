@@ -39,15 +39,13 @@ const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 /// * `true` if signature is valid, `false` otherwise
 pub fn verify_bls(message: &[u8], signature: &BlsSignature, public_key: &BlsPublicKey) -> bool {
     // Parse signature (G1 point, 48 bytes per SPEC-10)
-    let sig = match Signature::from_bytes(&signature.bytes) {
-        Ok(s) => s,
-        Err(_) => return false,
+    let Ok(sig) = Signature::from_bytes(&signature.bytes) else {
+        return false;
     };
 
     // Parse public key (G2 point, 96 bytes per SPEC-10)
-    let pk = match PublicKey::from_bytes(&public_key.bytes) {
-        Ok(p) => p,
-        Err(_) => return false,
+    let Ok(pk) = PublicKey::from_bytes(&public_key.bytes) else {
+        return false;
     };
 
     // Verify using pairing check

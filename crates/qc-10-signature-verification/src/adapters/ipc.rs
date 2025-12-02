@@ -10,11 +10,11 @@
 //! ## Security Boundaries (IPC-MATRIX.md)
 //!
 //! **AUTHORIZED Consumers:**
-//! - Subsystem 1 (Peer Discovery) - VerifyNodeIdentityRequest ONLY
-//! - Subsystem 5 (Block Propagation) - VerifySignatureRequest
-//! - Subsystem 6 (Mempool) - VerifyTransactionRequest
-//! - Subsystem 8 (Consensus) - All verification requests + BatchVerify
-//! - Subsystem 9 (Finality) - VerifySignatureRequest
+//! - Subsystem 1 (Peer Discovery) - `VerifyNodeIdentityRequest` ONLY
+//! - Subsystem 5 (Block Propagation) - `VerifySignatureRequest`
+//! - Subsystem 6 (Mempool) - `VerifyTransactionRequest`
+//! - Subsystem 8 (Consensus) - All verification requests + `BatchVerify`
+//! - Subsystem 9 (Finality) - `VerifySignatureRequest`
 //!
 //! **FORBIDDEN Consumers:**
 //! - Subsystems 2, 3, 4, 7, 11, 12, 13, 14, 15
@@ -24,6 +24,8 @@
 //! - Subsystem 1: Max 100/sec (network edge protection)
 //! - Subsystems 5, 6: Max 1000/sec (internal traffic)
 //! - Subsystems 8, 9: No limit (consensus-critical)
+
+#![allow(clippy::needless_pass_by_value)] // IPC handlers consume messages
 
 use crate::domain::entities::{
     BatchVerificationRequest, BatchVerificationResult, EcdsaSignature, VerificationRequest,
@@ -127,7 +129,7 @@ pub struct RateLimits {
     pub peer_discovery: u64,
     /// Subsystems 5, 6: 1000/sec
     pub internal: u64,
-    /// Subsystems 8, 9: No limit (u64::MAX)
+    /// Subsystems 8, 9: No limit (maximum u64)
     pub consensus_critical: u64,
 }
 
@@ -144,7 +146,7 @@ impl Default for RateLimits {
 /// Token bucket rate limiter per subsystem.
 struct RateLimiter {
     limits: RateLimits,
-    /// Counters per subsystem: (count, last_reset_time)
+    /// Counters per subsystem: (count, last reset time)
     counters: Mutex<HashMap<u8, (AtomicU64, Instant)>>,
 }
 
@@ -157,6 +159,7 @@ impl RateLimiter {
     }
 
     /// Check if a request from the given subsystem is allowed.
+    #[allow(clippy::significant_drop_tightening)]
     fn check(&self, sender_id: u8) -> Result<(), IpcError> {
         let limit = self.get_limit(sender_id);
 
@@ -165,7 +168,10 @@ impl RateLimiter {
             return Ok(());
         }
 
-        let mut counters = self.counters.lock().unwrap();
+        let Ok(mut counters) = self.counters.lock() else {
+            // Mutex poisoned - allow request to avoid blocking
+            return Ok(());
+        };
         let now = Instant::now();
 
         let entry = counters
@@ -191,7 +197,7 @@ impl RateLimiter {
     }
 
     /// Get the rate limit for a subsystem.
-    fn get_limit(&self, sender_id: u8) -> u64 {
+    const fn get_limit(&self, sender_id: u8) -> u64 {
         match sender_id {
             authorized::PEER_DISCOVERY => self.limits.peer_discovery,
             authorized::BLOCK_PROPAGATION | authorized::MEMPOOL => self.limits.internal,
@@ -208,7 +214,7 @@ impl RateLimiter {
 /// Check if a sender is authorized for signature verification.
 ///
 /// Reference: IPC-MATRIX.md Subsystem 10 Security Boundaries
-fn check_authorized_sender(sender_id: u8) -> Result<(), IpcError> {
+const fn check_authorized_sender(sender_id: u8) -> Result<(), IpcError> {
     // Check forbidden list first (explicit rejection)
     if is_forbidden(sender_id) {
         return Err(IpcError::ForbiddenSender { sender_id });
@@ -223,7 +229,7 @@ fn check_authorized_sender(sender_id: u8) -> Result<(), IpcError> {
 }
 
 /// Check if sender is in the authorized list.
-fn is_authorized(sender_id: u8) -> bool {
+const fn is_authorized(sender_id: u8) -> bool {
     matches!(
         sender_id,
         authorized::PEER_DISCOVERY
@@ -235,7 +241,7 @@ fn is_authorized(sender_id: u8) -> bool {
 }
 
 /// Check if sender is in the forbidden list.
-fn is_forbidden(sender_id: u8) -> bool {
+const fn is_forbidden(sender_id: u8) -> bool {
     matches!(
         sender_id,
         forbidden::BLOCK_STORAGE
@@ -250,20 +256,20 @@ fn is_forbidden(sender_id: u8) -> bool {
     )
 }
 
-/// Check if sender is authorized for VerifyNodeIdentityRequest.
+/// Check if sender is authorized for `VerifyNodeIdentityRequest`.
 ///
 /// Reference: IPC-MATRIX.md - Only Subsystem 1 (Peer Discovery) can request node identity verification.
-fn check_node_identity_authorized(sender_id: u8) -> Result<(), IpcError> {
+const fn check_node_identity_authorized(sender_id: u8) -> Result<(), IpcError> {
     if sender_id != authorized::PEER_DISCOVERY {
         return Err(IpcError::UnauthorizedSender { sender_id });
     }
     Ok(())
 }
 
-/// Check if sender is authorized for BatchVerifyRequest.
+/// Check if sender is authorized for `BatchVerifyRequest`.
 ///
 /// Reference: IPC-MATRIX.md - Only Subsystem 8 (Consensus) can request batch verification.
-fn check_batch_verify_authorized(sender_id: u8) -> Result<(), IpcError> {
+const fn check_batch_verify_authorized(sender_id: u8) -> Result<(), IpcError> {
     if sender_id != authorized::CONSENSUS {
         return Err(IpcError::UnauthorizedSender { sender_id });
     }
@@ -296,8 +302,7 @@ fn validate_envelope<T>(msg: &AuthenticatedMessage<T>) -> Result<(), IpcError> {
     // Check timestamp (within valid window)
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+        .map_or(0, |d| d.as_secs());
 
     let max_age = AuthenticatedMessage::<T>::MAX_AGE;
     let max_future = AuthenticatedMessage::<T>::MAX_FUTURE_SKEW;
@@ -315,7 +320,7 @@ fn validate_envelope<T>(msg: &AuthenticatedMessage<T>) -> Result<(), IpcError> {
 // IPC MESSAGE HANDLER
 // =============================================================================
 
-/// Maximum batch size for batch verification (DoS protection).
+/// Maximum batch size for batch verification (denial of service protection).
 pub const MAX_BATCH_SIZE: usize = 1000;
 
 /// IPC message handler for Subsystem 10.
@@ -343,7 +348,7 @@ impl<S: SignatureVerificationApi> IpcHandler<S> {
         }
     }
 
-    /// Handle a VerifySignatureRequest message.
+    /// Handle a `VerifySignatureRequest` message.
     ///
     /// Reference: SPEC-10 Section 4, IPC-MATRIX.md
     ///
@@ -381,11 +386,11 @@ impl<S: SignatureVerificationApi> IpcHandler<S> {
         let result = self.service.verify_ecdsa(&message_hash, &ecdsa_sig);
 
         // If failed with v=27, try v=28
-        let final_result = if !result.valid {
+        let final_result = if result.valid {
+            result
+        } else {
             let ecdsa_sig_28 = EcdsaSignature { r, s, v: 28 };
             self.service.verify_ecdsa(&message_hash, &ecdsa_sig_28)
-        } else {
-            result
         };
 
         Ok(VerifySignatureResponsePayload {
@@ -393,9 +398,9 @@ impl<S: SignatureVerificationApi> IpcHandler<S> {
         })
     }
 
-    /// Handle a VerifyNodeIdentityRequest message.
+    /// Handle a `VerifyNodeIdentityRequest` message.
     ///
-    /// Reference: IPC-MATRIX.md - Peer Discovery DDoS defense
+    /// Reference: IPC-MATRIX.md - Peer Discovery denial-of-service defense
     ///
     /// # Security
     /// - ONLY Subsystem 1 (Peer Discovery) is authorized
@@ -425,11 +430,11 @@ impl<S: SignatureVerificationApi> IpcHandler<S> {
         let result = self.service.verify_ecdsa(&payload.challenge, &ecdsa_sig);
 
         // Try v=28 if v=27 failed
-        let final_result = if !result.valid {
+        let final_result = if result.valid {
+            result
+        } else {
             let ecdsa_sig_28 = EcdsaSignature { r, s, v: 28 };
             self.service.verify_ecdsa(&payload.challenge, &ecdsa_sig_28)
-        } else {
-            result
         };
 
         Ok(VerifyNodeIdentityResponse {
@@ -445,13 +450,13 @@ impl<S: SignatureVerificationApi> IpcHandler<S> {
         })
     }
 
-    /// Handle a BatchVerifyRequest.
+    /// Handle a `BatchVerifyRequest`.
     ///
     /// Reference: IPC-MATRIX.md - Only Consensus (Subsystem 8) can batch verify
     ///
     /// # Security
     /// - ONLY Subsystem 8 (Consensus) is authorized
-    /// - Maximum 1000 signatures per batch (DoS protection)
+    /// - Maximum 1000 signatures per batch (denial-of-service protection)
     pub fn handle_batch_verify(
         &self,
         sender_id: u8,

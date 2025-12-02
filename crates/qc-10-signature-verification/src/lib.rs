@@ -8,6 +8,20 @@
 //! use qc_10_signature_verification::{
 //!     EcdsaSignature, keccak256, EcdsaVerifier,
 //! };
+
+// Pedantic lints that are too strict for this crate
+#![allow(clippy::manual_let_else)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(clippy::missing_const_for_fn)]
+#![allow(clippy::if_not_else)]
+// Allow in tests
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+#![cfg_attr(test, allow(clippy::expect_used))]
+#![cfg_attr(test, allow(clippy::panic))]
+#![cfg_attr(test, allow(clippy::uninlined_format_args))]
 //!
 //! // Hash a message
 //! let message = b"Hello, Quantum-Chain!";
@@ -65,7 +79,7 @@
 //!
 //! ### Rate Limiting
 //!
-//! Per-subsystem rate limits are enforced to prevent DoS attacks:
+//! Per-subsystem rate limits are enforced to prevent denial-of-service attacks:
 //! - Subsystem 1: 100 req/sec (network edge protection)
 //! - Subsystems 5, 6: 1000 req/sec (internal traffic)
 //! - Subsystems 8, 9: No limit (consensus-critical path)
