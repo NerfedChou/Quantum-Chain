@@ -1,12 +1,10 @@
 use crate::domain::{
-    detect_conflicts, AccountState, Address, Hash, PatriciaMerkleTrie,
-    StateConfig, StateError,
+    detect_conflicts, AccountState, Address, Hash, PatriciaMerkleTrie, StateConfig, StateError,
 };
 use crate::events::{
     BalanceCheckRequestPayload, BalanceCheckResponsePayload, BlockValidatedPayload,
-    ConflictDetectionRequestPayload, ConflictDetectionResponsePayload,
-    StateReadRequestPayload, StateReadResponsePayload, StateRootComputedPayload,
-    StateWriteRequestPayload,
+    ConflictDetectionRequestPayload, ConflictDetectionResponsePayload, StateReadRequestPayload,
+    StateReadResponsePayload, StateRootComputedPayload, StateWriteRequestPayload,
 };
 use shared_types::security::{KeyProvider, MessageVerifier, NonceCache};
 use shared_types::AuthenticatedMessage;
@@ -150,7 +148,10 @@ impl<K: KeyProvider> IpcHandler<K> {
         }
 
         // Check authorized senders
-        if !matches!(msg.sender_id, MEMPOOL | SMART_CONTRACTS | TX_ORDERING | SHARDING) {
+        if !matches!(
+            msg.sender_id,
+            MEMPOOL | SMART_CONTRACTS | TX_ORDERING | SHARDING
+        ) {
             return Err(StateError::UnauthorizedSender(msg.sender_id));
         }
 
@@ -158,16 +159,14 @@ impl<K: KeyProvider> IpcHandler<K> {
         let payload = &msg.payload;
 
         let value = if let Some(key) = payload.storage_key {
-            trie.get_storage(payload.address, key)?
-                .map(|v| v.to_vec())
+            trie.get_storage(payload.address, key)?.map(|v| v.to_vec())
         } else {
-            trie.get_account(payload.address)?
-                .map(|acc| {
-                    let mut v = Vec::new();
-                    v.extend_from_slice(&acc.balance.to_be_bytes());
-                    v.extend_from_slice(&acc.nonce.to_be_bytes());
-                    v
-                })
+            trie.get_account(payload.address)?.map(|acc| {
+                let mut v = Vec::new();
+                v.extend_from_slice(&acc.balance.to_be_bytes());
+                v.extend_from_slice(&acc.nonce.to_be_bytes());
+                v
+            })
         };
 
         let height = *self.current_height.read().unwrap();

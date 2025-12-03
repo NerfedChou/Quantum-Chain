@@ -117,10 +117,8 @@ mod tests {
         let slot = [0x01u8; 32];
 
         let patterns = vec![
-            TransactionAccessPattern::new([1u8; 32])
-                .with_writes(vec![(contract, Some(slot))]),
-            TransactionAccessPattern::new([2u8; 32])
-                .with_writes(vec![(contract, Some(slot))]),
+            TransactionAccessPattern::new([1u8; 32]).with_writes(vec![(contract, Some(slot))]),
+            TransactionAccessPattern::new([2u8; 32]).with_writes(vec![(contract, Some(slot))]),
         ];
 
         let conflicts = detect_conflicts(&patterns);
@@ -134,10 +132,8 @@ mod tests {
         let slot = [0x01u8; 32];
 
         let patterns = vec![
-            TransactionAccessPattern::new([1u8; 32])
-                .with_reads(vec![(contract, Some(slot))]),
-            TransactionAccessPattern::new([2u8; 32])
-                .with_writes(vec![(contract, Some(slot))]),
+            TransactionAccessPattern::new([1u8; 32]).with_reads(vec![(contract, Some(slot))]),
+            TransactionAccessPattern::new([2u8; 32]).with_writes(vec![(contract, Some(slot))]),
         ];
 
         let conflicts = detect_conflicts(&patterns);
@@ -152,10 +148,8 @@ mod tests {
         let slot2 = [0x02u8; 32];
 
         let patterns = vec![
-            TransactionAccessPattern::new([1u8; 32])
-                .with_writes(vec![(contract, Some(slot1))]),
-            TransactionAccessPattern::new([2u8; 32])
-                .with_writes(vec![(contract, Some(slot2))]),
+            TransactionAccessPattern::new([1u8; 32]).with_writes(vec![(contract, Some(slot1))]),
+            TransactionAccessPattern::new([2u8; 32]).with_writes(vec![(contract, Some(slot2))]),
         ];
 
         let conflicts = detect_conflicts(&patterns);

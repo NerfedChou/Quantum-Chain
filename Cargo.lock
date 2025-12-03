@@ -503,6 +503,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
+name = "errno"
+version = "0.3.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "fastrand"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
+
+[[package]]
 name = "ff"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -830,6 +846,7 @@ name = "integration-tests"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bincode",
  "criterion",
  "futures",
  "hex",
@@ -840,6 +857,8 @@ dependencies = [
  "qc-03-transaction-indexing",
  "qc-04-state-management",
  "qc-06-mempool",
+ "qc-08-consensus",
+ "qc-09-finality",
  "qc-10-signature-verification",
  "rand",
  "secp256k1",
@@ -922,6 +941,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976"
 
 [[package]]
+name = "linux-raw-sys"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df1d3c3b53da64cf5760482273a98e575c651a67eec7f77df96b5b642de8f039"
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -976,7 +1001,19 @@ name = "node-runtime"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "qc-01-peer-discovery",
+ "qc-02-block-storage",
+ "qc-03-transaction-indexing",
+ "qc-04-state-management",
+ "qc-05-block-propagation",
+ "qc-06-mempool",
+ "qc-08-consensus",
+ "qc-09-finality",
+ "qc-10-signature-verification",
+ "shared-bus",
  "shared-types",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1230,6 +1267,14 @@ dependencies = [
 [[package]]
 name = "qc-05-block-propagation"
 version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "shared-types",
+ "siphasher",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "qc-06-mempool"
@@ -1254,10 +1299,35 @@ version = "0.1.0"
 [[package]]
 name = "qc-08-consensus"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "k256",
+ "parking_lot",
+ "serde",
+ "serde_with",
+ "sha3",
+ "shared-types",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "qc-09-finality"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bincode",
+ "bitvec",
+ "parking_lot",
+ "serde",
+ "sha3",
+ "shared-types",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "qc-10-signature-verification"
@@ -1297,6 +1367,26 @@ version = "0.1.0"
 [[package]]
 name = "qc-15-cross-chain"
 version = "0.1.0"
+
+[[package]]
+name = "qc-benchmarks"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "k256",
+ "qc-01-peer-discovery",
+ "qc-02-block-storage",
+ "qc-03-transaction-indexing",
+ "qc-04-state-management",
+ "qc-06-mempool",
+ "qc-08-consensus",
+ "qc-10-signature-verification",
+ "rand",
+ "sha3",
+ "shared-types",
+ "tempfile",
+ "tokio",
+]
 
 [[package]]
 name = "quote"
@@ -1442,6 +1532,19 @@ name = "rustc-hex"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e75f6a532d0fd9f7f13144f392b6ad56a32696bfcd9c78f797f16bbb6f072d6"
+
+[[package]]
+name = "rustix"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd15f8a2c5551a84d56efdc1cd049089e409ac19a3072d5037a17fd70719ff3e"
+dependencies = [
+ "bitflags",
+ "errno",
+ "libc",
+ "linux-raw-sys",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "rustversion"
@@ -1684,6 +1787,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "siphasher"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
+
+[[package]]
 name = "slab"
 version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1749,6 +1858,19 @@ name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
+
+[[package]]
+name = "tempfile"
+version = "3.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d31c77bdf42a745371d260a26ca7163f1e0924b64afa0b688e61b5a9fa02f16"
+dependencies = [
+ "fastrand",
+ "getrandom 0.3.4",
+ "once_cell",
+ "rustix",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "thiserror"

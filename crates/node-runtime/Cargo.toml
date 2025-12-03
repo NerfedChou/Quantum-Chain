@@ -17,8 +17,27 @@ name = "node-runtime"
 path = "src/main.rs"
 
 [dependencies]
+# Internal crates - Core subsystems
 shared-types.workspace = true
+shared-bus = { path = "../shared-bus" }
+qc-01-peer-discovery = { path = "../qc-01-peer-discovery" }
+qc-02-block-storage = { path = "../qc-02-block-storage" }
+qc-03-transaction-indexing = { path = "../qc-03-transaction-indexing" }
+qc-04-state-management = { path = "../qc-04-state-management" }
+qc-05-block-propagation = { path = "../qc-05-block-propagation" }
+qc-06-mempool = { path = "../qc-06-mempool" }
+qc-08-consensus = { path = "../qc-08-consensus" }
+qc-09-finality = { path = "../qc-09-finality" }
+qc-10-signature-verification = { path = "../qc-10-signature-verification" }
+
+# Async runtime
 tokio.workspace = true
+async-trait.workspace = true
+
+# Logging
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+# Error handling
 anyhow.workspace = true
+thiserror.workspace = true

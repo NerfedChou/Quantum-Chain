@@ -95,23 +95,23 @@ The system uses **event-driven choreography**, NOT centralized orchestration:
 
 ### Core Subsystems (Required)
 
-| ID | Crate | Bounded Context | Status |
-|----|-------|-----------------|--------|
-| 1 | `qc-01-peer-discovery` | Network Topology | 🟡 In Progress |
-| 2 | `qc-02-block-storage` | Persistence | 🟡 In Progress |
-| 3 | `qc-03-transaction-indexing` | Data Retrieval | 🟡 In Progress |
-| 4 | `qc-04-state-management` | Account State | 🟡 In Progress |
-| 5 | `qc-05-block-propagation` | Network Broadcast | 🟡 In Progress |
-| 6 | `qc-06-mempool` | Transaction Queue | 🟡 In Progress |
-| 8 | `qc-08-consensus` | Agreement | 🟡 In Progress |
-| 10 | `qc-10-signature-verification` | Cryptography | 🟢 Implemented |
+| ID | Crate | Bounded Context | Status | Security |
+|----|-------|-----------------|--------|----------|
+| 1 | `qc-01-peer-discovery` | Network Topology | 🟢 Implemented | ✅ Shared IPC Security |
+| 2 | `qc-02-block-storage` | Persistence | 🟢 Implemented | ✅ Stateful Assembler |
+| 3 | `qc-03-transaction-indexing` | Data Retrieval | 🟢 Implemented | ✅ Merkle Proofs |
+| 4 | `qc-04-state-management` | Account State | 🟢 Implemented | ✅ Patricia Trie |
+| 5 | `qc-05-block-propagation` | Network Broadcast | 🟢 Implemented | ✅ Gossip Protocol |
+| 6 | `qc-06-mempool` | Transaction Queue | 🟢 Implemented | ✅ Two-Phase Commit |
+| 8 | `qc-08-consensus` | Agreement | 🟢 Implemented | ✅ Zero-Trust Sigs |
+| 9 | `qc-09-finality` | Economic Security | 🟢 Implemented | ✅ Circuit Breaker |
+| 10 | `qc-10-signature-verification` | Cryptography | 🟢 Implemented | ✅ ECDSA/BLS |
 
 ### Optional Subsystems (Advanced Features)
 
 | ID | Crate | Bounded Context | Status |
 |----|-------|-----------------|--------|
 | 7 | `qc-07-bloom-filters` | Light Client Support | 🔴 Not Started |
-| 9 | `qc-09-finality` | Economic Security | 🔴 Not Started |
 | 11 | `qc-11-smart-contracts` | Programmability | 🔴 Not Started |
 | 12 | `qc-12-transaction-ordering` | Parallel Execution | 🔴 Not Started |
 | 13 | `qc-13-light-client-sync` | Resource Efficiency | 🔴 Not Started |
@@ -531,4 +531,4 @@ This project is licensed under the [Unlicense](LICENSE) - see the LICENSE file f
 
 ---
 
-**Version:** 0.1.0 | **Architecture:** V2.3 | **Last Updated:** 2024-12-02
+**Version:** 0.2.0 | **Architecture:** V2.3 | **Last Updated:** 2024-12-03

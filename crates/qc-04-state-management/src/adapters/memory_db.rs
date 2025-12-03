@@ -1,5 +1,5 @@
 use crate::domain::{Hash, StateError};
-use crate::ports::{TrieDatabase, SnapshotStorage};
+use crate::ports::{SnapshotStorage, TrieDatabase};
 use std::collections::HashMap;
 use std::sync::RwLock;
 
@@ -77,14 +77,14 @@ impl SnapshotStorage for InMemorySnapshotStorage {
 
     fn get_nearest_snapshot(&self, height: u64) -> Result<Option<(u64, Hash)>, StateError> {
         let snapshots = self.snapshots.read().unwrap();
-        
+
         // Find the nearest snapshot at or before the given height
         let nearest = snapshots
             .iter()
             .filter(|(h, _)| **h <= height)
             .max_by_key(|(h, _)| *h)
             .map(|(h, root)| (*h, *root));
-        
+
         Ok(nearest)
     }
 
@@ -105,14 +105,14 @@ mod tests {
         let db = InMemoryTrieDb::new();
         let hash = [0xAB; 32];
         let data = vec![1, 2, 3, 4];
-        
+
         // Put
         db.put_node(hash, data.clone()).unwrap();
-        
+
         // Get
         let retrieved = db.get_node(&hash).unwrap();
         assert_eq!(retrieved, Some(data));
-        
+
         // Delete
         db.delete_node(&hash).unwrap();
         let retrieved = db.get_node(&hash).unwrap();
@@ -122,16 +122,16 @@ mod tests {
     #[test]
     fn test_snapshot_storage() {
         let storage = InMemorySnapshotStorage::new();
-        
+
         storage.create_snapshot(100, [0x01; 32]).unwrap();
         storage.create_snapshot(200, [0x02; 32]).unwrap();
         storage.create_snapshot(300, [0x03; 32]).unwrap();
-        
+
         // Get nearest at 250
         let (height, root) = storage.get_nearest_snapshot(250).unwrap().unwrap();
         assert_eq!(height, 200);
         assert_eq!(root, [0x02; 32]);
-        
+
         // Prune old snapshots
         let pruned = storage.prune_snapshots(150).unwrap();
         assert_eq!(pruned, 1); // Removed snapshot at 100

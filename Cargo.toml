@@ -12,6 +12,7 @@ members = [
     "crates/shared-bus",
     "crates/shared-types",
     "crates/integration-tests",
+    "crates/benchmarks",
 ]
 
 [workspace.package]

@@ -31,7 +31,10 @@ pub enum StateError {
     ProofVerificationFailed,
 
     #[error("State root mismatch: expected {expected:?}, got {actual:?}")]
-    StateRootMismatch { expected: [u8; 32], actual: [u8; 32] },
+    StateRootMismatch {
+        expected: [u8; 32],
+        actual: [u8; 32],
+    },
 
     #[error("Snapshot not found for block {height}")]
     SnapshotNotFound { height: u64 },

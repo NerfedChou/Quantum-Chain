@@ -60,7 +60,7 @@ pub fn verify_state_proof(proof: &StateProof) -> bool {
     if proof.proof_nodes.is_empty() {
         return proof.account_state.is_none();
     }
-    
+
     // For now, verify structure is correct
     // Full verification requires reconstructing path
     !proof.proof_nodes.is_empty() || proof.account_state.is_some()

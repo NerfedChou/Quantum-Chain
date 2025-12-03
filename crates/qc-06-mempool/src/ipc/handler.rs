@@ -55,7 +55,11 @@ impl<T: TimeSource> IpcHandler<T> {
     /// Creates a new IPC handler with custom master secret.
     ///
     /// The master secret is used to derive per-subsystem HMAC keys.
-    pub fn with_master_secret(pool: TransactionPool, time_source: T, master_secret: Vec<u8>) -> Self {
+    pub fn with_master_secret(
+        pool: TransactionPool,
+        time_source: T,
+        master_secret: Vec<u8>,
+    ) -> Self {
         Self {
             pool,
             time_source,
@@ -91,16 +95,24 @@ impl<T: TimeSource> IpcHandler<T> {
         self.validate_timestamp(timestamp, now)?;
 
         // Step 2: Validate HMAC signature using centralized module
-        let shared_secret = self.key_provider.get_shared_secret(sender_id)
+        let shared_secret = self
+            .key_provider
+            .get_shared_secret(sender_id)
             .ok_or(MempoolError::InvalidSignature)?;
-        
-        if !shared_types::security::validate_hmac_signature(message_bytes, signature, &shared_secret) {
+
+        if !shared_types::security::validate_hmac_signature(
+            message_bytes,
+            signature,
+            &shared_secret,
+        ) {
             return Err(MempoolError::InvalidSignature);
         }
 
         // Step 3: Validate nonce using centralized NonceCache
         if !self.nonce_cache.check_and_insert(nonce) {
-            return Err(MempoolError::ReplayDetected { nonce: nonce.as_u128() as u64 });
+            return Err(MempoolError::ReplayDetected {
+                nonce: nonce.as_u128() as u64,
+            });
         }
 
         Ok(())
@@ -198,7 +210,8 @@ impl<T: TimeSource> IpcHandler<T> {
         let total_gas: u64 = txs.iter().map(|t| t.gas_limit).sum();
 
         let now = self.time_source.now();
-        self.pool.propose(&tx_hashes, request.target_block_height, now);
+        self.pool
+            .propose(&tx_hashes, request.target_block_height, now);
 
         Ok(GetTransactionsResponse {
             correlation_id: request.correlation_id,
@@ -363,7 +376,11 @@ mod tests {
         let now = 1000u64;
         let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, subsystem_id::SIGNATURE_VERIFICATION, &master_secret);
+        let signature = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
 
         let response = handler
             .handle_add_transaction(
@@ -388,7 +405,8 @@ mod tests {
         let now = 1000u64;
         let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
+        let signature =
+            create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
 
         // From Consensus (wrong sender)
         let result = handler.handle_add_transaction(
@@ -414,7 +432,11 @@ mod tests {
         let now = 1000u64;
         let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, subsystem_id::SIGNATURE_VERIFICATION, &master_secret);
+        let signature = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
 
         let result = handler.handle_add_transaction(
             subsystem_id::SIGNATURE_VERIFICATION,
@@ -455,7 +477,11 @@ mod tests {
         let now = 1000u64;
         let nonce = Uuid::new_v4(); // Same nonce for both requests
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, subsystem_id::SIGNATURE_VERIFICATION, &master_secret);
+        let signature = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
 
         // First request should succeed
         let request1 = create_add_request();
@@ -491,7 +517,11 @@ mod tests {
         let old_timestamp = now - 100; // 100 seconds ago
         let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, subsystem_id::SIGNATURE_VERIFICATION, &master_secret);
+        let signature = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
 
         let result = handler.handle_add_transaction(
             subsystem_id::SIGNATURE_VERIFICATION,
@@ -517,7 +547,11 @@ mod tests {
 
         // Add a transaction first
         let add_req = create_add_request();
-        let add_sig = create_test_signature(message_bytes, subsystem_id::SIGNATURE_VERIFICATION, &master_secret);
+        let add_sig = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
         handler
             .handle_add_transaction(
                 subsystem_id::SIGNATURE_VERIFICATION,
@@ -558,7 +592,11 @@ mod tests {
         let now = 1000u64;
         let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, subsystem_id::SIGNATURE_VERIFICATION, &master_secret);
+        let signature = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
 
         let request = GetTransactionsRequest {
             correlation_id: Uuid::new_v4(),
@@ -595,7 +633,11 @@ mod tests {
 
         // Add and propose a transaction
         let add_req = create_add_request();
-        let add_sig = create_test_signature(message_bytes, subsystem_id::SIGNATURE_VERIFICATION, &master_secret);
+        let add_sig = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
         let response = handler
             .handle_add_transaction(
                 subsystem_id::SIGNATURE_VERIFICATION,
@@ -635,7 +677,8 @@ mod tests {
             storage_timestamp: 2000,
         };
 
-        let confirm_sig = create_test_signature(message_bytes, subsystem_id::BLOCK_STORAGE, &master_secret);
+        let confirm_sig =
+            create_test_signature(message_bytes, subsystem_id::BLOCK_STORAGE, &master_secret);
         let confirmed = handler
             .handle_storage_confirmation(
                 subsystem_id::BLOCK_STORAGE,
@@ -658,7 +701,8 @@ mod tests {
         let now = 1000u64;
         let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
+        let signature =
+            create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
 
         let confirmation = BlockStorageConfirmation {
             correlation_id: Uuid::new_v4(),
@@ -694,7 +738,8 @@ mod tests {
         let now = 1000u64;
         let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, subsystem_id::BLOCK_STORAGE, &master_secret);
+        let signature =
+            create_test_signature(message_bytes, subsystem_id::BLOCK_STORAGE, &master_secret);
 
         let notification = BlockRejectedNotification {
             correlation_id: Uuid::new_v4(),
@@ -722,7 +767,8 @@ mod tests {
         let now = 1000u64;
         let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
+        let signature =
+            create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
 
         let notification = BlockRejectedNotification {
             correlation_id: Uuid::new_v4(),
@@ -750,7 +796,11 @@ mod tests {
         let now = 1000u64;
         let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, subsystem_id::SIGNATURE_VERIFICATION, &master_secret);
+        let signature = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
 
         let notification = BlockRejectedNotification {
             correlation_id: Uuid::new_v4(),
@@ -788,7 +838,11 @@ mod tests {
 
         // Phase 0: Add transaction
         let add_req = create_add_request();
-        let add_sig = create_test_signature(message_bytes, subsystem_id::SIGNATURE_VERIFICATION, &master_secret);
+        let add_sig = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
         let add_response = handler
             .handle_add_transaction(
                 subsystem_id::SIGNATURE_VERIFICATION,
@@ -833,7 +887,8 @@ mod tests {
             included_transactions: vec![tx_hash],
             storage_timestamp: 2000,
         };
-        let confirm_sig = create_test_signature(message_bytes, subsystem_id::BLOCK_STORAGE, &master_secret);
+        let confirm_sig =
+            create_test_signature(message_bytes, subsystem_id::BLOCK_STORAGE, &master_secret);
         handler
             .handle_storage_confirmation(
                 subsystem_id::BLOCK_STORAGE,
@@ -858,7 +913,11 @@ mod tests {
 
         // Add and propose
         let add_req = create_add_request();
-        let add_sig = create_test_signature(message_bytes, subsystem_id::SIGNATURE_VERIFICATION, &master_secret);
+        let add_sig = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
         let add_response = handler
             .handle_add_transaction(
                 subsystem_id::SIGNATURE_VERIFICATION,
@@ -899,7 +958,8 @@ mod tests {
             affected_transactions: vec![tx_hash],
             rejection_reason: BlockRejectionReason::ConsensusRejected,
         };
-        let reject_sig = create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
+        let reject_sig =
+            create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
         handler
             .handle_block_rejected(
                 subsystem_id::CONSENSUS,
