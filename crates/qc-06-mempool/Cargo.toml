@@ -5,5 +5,18 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Transaction Pool (Mempool) subsystem with Two-Phase Commit protocol"
 
 [dependencies]
+shared-types = { path = "../shared-types" }
+shared-bus = { path = "../shared-bus" }
+uuid = { version = "1.11", features = ["v4"] }
+serde = { version = "1.0", features = ["derive"] }
+primitive-types.workspace = true
+hmac = "0.12"
+sha2 = "0.10"
+
+[dev-dependencies]
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
+rand = "0.8"

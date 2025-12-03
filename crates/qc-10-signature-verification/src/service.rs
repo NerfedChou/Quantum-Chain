@@ -101,26 +101,30 @@ impl<M: MempoolGateway> SignatureVerificationApi for SignatureVerificationServic
         // 1. Compute transaction hash (the message that was signed)
         let tx_hash = compute_transaction_hash(&transaction);
 
-        // 2. Extract ECDSA signature from transaction
+        // 2. Extract r and s from signature
         //    shared_types::Signature is [u8; 64] = r || s (no v)
-        //    We need to try both recovery IDs (0 and 1)
-        let signature = extract_ecdsa_signature(&transaction)?;
+        let (r, s) = extract_rs_from_signature(&transaction)?;
 
-        // 3. Verify signature recovers to the claimed sender
-        //    The sender's public key is in transaction.from
+        // 3. Derive expected sender address from public key
         let expected_sender = derive_address_from_pubkey(&transaction.from);
-        let result = self.verify_ecdsa_signer(&tx_hash, &signature, expected_sender);
 
-        if !result.valid {
-            return Err(result.error.unwrap_or(SignatureError::VerificationFailed));
+        // 4. Try both recovery IDs (27 and 28 in Ethereum convention)
+        //    Since we don't have 'v' in the signature, we must try both
+        for v in [27u8, 28u8] {
+            let signature = EcdsaSignature { r, s, v };
+            let result = self.verify_ecdsa_signer(&tx_hash, &signature, expected_sender);
+
+            if result.valid {
+                return Ok(VerifiedTransaction {
+                    transaction,
+                    sender: expected_sender,
+                    signature_valid: true,
+                });
+            }
         }
 
-        // 4. Return verified transaction
-        Ok(VerifiedTransaction {
-            transaction,
-            sender: expected_sender,
-            signature_valid: true,
-        })
+        // Neither recovery ID worked
+        Err(SignatureError::VerificationFailed)
     }
 }
 
@@ -151,11 +155,11 @@ fn compute_transaction_hash(tx: &Transaction) -> Hash {
     hash
 }
 
-/// Extract ECDSA signature from transaction.
+/// Extract r and s components from transaction signature.
 ///
 /// shared_types::Signature is [u8; 64] = r || s
-/// We need to determine the recovery ID by trying both values.
-fn extract_ecdsa_signature(tx: &Transaction) -> Result<EcdsaSignature, SignatureError> {
+/// Returns (r, s) tuple for use with multiple recovery IDs.
+fn extract_rs_from_signature(tx: &Transaction) -> Result<([u8; 32], [u8; 32]), SignatureError> {
     if tx.signature.len() != 64 {
         return Err(SignatureError::InvalidFormat);
     }
@@ -165,23 +169,75 @@ fn extract_ecdsa_signature(tx: &Transaction) -> Result<EcdsaSignature, Signature
     r.copy_from_slice(&tx.signature[..32]);
     s.copy_from_slice(&tx.signature[32..]);
 
-    // Try recovery ID 27 first (Ethereum convention)
-    // If verification fails, the caller will try 28
-    // For now, we'll use 27 as default and let verify_ecdsa_signer handle recovery
+    Ok((r, s))
+}
+
+/// Extract ECDSA signature from transaction (legacy helper).
+///
+/// shared_types::Signature is [u8; 64] = r || s
+/// We need to determine the recovery ID by trying both values.
+#[allow(dead_code)]
+fn extract_ecdsa_signature(tx: &Transaction) -> Result<EcdsaSignature, SignatureError> {
+    let (r, s) = extract_rs_from_signature(tx)?;
+    // Default to v=27, caller should try v=28 if this fails
     Ok(EcdsaSignature { r, s, v: 27 })
 }
 
 /// Derive Ethereum-style address from a 32-byte public key.
 ///
-/// Note: shared_types uses 32-byte compressed public keys.
-/// For ECDSA address derivation, we need the uncompressed form.
-/// This is a placeholder - actual implementation depends on key format.
+/// ## Key Format Issue (ARCHITECTURAL NOTE)
+///
+/// There is a design mismatch in shared-types:
+/// - `PublicKey` is defined as `[u8; 32]` with comment "Ed25519 public key"
+/// - But ECDSA uses secp256k1 which has 33-byte compressed or 65-byte uncompressed keys
+/// - Ed25519 keys CANNOT be used for secp256k1 ECDSA verification
+///
+/// ## Current Behavior
+///
+/// This function treats the 32-byte key as a **33-byte compressed secp256k1 key
+/// with implied even y-parity (0x02 prefix)**. This allows address derivation
+/// to work consistently, but requires that:
+/// 1. Transaction creators use secp256k1 keys (not Ed25519)
+/// 2. The 32-byte storage is the x-coordinate of a secp256k1 point
+///
+/// ## Proper Fix Required
+///
+/// When shared-types key format is finalized, this should be updated to either:
+/// - A) Accept 33-byte compressed secp256k1 keys in `Transaction.from`
+/// - B) Store 20-byte addresses directly in `Transaction.from`
+/// - C) Use a tagged union for different key types
 fn derive_address_from_pubkey(pubkey: &[u8; 32]) -> Address {
+    use k256::elliptic_curve::sec1::FromEncodedPoint;
+    use k256::{AffinePoint, EncodedPoint};
     use sha3::{Digest, Keccak256};
 
-    // For compressed secp256k1 public keys, we'd need to decompress first.
-    // For now, we hash the raw bytes and take last 20 bytes.
-    // TODO: Verify this matches the actual key format used in shared_types.
+    // Attempt to interpret as secp256k1 x-coordinate with even y-parity
+    let mut compressed = [0u8; 33];
+    compressed[0] = 0x02; // Even y-parity prefix
+    compressed[1..].copy_from_slice(pubkey);
+
+    // Try to decompress the point
+    if let Ok(encoded) = EncodedPoint::from_bytes(compressed) {
+        let ct_option = AffinePoint::from_encoded_point(&encoded);
+        if ct_option.is_some().into() {
+            let point: AffinePoint = ct_option.unwrap();
+            // Successfully decompressed - derive address properly
+            let uncompressed = EncodedPoint::from(point);
+            let pubkey_bytes = uncompressed.as_bytes();
+
+            // Keccak256 hash of uncompressed public key (skip 0x04 prefix)
+            let mut hasher = Keccak256::new();
+            hasher.update(&pubkey_bytes[1..]);
+            let result = hasher.finalize();
+
+            let mut address = [0u8; 20];
+            address.copy_from_slice(&result[12..]);
+            return address;
+        }
+    }
+
+    // Fallback: If not a valid secp256k1 x-coordinate, hash raw bytes
+    // This ensures deterministic behavior even for invalid keys
     let mut hasher = Keccak256::new();
     hasher.update(pubkey);
     let result = hasher.finalize();

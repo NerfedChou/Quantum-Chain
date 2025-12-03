@@ -56,9 +56,9 @@ pub mod service;
 
 // Re-export commonly used types
 pub use domain::{
-    BanReason, DisconnectReason, Distance, IpAddr, KademliaConfig, KBucket, NodeId,
-    PeerDiscoveryError, PeerInfo, PendingInsertion, PendingPeer, RoutingTable,
-    RoutingTableStats, SocketAddr, SubnetMask, Timestamp, WarningType,
+    BanReason, DisconnectReason, Distance, IpAddr, KBucket, KademliaConfig, NodeId,
+    PeerDiscoveryError, PeerInfo, PendingInsertion, PendingPeer, RoutingTable, RoutingTableStats,
+    SocketAddr, SubnetMask, Timestamp, WarningType,
 };
 
 // Re-export domain services
@@ -77,8 +77,8 @@ pub use service::PeerDiscoveryService;
 // Re-export IPC types
 pub use ipc::{
     AuthorizationRules, FullNodeListRequestPayload, IpcHandler, PeerConnectedPayload,
-    PeerDiscoveryEventPayload, PeerDiscoveryRequestPayload, PeerDisconnectedPayload,
-    PeerFilter, PeerListRequestPayload, PeerListResponsePayload, SecurityError, SubsystemId,
+    PeerDisconnectedPayload, PeerDiscoveryEventPayload, PeerDiscoveryRequestPayload, PeerFilter,
+    PeerListRequestPayload, PeerListResponsePayload, SecurityError, SubsystemId,
 };
 
 // Re-export adapter types

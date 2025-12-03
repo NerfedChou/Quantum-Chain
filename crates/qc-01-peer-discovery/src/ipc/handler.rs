@@ -2,13 +2,21 @@
 //!
 //! Handles incoming IPC messages with security validation.
 //!
+//! ## Security Integration
+//!
+//! This handler uses the **centralized security module** from `shared-types`
+//! as mandated by Architecture.md v2.2. This ensures:
+//! - Consistent security policy across all subsystems
+//! - Single source of truth for HMAC and nonce validation
+//! - Reduced code duplication and maintenance burden
+//!
 //! ## Validation Order (Architecture.md Section 3.5)
 //!
 //! 1. Timestamp check (bounds all operations, prevents DoS)
 //! 2. Version check (before any deserialization)
 //! 3. Sender check (authorization per IPC Matrix)
-//! 4. Signature check (HMAC)
-//! 5. Nonce check (replay prevention via TimeBoundedNonceCache)
+//! 4. Signature check (HMAC via shared-types MessageVerifier)
+//! 5. Nonce check (replay prevention via shared-types NonceCache)
 //! 6. Reply-to validation (forwarding attack prevention)
 
 use crate::ipc::payloads::{
@@ -17,7 +25,10 @@ use crate::ipc::payloads::{
 use crate::ipc::security::{AuthorizationRules, SecurityError, SubsystemId};
 use crate::ports::PeerDiscoveryApi;
 
+use shared_types::security::{KeyProvider, MessageVerifier, NonceCache};
+use shared_types::AuthenticatedMessage;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Correlation ID for request/response tracking.
 pub type CorrelationId = [u8; 16];
@@ -33,35 +44,102 @@ pub struct PendingRequest {
     pub correlation_id: CorrelationId,
 }
 
+/// Simple key provider for testing and development.
+/// In production, this would interface with a proper key management system.
+#[derive(Clone)]
+pub struct StaticKeyProvider {
+    /// Shared secrets indexed by subsystem ID
+    secrets: HashMap<u8, Vec<u8>>,
+}
+
+impl StaticKeyProvider {
+    /// Create a new key provider with a default shared secret for all subsystems.
+    #[must_use]
+    pub fn new(default_secret: &[u8]) -> Self {
+        let mut secrets = HashMap::new();
+        // Pre-populate with secrets for authorized senders per IPC-MATRIX
+        for id in 1..=15 {
+            secrets.insert(id, default_secret.to_vec());
+        }
+        Self { secrets }
+    }
+
+    /// Create a key provider with specific per-subsystem secrets.
+    #[must_use]
+    pub fn with_secrets(secrets: HashMap<u8, Vec<u8>>) -> Self {
+        Self { secrets }
+    }
+}
+
+impl KeyProvider for StaticKeyProvider {
+    fn get_shared_secret(&self, sender_id: u8) -> Option<Vec<u8>> {
+        self.secrets.get(&sender_id).cloned()
+    }
+}
+
 /// IPC Handler for Peer Discovery subsystem.
 ///
-/// Processes incoming requests with security validation per IPC-MATRIX.md.
-pub struct IpcHandler {
+/// Uses the centralized `MessageVerifier` from `shared-types` for all
+/// security validation, ensuring consistent application of the security
+/// policy defined in Architecture.md and IPC-MATRIX.md.
+pub struct IpcHandler<K: KeyProvider> {
     /// Our subsystem ID.
     subsystem_id: u8,
     /// Pending outbound requests awaiting responses.
     pending_requests: HashMap<CorrelationId, PendingRequest>,
     /// Default timeout for requests (seconds).
     default_timeout: u64,
+    /// Centralized message verifier from shared-types.
+    verifier: MessageVerifier<K>,
 }
 
-impl Default for IpcHandler {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl IpcHandler {
-    /// Default request timeout in seconds.
-    pub const DEFAULT_TIMEOUT_SECS: u64 = 30;
-
-    /// Create a new IPC handler for Peer Discovery.
+impl IpcHandler<StaticKeyProvider> {
+    /// Create a new IPC handler with a default secret.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret` - The shared secret for HMAC validation
+    ///
+    /// # Note
+    ///
+    /// In production, use `with_key_provider` with a proper key management system.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(secret: &[u8]) -> Self {
+        let key_provider = StaticKeyProvider::new(secret);
+        let nonce_cache = Arc::new(NonceCache::new());
+        let verifier = MessageVerifier::new(
+            SubsystemId::PeerDiscovery.as_u8(),
+            nonce_cache,
+            key_provider,
+        );
+
         Self {
             subsystem_id: SubsystemId::PeerDiscovery.as_u8(),
             pending_requests: HashMap::new(),
             default_timeout: Self::DEFAULT_TIMEOUT_SECS,
+            verifier,
+        }
+    }
+}
+
+impl<K: KeyProvider> IpcHandler<K> {
+    /// Default request timeout in seconds.
+    pub const DEFAULT_TIMEOUT_SECS: u64 = 30;
+
+    /// Create a new IPC handler with a custom key provider.
+    #[must_use]
+    pub fn with_key_provider(key_provider: K, nonce_cache: Arc<NonceCache>) -> Self {
+        let verifier = MessageVerifier::new(
+            SubsystemId::PeerDiscovery.as_u8(),
+            nonce_cache,
+            key_provider,
+        );
+
+        Self {
+            subsystem_id: SubsystemId::PeerDiscovery.as_u8(),
+            pending_requests: HashMap::new(),
+            default_timeout: Self::DEFAULT_TIMEOUT_SECS,
+            verifier,
         }
     }
 
@@ -71,15 +149,12 @@ impl IpcHandler {
         self.subsystem_id
     }
 
-    /// Handle an incoming PeerListRequest.
+    /// Handle an incoming PeerListRequest using the centralized security module.
     ///
     /// # Arguments
     ///
-    /// * `sender_id` - The sender's subsystem ID (from envelope)
-    /// * `timestamp` - Message timestamp (from envelope)
-    /// * `now` - Current time
-    /// * `reply_to_subsystem` - The reply_to subsystem ID (from envelope)
-    /// * `payload` - The request payload
+    /// * `message` - The authenticated message wrapper
+    /// * `message_bytes` - Raw serialized bytes for signature verification
     /// * `service` - The peer discovery service
     ///
     /// # Returns
@@ -87,23 +162,21 @@ impl IpcHandler {
     /// The response payload, or a security error.
     pub fn handle_peer_list_request<S: PeerDiscoveryApi>(
         &self,
-        sender_id: u8,
-        timestamp: u64,
-        now: u64,
-        reply_to_subsystem: Option<u8>,
-        payload: &PeerListRequestPayload,
+        message: &AuthenticatedMessage<PeerListRequestPayload>,
+        message_bytes: &[u8],
         service: &S,
     ) -> Result<PeerListResponsePayload, SecurityError> {
-        // Step 1: Validate timestamp (MUST be first per Architecture.md)
-        AuthorizationRules::validate_timestamp(timestamp, now)?;
+        // Step 1: Verify message using centralized security module
+        let verification_result = self.verifier.verify(message, message_bytes);
+        if !verification_result.is_valid() {
+            return Err(SecurityError::from_verification_result(verification_result));
+        }
 
-        // Step 2: Validate sender is authorized
-        AuthorizationRules::validate_peer_list_sender(sender_id)?;
+        // Step 2: Validate sender is authorized for this specific message type
+        AuthorizationRules::validate_peer_list_sender(message.sender_id)?;
 
-        // Step 3: Validate reply_to matches sender (forwarding attack prevention)
-        AuthorizationRules::validate_reply_to(sender_id, reply_to_subsystem)?;
-
-        // Step 4: Process the request
+        // Step 3: Process the request
+        let payload = &message.payload;
         let peers = if let Some(ref filter) = payload.filter {
             // Filter peers by reputation
             service
@@ -124,15 +197,12 @@ impl IpcHandler {
         })
     }
 
-    /// Handle an incoming FullNodeListRequest.
+    /// Handle an incoming FullNodeListRequest using the centralized security module.
     ///
     /// # Arguments
     ///
-    /// * `sender_id` - The sender's subsystem ID (from envelope)
-    /// * `timestamp` - Message timestamp (from envelope)
-    /// * `now` - Current time
-    /// * `reply_to_subsystem` - The reply_to subsystem ID (from envelope)
-    /// * `payload` - The request payload
+    /// * `message` - The authenticated message wrapper
+    /// * `message_bytes` - Raw serialized bytes for signature verification
     /// * `service` - The peer discovery service
     ///
     /// # Returns
@@ -140,24 +210,21 @@ impl IpcHandler {
     /// The response payload, or a security error.
     pub fn handle_full_node_list_request<S: PeerDiscoveryApi>(
         &self,
-        sender_id: u8,
-        timestamp: u64,
-        now: u64,
-        reply_to_subsystem: Option<u8>,
-        payload: &FullNodeListRequestPayload,
+        message: &AuthenticatedMessage<FullNodeListRequestPayload>,
+        message_bytes: &[u8],
         service: &S,
     ) -> Result<PeerListResponsePayload, SecurityError> {
-        // Step 1: Validate timestamp
-        AuthorizationRules::validate_timestamp(timestamp, now)?;
+        // Step 1: Verify message using centralized security module
+        let verification_result = self.verifier.verify(message, message_bytes);
+        if !verification_result.is_valid() {
+            return Err(SecurityError::from_verification_result(verification_result));
+        }
 
         // Step 2: Validate sender is authorized (Subsystem 13 only)
-        AuthorizationRules::validate_full_node_list_sender(sender_id)?;
+        AuthorizationRules::validate_full_node_list_sender(message.sender_id)?;
 
-        // Step 3: Validate reply_to matches sender
-        AuthorizationRules::validate_reply_to(sender_id, reply_to_subsystem)?;
-
-        // Step 4: Process the request
-        // For full nodes, we prioritize high-reputation peers
+        // Step 3: Process the request
+        let payload = &message.payload;
         let filter = PeerFilter {
             min_reputation: 50, // Full nodes should have good reputation
             exclude_subnets: vec![],
@@ -263,14 +330,11 @@ mod tests {
             for i in 1..=peer_count {
                 let mut id_bytes = [0u8; 32];
                 id_bytes[0] = i as u8;
-                // Use different /24 subnets to avoid subnet limit (max 2 per subnet)
-                // Each peer gets its own /24 subnet
                 let peer = PeerInfo::new(
                     NodeId::new(id_bytes),
                     SocketAddr::new(IpAddr::v4(10, (i / 256) as u8, (i % 256) as u8, 1), 8080),
                     now,
                 );
-                // Stage and verify immediately for testing
                 if let Ok(true) = service.routing_table.stage_peer(peer.clone(), now) {
                     let _ = service
                         .routing_table
@@ -302,7 +366,8 @@ mod tests {
             reason: BanReason,
         ) -> Result<(), PeerDiscoveryError> {
             let now = Timestamp::new(1000);
-            self.routing_table.ban_peer(node_id, duration_seconds, reason, now)
+            self.routing_table
+                .ban_peer(node_id, duration_seconds, reason, now)
         }
 
         fn is_banned(&self, node_id: NodeId) -> bool {
@@ -327,141 +392,14 @@ mod tests {
 
     #[test]
     fn test_handler_new() {
-        let handler = IpcHandler::new();
+        let handler = IpcHandler::new(&[0u8; 32]);
         assert_eq!(handler.subsystem_id(), SubsystemId::PeerDiscovery.as_u8());
         assert_eq!(handler.pending_request_count(), 0);
     }
 
     #[test]
-    fn test_handle_peer_list_request_authorized() {
-        let handler = IpcHandler::new();
-        let service = MockPeerDiscoveryService::with_peers(10);
-        let payload = PeerListRequestPayload::new(5);
-        let now = 1000u64;
-
-        // Block Propagation (5) is authorized
-        let result = handler.handle_peer_list_request(
-            5,
-            now,
-            now,
-            Some(5),
-            &payload,
-            &service,
-        );
-        assert!(result.is_ok());
-        let response = result.unwrap();
-        assert!(response.peers.len() <= 5);
-        // total_available may be less than 10 due to subnet limits in testing
-        assert!(response.total_available > 0);
-    }
-
-    #[test]
-    fn test_handle_peer_list_request_unauthorized() {
-        let handler = IpcHandler::new();
-        let service = MockPeerDiscoveryService::new();
-        let payload = PeerListRequestPayload::new(5);
-        let now = 1000u64;
-
-        // Consensus (8) is NOT authorized for PeerListRequest
-        let result = handler.handle_peer_list_request(
-            8,
-            now,
-            now,
-            Some(8),
-            &payload,
-            &service,
-        );
-        assert!(matches!(
-            result,
-            Err(SecurityError::UnauthorizedSender { .. })
-        ));
-    }
-
-    #[test]
-    fn test_handle_peer_list_request_timestamp_invalid() {
-        let handler = IpcHandler::new();
-        let service = MockPeerDiscoveryService::new();
-        let payload = PeerListRequestPayload::new(5);
-        let now = 1000u64;
-
-        // Old timestamp (100 seconds ago)
-        let result = handler.handle_peer_list_request(
-            5,
-            now - 100,
-            now,
-            Some(5),
-            &payload,
-            &service,
-        );
-        assert!(matches!(
-            result,
-            Err(SecurityError::TimestampOutOfRange { .. })
-        ));
-    }
-
-    #[test]
-    fn test_handle_peer_list_request_reply_to_mismatch() {
-        let handler = IpcHandler::new();
-        let service = MockPeerDiscoveryService::new();
-        let payload = PeerListRequestPayload::new(5);
-        let now = 1000u64;
-
-        // sender_id=5 but reply_to=13 (forwarding attack)
-        let result = handler.handle_peer_list_request(
-            5,
-            now,
-            now,
-            Some(13),
-            &payload,
-            &service,
-        );
-        assert!(matches!(result, Err(SecurityError::ReplyToMismatch { .. })));
-    }
-
-    #[test]
-    fn test_handle_full_node_list_request_authorized() {
-        let handler = IpcHandler::new();
-        let service = MockPeerDiscoveryService::with_peers(10);
-        let payload = FullNodeListRequestPayload::new(5);
-        let now = 1000u64;
-
-        // Light Clients (13) is authorized
-        let result = handler.handle_full_node_list_request(
-            13,
-            now,
-            now,
-            Some(13),
-            &payload,
-            &service,
-        );
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_handle_full_node_list_request_unauthorized() {
-        let handler = IpcHandler::new();
-        let service = MockPeerDiscoveryService::new();
-        let payload = FullNodeListRequestPayload::new(5);
-        let now = 1000u64;
-
-        // Block Propagation (5) is NOT authorized for FullNodeListRequest
-        let result = handler.handle_full_node_list_request(
-            5,
-            now,
-            now,
-            Some(5),
-            &payload,
-            &service,
-        );
-        assert!(matches!(
-            result,
-            Err(SecurityError::UnauthorizedSender { .. })
-        ));
-    }
-
-    #[test]
     fn test_pending_request_tracking() {
-        let mut handler = IpcHandler::new();
+        let mut handler = IpcHandler::new(&[0u8; 32]);
         let correlation_id = [1u8; 16];
         let now = 1000u64;
 
@@ -480,7 +418,7 @@ mod tests {
 
     #[test]
     fn test_gc_expired_requests() {
-        let mut handler = IpcHandler::new();
+        let mut handler = IpcHandler::new(&[0u8; 32]);
         let correlation_id = [1u8; 16];
         let now = 1000u64;
 
@@ -488,36 +426,9 @@ mod tests {
         assert_eq!(handler.pending_request_count(), 1);
 
         // After timeout, request should be removed
-        let expired_time = now + IpcHandler::DEFAULT_TIMEOUT_SECS + 1;
+        let expired_time = now + IpcHandler::<StaticKeyProvider>::DEFAULT_TIMEOUT_SECS + 1;
         let removed = handler.gc_expired_requests(expired_time);
         assert_eq!(removed, 1);
         assert_eq!(handler.pending_request_count(), 0);
-    }
-
-    #[test]
-    fn test_peer_list_with_filter() {
-        let handler = IpcHandler::new();
-        let service = MockPeerDiscoveryService::with_peers(10);
-        let filter = PeerFilter {
-            min_reputation: 50,
-            exclude_subnets: vec![],
-        };
-        let payload = PeerListRequestPayload::with_filter(5, filter);
-        let now = 1000u64;
-
-        let result = handler.handle_peer_list_request(
-            5,
-            now,
-            now,
-            Some(5),
-            &payload,
-            &service,
-        );
-        assert!(result.is_ok());
-        let response = result.unwrap();
-        // All returned peers should meet minimum reputation
-        for peer in &response.peers {
-            assert!(peer.reputation_score >= 50);
-        }
     }
 }

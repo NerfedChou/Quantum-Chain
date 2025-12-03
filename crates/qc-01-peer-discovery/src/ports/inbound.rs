@@ -4,9 +4,7 @@
 //!
 //! Per SPEC-01-PEER-DISCOVERY.md Section 3.1
 
-use crate::domain::{
-    BanReason, NodeId, PeerDiscoveryError, PeerInfo, RoutingTableStats,
-};
+use crate::domain::{BanReason, NodeId, PeerDiscoveryError, PeerInfo, RoutingTableStats};
 
 /// Primary API for interacting with the peer discovery subsystem.
 ///

@@ -22,3 +22,5 @@ Thumbs.db
 # Documentation artifacts (generated)
 /SPECS/SPEC-AUDIT-REPORT.md
 /Documentation/SURGICAL-REVISION-WORKFLOW-V2.4.md
+/crates/integration-tests/
+/tests/
