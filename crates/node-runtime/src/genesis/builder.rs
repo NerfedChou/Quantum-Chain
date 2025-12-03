@@ -265,8 +265,8 @@ fn compute_genesis_state_root(validators: &[ValidatorInfo]) -> [u8; 32] {
     let mut hasher = Keccak256::new();
     
     for validator in validators {
-        hasher.update(&validator.address);
-        hasher.update(&validator.stake.to_be_bytes());
+        hasher.update(validator.address);
+        hasher.update(validator.stake.to_be_bytes());
     }
     
     let result = hasher.finalize();
@@ -280,13 +280,13 @@ fn compute_genesis_hash(header: &GenesisHeader) -> [u8; 32] {
     let mut hasher = Keccak256::new();
     
     // Hash all header fields deterministically
-    hasher.update(&header.height.to_be_bytes());
-    hasher.update(&header.parent_hash);
-    hasher.update(&header.merkle_root);
-    hasher.update(&header.state_root);
-    hasher.update(&header.timestamp.to_be_bytes());
-    hasher.update(&header.chain_id.to_be_bytes());
-    hasher.update(&header.protocol_version.to_be_bytes());
+    hasher.update(header.height.to_be_bytes());
+    hasher.update(header.parent_hash);
+    hasher.update(header.merkle_root);
+    hasher.update(header.state_root);
+    hasher.update(header.timestamp.to_be_bytes());
+    hasher.update(header.chain_id.to_be_bytes());
+    hasher.update(header.protocol_version.to_be_bytes());
     hasher.update(&header.extra_data);
     
     let result = hasher.finalize();

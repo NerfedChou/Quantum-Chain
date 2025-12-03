@@ -83,7 +83,7 @@ impl StateAdapter {
 
         // Step 1: Apply transactions to trie
         {
-            let mut trie = self.trie.write();
+            let trie = self.trie.write();
             for tx in &transactions {
                 // Apply transaction effects to state
                 // In full implementation: deduct from sender, credit to recipient

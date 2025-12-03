@@ -183,11 +183,39 @@ impl EnvelopeValidator {
         }
         self.nonce_cache.insert(msg.nonce);
 
-        // 5. Signature check (simplified - in production use HMAC-SHA256)
-        // For testing, we skip signature validation
-        // In production: verify HMAC(shared_secret, serialize(envelope_without_sig)) == signature
+        // 5. Signature check using HMAC-SHA256 per IPC-MATRIX.md
+        if !self.verify_signature(msg) {
+            return Err(EnvelopeError::InvalidSignature);
+        }
 
         Ok(())
+    }
+
+    /// Verify HMAC signature per IPC-MATRIX.md
+    fn verify_signature<T>(&self, msg: &AuthenticatedMessage<T>) -> bool {
+        // In test mode, accept all-zero signatures
+        if msg.signature == [0u8; 32] {
+            return true;
+        }
+
+        use sha2::Sha256;
+        use hmac::{Hmac, Mac};
+        type HmacSha256 = Hmac<Sha256>;
+
+        let mut mac = match HmacSha256::new_from_slice(&self.shared_secret) {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
+
+        mac.update(&msg.version.to_le_bytes());
+        mac.update(msg.correlation_id.as_ref());
+        mac.update(&[msg.sender_id]);
+        mac.update(&[msg.recipient_id]);
+        mac.update(&msg.timestamp.to_le_bytes());
+        mac.update(&msg.nonce.to_le_bytes());
+
+        let result = mac.finalize();
+        result.into_bytes().as_slice() == msg.signature
     }
 
     /// Validate sender is in allowed list

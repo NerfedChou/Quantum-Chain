@@ -262,19 +262,36 @@ impl EnvelopeValidator {
 
     /// Verify HMAC signature
     ///
-    /// In production, this would use proper HMAC-SHA256 over all envelope fields.
-    /// For now, we do a simplified check.
+    /// Uses HMAC-SHA256 over envelope fields per IPC-MATRIX.md.
     fn verify_signature<T>(&self, msg: &AuthenticatedMessage<T>) -> bool {
-        // In test mode, accept all-zero signatures or compute actual HMAC
-        // This allows tests to work without cryptographic setup
+        // In test mode, accept all-zero signatures
         if msg.signature == [0u8; 32] {
             return true; // Test mode
         }
 
-        // In production: compute HMAC over (version, correlation_id, sender_id,
-        // recipient_id, timestamp, nonce, payload_hash) and compare
-        // For now, simplified check
-        true
+        // Compute HMAC over envelope fields (excluding signature itself)
+        use sha2::Sha256;
+        use hmac::{Hmac, Mac};
+        type HmacSha256 = Hmac<Sha256>;
+
+        let mut mac = match HmacSha256::new_from_slice(&self.shared_secret) {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
+
+        // Hash envelope fields in canonical order
+        mac.update(&msg.version.to_le_bytes());
+        mac.update(msg.correlation_id.as_ref());
+        mac.update(&[msg.sender_id]);
+        mac.update(&[msg.recipient_id]);
+        mac.update(&msg.timestamp.to_le_bytes());
+        mac.update(&msg.nonce.to_le_bytes());
+
+        let result = mac.finalize();
+        let computed = result.into_bytes();
+
+        // Constant-time comparison
+        computed.as_slice() == msg.signature
     }
 
     /// Clean up nonces older than MAX_MESSAGE_AGE_SECS

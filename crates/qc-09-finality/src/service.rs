@@ -174,22 +174,21 @@ where
         }
 
         // 2. Zero-trust: Re-verify signature
-        if self.config.always_reverify_signatures {
-            if !self.verifier.verify_attestation(attestation) {
+        if self.config.always_reverify_signatures
+            && !self.verifier.verify_attestation(attestation) {
                 return Err(FinalityError::InvalidSignature {
                     validator_id: validator_id.0,
                 });
             }
-        }
 
         // 3. Check for slashable conditions (double vote, surround vote)
-        self.check_slashable_conditions(&attestation, &validator_id)?;
+        self.check_slashable_conditions(attestation, validator_id)?;
 
         // 4. Get stake weight
         let stake =
             validators
                 .get_stake(validator_id)
-                .ok_or_else(|| FinalityError::UnknownValidator {
+                .ok_or(FinalityError::UnknownValidator {
                     validator_id: validator_id.0,
                 })?;
 
@@ -201,7 +200,7 @@ where
         let history = state
             .attestation_history
             .entry(attestation.validator_id.0)
-            .or_insert_with(Vec::new);
+            .or_default();
 
         // Keep only recent attestations (last 2 epochs worth)
         const MAX_HISTORY: usize = 64;
@@ -245,7 +244,7 @@ where
             };
 
         let offense = SlashableOffense {
-            validator_id: attestation.validator_id.clone(),
+            validator_id: attestation.validator_id,
             offense_type,
             attestation1: attestation.clone(),
             attestation2: conflicting.clone(),
@@ -402,10 +401,10 @@ where
                     );
 
                     // Get or create aggregated attestations
-                    let agg = state.attestations.entry(target.clone()).or_insert_with(|| {
+                    let agg = state.attestations.entry(*target).or_insert_with(|| {
                         AggregatedAttestations::new(
-                            attestation.source_checkpoint.clone(),
-                            target.clone(),
+                            attestation.source_checkpoint,
+                            *target,
                             validators.len(),
                         )
                     });
@@ -554,7 +553,7 @@ where
             .slashable_offenses
             .iter()
             .map(|o| crate::ports::inbound::SlashableOffenseInfo {
-                validator_id: o.validator_id.clone(),
+                validator_id: o.validator_id,
                 offense_type: match o.offense_type {
                     SlashableOffenseType::DoubleVote => {
                         crate::ports::inbound::SlashableOffenseType::DoubleVote

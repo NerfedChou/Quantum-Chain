@@ -23,8 +23,10 @@ impl CheckpointId {
 /// Reference: SPEC-09-FINALITY.md Section 2.1
 /// State progression: Pending → Justified → Finalized
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum CheckpointState {
     /// Not yet justified - awaiting attestations
+    #[default]
     Pending,
     /// 2/3+ validators attested - justified but not finalized
     Justified,
@@ -32,11 +34,6 @@ pub enum CheckpointState {
     Finalized,
 }
 
-impl Default for CheckpointState {
-    fn default() -> Self {
-        Self::Pending
-    }
-}
 
 /// A finality checkpoint at an epoch boundary
 ///

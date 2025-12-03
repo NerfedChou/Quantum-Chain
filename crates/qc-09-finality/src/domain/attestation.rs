@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 /// Reference: SPEC-09-FINALITY.md Section 2.1
 /// Uses BLS12-381 for signature aggregation
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct BlsSignature(pub Vec<u8>);
 
 impl BlsSignature {
@@ -29,11 +30,6 @@ impl BlsSignature {
     }
 }
 
-impl Default for BlsSignature {
-    fn default() -> Self {
-        Self(Vec::new())
-    }
-}
 
 /// Validator attestation for a checkpoint
 ///

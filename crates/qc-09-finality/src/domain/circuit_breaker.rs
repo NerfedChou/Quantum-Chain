@@ -25,8 +25,10 @@ use serde::{Deserialize, Serialize};
 ///     └────────────────── manual intervention ─────────────────────────────┘
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum FinalityState {
     /// Normal operation - processing attestations and finalizing blocks
+    #[default]
     Running,
     /// Attempting to sync due to finality failure
     Sync { attempt: u8 },
@@ -34,11 +36,6 @@ pub enum FinalityState {
     HaltedAwaitingIntervention,
 }
 
-impl Default for FinalityState {
-    fn default() -> Self {
-        Self::Running
-    }
-}
 
 /// Events that trigger circuit breaker state transitions
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

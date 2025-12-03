@@ -166,12 +166,10 @@ where
     pub fn gc_expired_assembly_hashes(&mut self) -> Vec<[u8; 32]> {
         let expired = self.handler.gc_expired_assemblies();
 
-        // Optionally publish timeout events for monitoring
+        // Publish timeout events for monitoring
         for timeout in &expired {
-            if let Some(ref callback) = self.publish_callback {
-                // Best effort - don't fail GC if publish fails
-                let _ = callback(event_types::ASSEMBLY_TIMEOUT, timeout.block_hash.to_vec());
-            }
+            // Best effort - don't fail GC if publish fails
+            let _ = self.publish(event_types::ASSEMBLY_TIMEOUT, timeout.block_hash.to_vec());
         }
 
         expired.into_iter().map(|t| t.block_hash).collect()

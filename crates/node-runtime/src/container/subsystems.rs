@@ -277,9 +277,9 @@ impl SubsystemContainer {
         // Production would use RocksDB adapter
         let kv_store = InMemoryKVStore::new();
         let fs_adapter = MockFileSystemAdapter::new(50); // 50% disk available
-        let checksum = DefaultChecksumProvider::default();
-        let time_source = StorageTimeSource::default();
-        let serializer = BincodeBlockSerializer::default();
+        let checksum = DefaultChecksumProvider;
+        let time_source = StorageTimeSource;
+        let serializer = BincodeBlockSerializer;
 
         let storage_config = qc_02_block_storage::StorageConfig::default();
         let service = BlockStorageService::new(

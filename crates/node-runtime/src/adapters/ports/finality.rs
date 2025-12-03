@@ -186,10 +186,10 @@ fn attestation_signing_message(attestation: &Attestation) -> Vec<u8> {
 
     let mut hasher = Keccak256::new();
     hasher.update(b"ATTESTATION");
-    hasher.update(&attestation.source_checkpoint.epoch.to_le_bytes());
-    hasher.update(&attestation.source_checkpoint.block_hash);
-    hasher.update(&attestation.target_checkpoint.epoch.to_le_bytes());
-    hasher.update(&attestation.target_checkpoint.block_hash);
+    hasher.update(attestation.source_checkpoint.epoch.to_le_bytes());
+    hasher.update(attestation.source_checkpoint.block_hash);
+    hasher.update(attestation.target_checkpoint.epoch.to_le_bytes());
+    hasher.update(attestation.target_checkpoint.block_hash);
     hasher.finalize().to_vec()
 }
 
@@ -199,10 +199,10 @@ fn aggregate_attestation_signing_message(attestations: &AggregatedAttestations) 
 
     let mut hasher = Keccak256::new();
     hasher.update(b"AGGREGATE_ATTESTATION");
-    hasher.update(&attestations.source_checkpoint.epoch.to_le_bytes());
-    hasher.update(&attestations.source_checkpoint.block_hash);
-    hasher.update(&attestations.target_checkpoint.epoch.to_le_bytes());
-    hasher.update(&attestations.target_checkpoint.block_hash);
+    hasher.update(attestations.source_checkpoint.epoch.to_le_bytes());
+    hasher.update(attestations.source_checkpoint.block_hash);
+    hasher.update(attestations.target_checkpoint.epoch.to_le_bytes());
+    hasher.update(attestations.target_checkpoint.block_hash);
     hasher.finalize().to_vec()
 }
 

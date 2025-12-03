@@ -11,6 +11,7 @@ use std::path::PathBuf;
 
 /// Complete node configuration.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct NodeConfig {
     /// Network configuration.
     pub network: NetworkConfig,
@@ -64,18 +65,6 @@ impl std::fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
-impl Default for NodeConfig {
-    fn default() -> Self {
-        Self {
-            network: NetworkConfig::default(),
-            storage: StorageConfig::default(),
-            security: SecurityConfig::default(),
-            consensus: ConsensusConfig::default(),
-            mempool: MempoolConfig::default(),
-            finality: FinalityConfig::default(),
-        }
-    }
-}
 
 /// Network configuration.
 #[derive(Debug, Clone)]
