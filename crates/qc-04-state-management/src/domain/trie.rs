@@ -278,6 +278,162 @@ impl PatriciaMerkleTrie {
 
         self.increment_nonce(address)
     }
+
+    // =========================================================================
+    // PERSISTENCE METHODS
+    // =========================================================================
+
+    /// Serialize the trie state to bytes for persistence
+    pub fn serialize(&self) -> Result<Vec<u8>, StateError> {
+        let mut data = Vec::new();
+        
+        // Version byte
+        data.push(1u8);
+        
+        // Root hash
+        data.extend_from_slice(&self.root);
+        
+        // Account count
+        let account_count = self.accounts.len() as u32;
+        data.extend_from_slice(&account_count.to_le_bytes());
+        
+        // Serialize each account
+        for (address, account) in &self.accounts {
+            data.extend_from_slice(address);
+            data.extend_from_slice(&account.balance.to_le_bytes());
+            data.extend_from_slice(&account.nonce.to_le_bytes());
+            data.extend_from_slice(&account.code_hash);
+            data.extend_from_slice(&account.storage_root);
+        }
+        
+        // Storage count
+        let storage_count = self.storage.len() as u32;
+        data.extend_from_slice(&storage_count.to_le_bytes());
+        
+        // Serialize storage
+        for ((address, key), value) in &self.storage {
+            data.extend_from_slice(address);
+            data.extend_from_slice(key);
+            data.extend_from_slice(value);
+        }
+        
+        Ok(data)
+    }
+
+    /// Deserialize trie state from bytes
+    pub fn deserialize(data: &[u8]) -> Result<Self, StateError> {
+        if data.is_empty() {
+            return Ok(Self::new());
+        }
+        
+        let mut cursor = 0;
+        
+        // Version check
+        if data[cursor] != 1 {
+            return Err(StateError::DatabaseError("Unsupported trie version".to_string()));
+        }
+        cursor += 1;
+        
+        // Root hash
+        let mut root = [0u8; 32];
+        root.copy_from_slice(&data[cursor..cursor + 32]);
+        cursor += 32;
+        
+        // Account count
+        let account_count = u32::from_le_bytes([
+            data[cursor], data[cursor + 1], data[cursor + 2], data[cursor + 3]
+        ]) as usize;
+        cursor += 4;
+        
+        // Deserialize accounts
+        let mut accounts = HashMap::with_capacity(account_count);
+        let mut storage_counts = HashMap::new();
+        
+        for _ in 0..account_count {
+            let mut address = [0u8; 20];
+            address.copy_from_slice(&data[cursor..cursor + 20]);
+            cursor += 20;
+            
+            let balance = u128::from_le_bytes([
+                data[cursor], data[cursor + 1], data[cursor + 2], data[cursor + 3],
+                data[cursor + 4], data[cursor + 5], data[cursor + 6], data[cursor + 7],
+                data[cursor + 8], data[cursor + 9], data[cursor + 10], data[cursor + 11],
+                data[cursor + 12], data[cursor + 13], data[cursor + 14], data[cursor + 15],
+            ]);
+            cursor += 16;
+            
+            let nonce = u64::from_le_bytes([
+                data[cursor], data[cursor + 1], data[cursor + 2], data[cursor + 3],
+                data[cursor + 4], data[cursor + 5], data[cursor + 6], data[cursor + 7],
+            ]);
+            cursor += 8;
+            
+            let mut code_hash = [0u8; 32];
+            code_hash.copy_from_slice(&data[cursor..cursor + 32]);
+            cursor += 32;
+            
+            let mut storage_root = [0u8; 32];
+            storage_root.copy_from_slice(&data[cursor..cursor + 32]);
+            cursor += 32;
+            
+            accounts.insert(address, AccountState {
+                balance,
+                nonce,
+                code_hash,
+                storage_root,
+            });
+        }
+        
+        // Storage count
+        let storage_count = u32::from_le_bytes([
+            data[cursor], data[cursor + 1], data[cursor + 2], data[cursor + 3]
+        ]) as usize;
+        cursor += 4;
+        
+        // Deserialize storage
+        let mut storage = HashMap::with_capacity(storage_count);
+        
+        for _ in 0..storage_count {
+            let mut address = [0u8; 20];
+            address.copy_from_slice(&data[cursor..cursor + 20]);
+            cursor += 20;
+            
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&data[cursor..cursor + 32]);
+            cursor += 32;
+            
+            let mut value = [0u8; 32];
+            value.copy_from_slice(&data[cursor..cursor + 32]);
+            cursor += 32;
+            
+            *storage_counts.entry(address).or_insert(0) += 1;
+            storage.insert((address, key), value);
+        }
+        
+        Ok(Self {
+            root,
+            accounts,
+            storage,
+            storage_counts,
+            config: StateConfig::default(),
+        })
+    }
+
+    /// Save state to a TrieDatabase
+    pub fn save_to_db<D: crate::ports::TrieDatabase>(&self, db: &D) -> Result<(), StateError> {
+        let data = self.serialize()?;
+        let state_key = [0xFFu8; 32]; // Special key for full state
+        db.put_node(state_key, data)
+    }
+
+    /// Load state from a TrieDatabase  
+    pub fn load_from_db<D: crate::ports::TrieDatabase>(db: &D) -> Result<Self, StateError> {
+        let state_key = [0xFFu8; 32]; // Special key for full state
+        match db.get_node(&state_key)? {
+            Some(data) => Self::deserialize(&data),
+            None => Ok(Self::new()),
+        }
+    }
 }
 
 impl Default for PatriciaMerkleTrie {

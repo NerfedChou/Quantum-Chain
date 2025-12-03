@@ -43,10 +43,28 @@ use qc_03_transaction_indexing::{IndexConfig, TransactionIndex};
 use qc_04_state_management::PatriciaMerkleTrie;
 use qc_06_mempool::TransactionPool;
 
-/// Concrete type for Block Storage Service with in-memory backends.
+// RocksDB imports (when feature is enabled)
+#[cfg(feature = "rocksdb")]
+use crate::adapters::storage::{RocksDbStore, RocksDbConfig, ProductionFileSystemAdapter, RocksDbTrieDatabase};
+
+#[cfg(feature = "rocksdb")]
+use std::sync::Arc as StdArc;
+
+/// Concrete type for Block Storage Service with in-memory backends (default).
+#[cfg(not(feature = "rocksdb"))]
 pub type ConcreteBlockStorageService = BlockStorageService<
     InMemoryKVStore,
     MockFileSystemAdapter,
+    DefaultChecksumProvider,
+    StorageTimeSource,
+    BincodeBlockSerializer,
+>;
+
+/// Concrete type for Block Storage Service with RocksDB (production).
+#[cfg(feature = "rocksdb")]
+pub type ConcreteBlockStorageService = BlockStorageService<
+    RocksDbStore,
+    ProductionFileSystemAdapter,
     DefaultChecksumProvider,
     StorageTimeSource,
     BincodeBlockSerializer,
@@ -168,7 +186,7 @@ impl SubsystemContainer {
         let transaction_index = Self::init_transaction_indexing();
         info!("  [3] Transaction Indexing initialized");
 
-        let state_trie = Self::init_state_management();
+        let state_trie = Self::init_state_management(&config);
         info!("  [4] State Management initialized");
 
         // =====================================================================
@@ -259,8 +277,39 @@ impl SubsystemContainer {
         Arc::new(RwLock::new(TransactionIndex::new(index_config)))
     }
 
-    fn init_state_management() -> Arc<RwLock<PatriciaMerkleTrie>> {
+    #[cfg(not(feature = "rocksdb"))]
+    fn init_state_management(_config: &NodeConfig) -> Arc<RwLock<PatriciaMerkleTrie>> {
+        info!("Initializing State Management with in-memory backend (testing mode)");
         Arc::new(RwLock::new(PatriciaMerkleTrie::new()))
+    }
+
+    #[cfg(feature = "rocksdb")]
+    fn init_state_management(config: &NodeConfig) -> Arc<RwLock<PatriciaMerkleTrie>> {
+        info!("Initializing State Management with RocksDB persistence");
+        let db_path = config.storage.data_dir.join("state_db");
+        let rocks_config = RocksDbConfig {
+            path: db_path.to_string_lossy().to_string(),
+            ..RocksDbConfig::default()
+        };
+        
+        // Open RocksDB for state
+        let store = RocksDbStore::open(rocks_config)
+            .expect("Failed to open RocksDB for state");
+        let trie_db = RocksDbTrieDatabase::new(StdArc::new(store));
+        
+        // Try to load existing state, or create new
+        let trie = match PatriciaMerkleTrie::load_from_db(&trie_db) {
+            Ok(t) => {
+                info!("Loaded existing state from RocksDB");
+                t
+            }
+            Err(_) => {
+                info!("No existing state found, starting fresh");
+                PatriciaMerkleTrie::new()
+            }
+        };
+        
+        Arc::new(RwLock::new(trie))
     }
 
     fn init_block_storage(
@@ -273,23 +322,49 @@ impl SubsystemContainer {
         };
         let assembly_buffer = Arc::new(RwLock::new(BlockAssemblyBuffer::new(assembly_config)));
 
-        // Create block storage with in-memory backends (for now)
-        // Production would use RocksDB adapter
-        let kv_store = InMemoryKVStore::new();
-        let fs_adapter = MockFileSystemAdapter::new(50); // 50% disk available
         let checksum = DefaultChecksumProvider;
         let time_source = StorageTimeSource;
         let serializer = BincodeBlockSerializer;
-
         let storage_config = qc_02_block_storage::StorageConfig::default();
-        let service = BlockStorageService::new(
-            kv_store,
-            fs_adapter,
-            checksum,
-            time_source,
-            serializer,
-            storage_config,
-        );
+
+        // Use RocksDB for production, in-memory for testing
+        #[cfg(feature = "rocksdb")]
+        let service = {
+            info!("Initializing Block Storage with RocksDB backend");
+            let db_path = config.storage.data_dir.join("rocksdb");
+            let rocks_config = RocksDbConfig {
+                path: db_path.to_string_lossy().to_string(),
+                ..RocksDbConfig::default()
+            };
+            let kv_store = RocksDbStore::open(rocks_config)
+                .expect("Failed to open RocksDB");
+            let fs_adapter = ProductionFileSystemAdapter::new(&config.storage.data_dir);
+            
+            BlockStorageService::new(
+                kv_store,
+                fs_adapter,
+                checksum,
+                time_source,
+                serializer,
+                storage_config,
+            )
+        };
+
+        #[cfg(not(feature = "rocksdb"))]
+        let service = {
+            info!("Initializing Block Storage with in-memory backend (testing mode)");
+            let kv_store = InMemoryKVStore::new();
+            let fs_adapter = MockFileSystemAdapter::new(50); // 50% disk available
+            
+            BlockStorageService::new(
+                kv_store,
+                fs_adapter,
+                checksum,
+                time_source,
+                serializer,
+                storage_config,
+            )
+        };
 
         (Arc::new(RwLock::new(service)), assembly_buffer)
     }
