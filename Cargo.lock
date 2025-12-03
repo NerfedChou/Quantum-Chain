@@ -838,6 +838,7 @@ dependencies = [
  "qc-01-peer-discovery",
  "qc-02-block-storage",
  "qc-03-transaction-indexing",
+ "qc-04-state-management",
  "qc-06-mempool",
  "qc-10-signature-verification",
  "rand",
@@ -846,6 +847,7 @@ dependencies = [
  "shared-bus",
  "shared-types",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -1215,6 +1217,15 @@ dependencies = [
 [[package]]
 name = "qc-04-state-management"
 version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "sha3",
+ "shared-types",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "qc-05-block-propagation"
