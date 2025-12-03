@@ -489,23 +489,33 @@ Please report security vulnerabilities responsibly. See [SECURITY.md](SECURITY.m
 
 ## Contributing
 
+### 🚨 PRIORITY: Critical Path Fixes
+
+Before working on new features, please help close the critical gaps identified in the December 2025 audit:
+
+1. **Review:** [CRITICAL-FIXES-QUICK-REF.md](CRITICAL-FIXES-QUICK-REF.md) for immediate blockers
+2. **Check:** [SPEC-COMPLIANCE-MATRIX.md](SPEC-COMPLIANCE-MATRIX.md) for subsystem status
+3. **Coordinate:** Claim a fix in the quick reference doc to avoid duplicate work
+
 ### Getting Started
 
 1. Read the [Architecture.md](Documentation/Architecture.md) document
 2. Review the [IPC-MATRIX.md](Documentation/IPC-MATRIX.md) for communication rules
-3. Pick a subsystem (start with #10 Signature Verification - no dependencies)
-4. Read its SPEC document (or create one if missing)
-5. Write tests first (TDD Phase 1: Red)
-6. Implement domain logic (TDD Phase 2: Green)
-7. Refactor (TDD Phase 3: Clean)
+3. Check [SPEC-COMPLIANCE-MATRIX.md](SPEC-COMPLIANCE-MATRIX.md) for implementation status
+4. Pick a subsystem (start with #10 Signature Verification - no dependencies)
+5. Read its SPEC document in `SPECS/` directory
+6. Write tests first (TDD Phase 1: Red)
+7. Implement domain logic (TDD Phase 2: Green)
+8. Refactor (TDD Phase 3: Clean)
 
 ### Pull Request Process
 
 1. Ensure all tests pass: `cargo test --all`
 2. Run lints: `cargo clippy --all -- -D warnings`
 3. Format code: `cargo fmt`
-4. Update relevant documentation
-5. Submit PR with clear description
+4. Verify spec compliance for changed subsystems
+5. Update [SPEC-COMPLIANCE-MATRIX.md](SPEC-COMPLIANCE-MATRIX.md) if fixing a flaw
+6. Submit PR with clear description linking to SPEC section
 
 ### Code Style
 

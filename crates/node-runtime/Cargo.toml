@@ -37,6 +37,7 @@ qc-10-signature-verification = { path = "../qc-10-signature-verification" }
 
 # Production storage (optional)
 rocksdb = { workspace = true, optional = true }
+fs2 = { workspace = true }
 
 # Async runtime
 tokio.workspace = true

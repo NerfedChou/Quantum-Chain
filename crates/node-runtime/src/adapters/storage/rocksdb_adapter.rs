@@ -241,18 +241,178 @@ impl ProductionFileSystemAdapter {
 
 impl FileSystemAdapter for ProductionFileSystemAdapter {
     fn available_disk_space_percent(&self) -> Result<u8, FSError> {
-        // Use fs2 or sys-info crate for actual disk space
-        // For now, return 50% as safe default
-        Ok(50)
+        use fs2::available_space;
+        use std::path::Path;
+
+        let path = Path::new(&self.data_dir);
+        
+        // Get available and total space
+        let available = available_space(path)
+            .map_err(|e| FSError::IoError(e.to_string()))?;
+        
+        let total = fs2::total_space(path)
+            .map_err(|e| FSError::IoError(e.to_string()))?;
+        
+        if total == 0 {
+            return Err(FSError::IoError("Unable to determine disk space".to_string()));
+        }
+        
+        let percent = ((available as f64 / total as f64) * 100.0) as u8;
+        Ok(percent)
     }
 
     fn available_disk_space_bytes(&self) -> Result<u64, FSError> {
-        // Would use statvfs on Unix
-        Ok(100 * 1024 * 1024 * 1024) // 100GB placeholder
+        use fs2::available_space;
+        use std::path::Path;
+        
+        let path = Path::new(&self.data_dir);
+        available_space(path)
+            .map_err(|e| FSError::IoError(e.to_string()))
     }
 
     fn total_disk_space_bytes(&self) -> Result<u64, FSError> {
-        Ok(200 * 1024 * 1024 * 1024) // 200GB placeholder
+        use fs2::total_space;
+        use std::path::Path;
+        
+        let path = Path::new(&self.data_dir);
+        total_space(path)
+            .map_err(|e| FSError::IoError(e.to_string()))
+    }
+}
+
+// =============================================================================
+// State Trie RocksDB Database
+// =============================================================================
+
+use qc_04_state_management::ports::database::{TrieDatabase, SnapshotStorage};
+use qc_04_state_management::domain::StateError;
+use shared_types::Hash;
+
+/// RocksDB-backed state trie database
+/// 
+/// Persists Patricia Merkle Trie nodes to RocksDB for durability.
+/// Uses the CF_STATE column family for isolation.
+pub struct RocksDbTrieDatabase {
+    store: Arc<RocksDbStore>,
+}
+
+impl RocksDbTrieDatabase {
+    /// Create a new trie database backed by RocksDB
+    pub fn new(store: Arc<RocksDbStore>) -> Self {
+        Self { store }
+    }
+
+    /// Create with a new RocksDB instance
+    pub fn open(config: RocksDbConfig) -> Result<Self, StateError> {
+        let store = RocksDbStore::open(config)
+            .map_err(|e| StateError::DatabaseError(e.to_string()))?;
+        Ok(Self { store: Arc::new(store) })
+    }
+
+    fn make_key(hash: &Hash) -> Vec<u8> {
+        let mut key = Vec::with_capacity(5 + 32);
+        key.extend_from_slice(b"trie:");
+        key.extend_from_slice(hash);
+        key
+    }
+}
+
+impl TrieDatabase for RocksDbTrieDatabase {
+    fn get_node(&self, hash: &Hash) -> Result<Option<Vec<u8>>, StateError> {
+        let key = Self::make_key(hash);
+        self.store.get(&key)
+            .map_err(|e| StateError::DatabaseError(e.to_string()))
+    }
+
+    fn put_node(&self, hash: Hash, data: Vec<u8>) -> Result<(), StateError> {
+        let key = Self::make_key(&hash);
+        // Need mutable access - clone the inner store
+        let db = self.store.db.write();
+        db.put(&key, &data)
+            .map_err(|e| StateError::DatabaseError(e.to_string()))
+    }
+
+    fn batch_put(&self, nodes: Vec<(Hash, Vec<u8>)>) -> Result<(), StateError> {
+        let db = self.store.db.write();
+        let mut batch = WriteBatch::default();
+
+        for (hash, data) in nodes {
+            let key = Self::make_key(&hash);
+            batch.put(&key, &data);
+        }
+
+        db.write(batch)
+            .map_err(|e| StateError::DatabaseError(e.to_string()))
+    }
+
+    fn delete_node(&self, hash: &Hash) -> Result<(), StateError> {
+        let key = Self::make_key(hash);
+        let db = self.store.db.write();
+        db.delete(&key)
+            .map_err(|e| StateError::DatabaseError(e.to_string()))
+    }
+}
+
+/// RocksDB-backed snapshot storage for state checkpoints
+pub struct RocksDbSnapshotStorage {
+    store: Arc<RocksDbStore>,
+}
+
+impl RocksDbSnapshotStorage {
+    pub fn new(store: Arc<RocksDbStore>) -> Self {
+        Self { store }
+    }
+
+    fn make_snapshot_key(height: u64) -> Vec<u8> {
+        let mut key = Vec::with_capacity(13);
+        key.extend_from_slice(b"snap:");
+        key.extend_from_slice(&height.to_be_bytes());
+        key
+    }
+}
+
+impl SnapshotStorage for RocksDbSnapshotStorage {
+    fn create_snapshot(&self, height: u64, root: Hash) -> Result<(), StateError> {
+        let key = Self::make_snapshot_key(height);
+        let db = self.store.db.write();
+        db.put(&key, &root)
+            .map_err(|e| StateError::DatabaseError(e.to_string()))
+    }
+
+    fn get_nearest_snapshot(&self, height: u64) -> Result<Option<(u64, Hash)>, StateError> {
+        let db = self.store.db.read();
+        
+        // Scan backwards from requested height
+        for h in (0..=height).rev() {
+            let key = Self::make_snapshot_key(h);
+            if let Some(value) = db.get(&key)
+                .map_err(|e| StateError::DatabaseError(e.to_string()))? 
+            {
+                if value.len() == 32 {
+                    let mut root = [0u8; 32];
+                    root.copy_from_slice(&value);
+                    return Ok(Some((h, root)));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn prune_snapshots(&self, keep_after: u64) -> Result<u64, StateError> {
+        let db = self.store.db.write();
+        let mut pruned = 0u64;
+        
+        // Delete snapshots before keep_after
+        for h in 0..keep_after {
+            let key = Self::make_snapshot_key(h);
+            if db.get(&key).ok().flatten().is_some() {
+                db.delete(&key)
+                    .map_err(|e| StateError::DatabaseError(e.to_string()))?;
+                pruned += 1;
+            }
+        }
+        
+        Ok(pruned)
     }
 }
 

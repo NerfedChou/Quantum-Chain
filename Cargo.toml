@@ -66,6 +66,7 @@ rand = "0.8"
 
 # Production Storage
 rocksdb = { version = "0.22", default-features = false, features = ["snappy"] }
+fs2 = "0.4"
 
 # Internal Crates
 shared-types = { path = "crates/shared-types" }
