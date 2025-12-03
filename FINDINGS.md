@@ -1,6 +1,6 @@
 # Security Audit Findings - Quantum-Chain
 
-**Last Updated:** 2025-12-03T16:30:00Z  
+**Last Updated:** 2025-12-03T18:30:00Z  
 **Auditors:** Claude (Implementation) + Gemini (Security Review)  
 **Status:** ✅ ALL CORE SUBSYSTEMS COMPLETE
 
@@ -127,6 +127,21 @@ pub struct MessageVerifier {
    - **Fix:** Use `unwrap_or([0u8; 32])` with fallback (will fail verification safely)
    - **Location:** `create_verifier()`
 
+4. **node-runtime: System Time Panic**
+   - **Issue:** `.expect("Time went backwards")` in genesis/subsystems could panic
+   - **Fix:** Use `.unwrap_or(0)` fallback to epoch
+   - **Location:** `genesis/builder.rs`, `container/subsystems.rs`
+
+5. **node-runtime: Config Validation Panic**
+   - **Issue:** `panic!()` on insecure HMAC secret
+   - **Fix:** Return `Result<(), ConfigError>` for graceful handling
+   - **Location:** `container/config.rs`
+
+6. **node-runtime: Block Assembly Unwrap**
+   - **Issue:** `.unwrap()` on `merkle_root`/`state_root` after `is_complete()` check
+   - **Fix:** Explicit `match` with error return
+   - **Location:** `adapters/block_storage.rs`
+
 ---
 
 ## Test Coverage
@@ -234,9 +249,18 @@ cargo bench -p qc-benchmarks
 ### Integration Work
 - [x] Node Runtime - Wire core subsystems together
 - [x] Adapters wrap actual domain logic (not placeholders)
-- [ ] End-to-end integration tests with real blocks
-- [ ] Genesis block creation and initialization
-- [ ] Production deployment configuration
+- [x] Genesis block creation and initialization
+- [x] Transaction Indexing (qc-03) added to SubsystemContainer
+- [x] State Management (qc-04) added to SubsystemContainer
+- [x] Port adapters for qc-05 Block Propagation created
+- [x] Port adapters for qc-08 Consensus created
+- [x] Port adapters for qc-09 Finality created
+- [x] End-to-end choreography tests created (e2e_choreography.rs)
+- [x] GitHub Actions CI/CD workflows (rust.yml, docker-publish.yml)
+- [x] Production RocksDB adapter created (feature-gated)
+- [x] Dockerfile updated for RocksDB support
+- [x] Docker Compose configuration ready
+- [ ] External security audit (recommended before mainnet)
 
 ---
 

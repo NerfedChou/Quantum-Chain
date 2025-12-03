@@ -50,6 +50,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
     ca-certificates \
+    clang \
+    libclang-dev \
+    librocksdb-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -76,10 +79,10 @@ RUN cargo fetch
 # Copy actual source code
 COPY . .
 
-# Build the release binary with security flags
+# Build the release binary with RocksDB and security flags
 # All 15 subsystems are compiled into a single binary
 RUN RUSTFLAGS="-D warnings" \
-    cargo build --release --bin node-runtime
+    cargo build --release --bin node-runtime --features rocksdb
 
 # Strip debug symbols for smaller binary
 RUN strip --strip-all /usr/src/quantum-chain/target/release/node-runtime 2>/dev/null || true
@@ -97,6 +100,8 @@ ARG VCS_REF
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
+    librocksdb7.8 \
+    libsnappy1v5 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
     && rm -rf /var/cache/apt/archives/*

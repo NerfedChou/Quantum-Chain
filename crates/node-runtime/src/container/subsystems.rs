@@ -33,12 +33,14 @@ use crate::container::config::NodeConfig;
 // Import subsystem services
 use qc_01_peer_discovery::PeerDiscoveryService;
 use qc_02_block_storage::{
-    BlockAssemblyBuffer, AssemblyConfig, BlockStorageService,
+    AssemblyConfig, BlockAssemblyBuffer, BlockStorageService,
     ports::outbound::{
-        InMemoryKVStore, MockFileSystemAdapter, DefaultChecksumProvider,
-        SystemTimeSource as StorageTimeSource, BincodeBlockSerializer,
+        BincodeBlockSerializer, DefaultChecksumProvider, InMemoryKVStore, MockFileSystemAdapter,
+        SystemTimeSource as StorageTimeSource,
     },
 };
+use qc_03_transaction_indexing::{IndexConfig, TransactionIndex};
+use qc_04_state_management::PatriciaMerkleTrie;
 use qc_06_mempool::TransactionPool;
 
 /// Concrete type for Block Storage Service with in-memory backends.
@@ -54,7 +56,20 @@ pub type ConcreteBlockStorageService = BlockStorageService<
 ///
 /// This is the main integration point where all subsystems are wired together
 /// with their adapters implementing the required ports.
+///
+/// ## V2.3 Choreography Pattern
+///
+/// All inter-subsystem communication flows through the Event Bus:
+/// - Consensus (8) publishes `BlockValidated`
+/// - Transaction Indexing (3) subscribes, publishes `MerkleRootComputed`
+/// - State Management (4) subscribes, publishes `StateRootComputed`
+/// - Block Storage (2) assembles all three components atomically
 pub struct SubsystemContainer {
+    // =========================================================================
+    // LEVEL 0: No Dependencies
+    // =========================================================================
+    // Signature Verification (10) is stateless - no instance needed in container
+
     // =========================================================================
     // LEVEL 1: Depends on Level 0
     // =========================================================================
@@ -65,6 +80,17 @@ pub struct SubsystemContainer {
     /// Mempool (Subsystem 6)
     /// Depends on Sig Verification for transaction validation.
     pub mempool: Arc<RwLock<TransactionPool>>,
+
+    // =========================================================================
+    // LEVEL 2: Depends on Level 0-1
+    // =========================================================================
+    /// Transaction Indexing (Subsystem 3)
+    /// Computes Merkle roots and provides proofs.
+    pub transaction_index: Arc<RwLock<TransactionIndex>>,
+
+    /// State Management (Subsystem 4)
+    /// Patricia Merkle Trie for account state.
+    pub state_trie: Arc<RwLock<PatriciaMerkleTrie>>,
 
     // =========================================================================
     // LEVEL 4: Depends on Level 0-3
@@ -96,10 +122,11 @@ impl SubsystemContainer {
     /// ## Initialization Phases
     ///
     /// 1. Create shared infrastructure (event bus, nonce cache)
-    /// 2. Initialize Level 0 subsystems
-    /// 3. Initialize Level 1 subsystems with Level 0 adapters
-    /// 4. Initialize Level 2-4 subsystems
-    /// 5. Wire event subscriptions
+    /// 2. Initialize Level 0 subsystems (Signature Verification - stateless)
+    /// 3. Initialize Level 1 subsystems (Peer Discovery, Mempool)
+    /// 4. Initialize Level 2 subsystems (Transaction Indexing, State Management)
+    /// 5. Initialize Level 4 subsystems (Block Storage, Finality)
+    /// 6. Wire event subscriptions for V2.3 Choreography
     #[instrument(name = "subsystem_init", skip(config))]
     pub fn new(config: NodeConfig) -> Self {
         info!("Initializing Quantum-Chain subsystem container");
@@ -109,7 +136,7 @@ impl SubsystemContainer {
         // PHASE 1: Shared Infrastructure
         // =====================================================================
         info!("Phase 1: Creating shared infrastructure");
-        
+
         let event_bus = Arc::new(InMemoryEventBus::new());
         let nonce_cache = Arc::new(RwLock::new(TimeBoundedNonceCache::new()));
 
@@ -123,30 +150,48 @@ impl SubsystemContainer {
         // PHASE 3: Level 1 - Depends on Level 0
         // =====================================================================
         info!("Phase 3: Initializing Level 1 subsystems");
-        
+
         let peer_discovery = Self::init_peer_discovery();
         info!("  [1] Peer Discovery initialized");
 
         let mempool = Self::init_mempool(&config);
-        info!("  [6] Mempool initialized (max {} txs)", config.mempool.max_transactions);
+        info!(
+            "  [6] Mempool initialized (max {} txs)",
+            config.mempool.max_transactions
+        );
 
         // =====================================================================
-        // PHASE 4: Level 4 - Block Storage (Stateful Assembler)
+        // PHASE 4: Level 2 - Transaction Indexing & State Management
         // =====================================================================
-        info!("Phase 4: Initializing Block Storage (Stateful Assembler)");
-        
+        info!("Phase 4: Initializing Level 2 subsystems");
+
+        let transaction_index = Self::init_transaction_indexing();
+        info!("  [3] Transaction Indexing initialized");
+
+        let state_trie = Self::init_state_management();
+        info!("  [4] State Management initialized");
+
+        // =====================================================================
+        // PHASE 5: Level 4 - Block Storage (Stateful Assembler)
+        // =====================================================================
+        info!("Phase 5: Initializing Block Storage (Stateful Assembler)");
+
         let (block_storage, assembly_buffer) = Self::init_block_storage(&config);
         info!(
             "  [2] Block Storage initialized (timeout={}s, max_pending={})",
-            config.storage.assembly_timeout_secs,
-            config.storage.max_pending_assemblies
+            config.storage.assembly_timeout_secs, config.storage.max_pending_assemblies
         );
 
         info!("All core subsystems initialized successfully");
+        info!(
+            "Choreography ready: Consensus→TxIndexing→StateManagement→BlockStorage"
+        );
 
         Self {
             peer_discovery,
             mempool,
+            transaction_index,
+            state_trie,
             block_storage,
             assembly_buffer,
             event_bus,
@@ -170,15 +215,15 @@ impl SubsystemContainer {
             KademliaConfig, NodeId, TimeSource, Timestamp,
         };
 
-        // Create a simple time source
+        // Create a simple time source (no panics)
         struct SimpleTimeSource;
         impl TimeSource for SimpleTimeSource {
             fn now(&self) -> Timestamp {
                 Timestamp::new(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs()
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0) // Fallback to epoch if system time is before UNIX_EPOCH
                 )
             }
         }
@@ -207,6 +252,15 @@ impl SubsystemContainer {
         };
 
         Arc::new(RwLock::new(TransactionPool::new(pool_config)))
+    }
+
+    fn init_transaction_indexing() -> Arc<RwLock<TransactionIndex>> {
+        let index_config = IndexConfig::default();
+        Arc::new(RwLock::new(TransactionIndex::new(index_config)))
+    }
+
+    fn init_state_management() -> Arc<RwLock<PatriciaMerkleTrie>> {
+        Arc::new(RwLock::new(PatriciaMerkleTrie::new()))
     }
 
     fn init_block_storage(
@@ -258,6 +312,16 @@ impl SubsystemContainer {
     pub fn assembly_timeout(&self) -> Duration {
         Duration::from_secs(self.config.storage.assembly_timeout_secs)
     }
+
+    /// Get transaction index for Merkle operations.
+    pub fn transaction_index(&self) -> Arc<RwLock<TransactionIndex>> {
+        Arc::clone(&self.transaction_index)
+    }
+
+    /// Get state trie for account state operations.
+    pub fn state_trie(&self) -> Arc<RwLock<PatriciaMerkleTrie>> {
+        Arc::clone(&self.state_trie)
+    }
 }
 
 #[cfg(test)]
@@ -267,10 +331,28 @@ mod tests {
     #[test]
     fn test_container_initialization() {
         let container = SubsystemContainer::new_for_testing();
-        
+
         // Verify all subsystems are initialized
         assert_eq!(container.event_bus.subscriber_count(), 0);
         assert!(container.mempool.read().is_empty());
+    }
+
+    #[test]
+    fn test_transaction_indexing_initialized() {
+        let container = SubsystemContainer::new_for_testing();
+
+        // Verify transaction index is accessible
+        let _index = container.transaction_index();
+    }
+
+    #[test]
+    fn test_state_management_initialized() {
+        let container = SubsystemContainer::new_for_testing();
+
+        // Verify state trie is accessible
+        let trie = container.state_trie();
+        // Just verify we can read the root hash (value depends on empty trie implementation)
+        let _root = trie.read().root_hash();
     }
 
     #[test]

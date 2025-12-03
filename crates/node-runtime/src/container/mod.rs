@@ -12,5 +12,5 @@
 pub mod config;
 pub mod subsystems;
 
-pub use config::NodeConfig;
+pub use config::{NodeConfig, ConfigError};
 pub use subsystems::SubsystemContainer;

@@ -196,8 +196,8 @@ impl GenesisBuilder {
         let timestamp = self.config.timestamp.unwrap_or_else(|| {
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .expect("Time went backwards")
-                .as_secs()
+                .map(|d| d.as_secs())
+                .unwrap_or(0) // Fallback to epoch if system time is before UNIX_EPOCH
         });
 
         // Build validator info

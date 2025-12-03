@@ -29,20 +29,40 @@ pub struct NodeConfig {
 impl NodeConfig {
     /// Validate configuration for production readiness.
     ///
-    /// # Panics
+    /// # Returns
     ///
-    /// Panics if:
+    /// Returns `Err` if:
     /// - HMAC secret is the default zero value
-    /// - Data directory is not writable
-    pub fn validate_for_production(&self) {
+    pub fn validate_for_production(&self) -> Result<(), ConfigError> {
         if self.security.hmac_secret == [0u8; 32] {
-            panic!(
-                "SECURITY VIOLATION: HMAC secret is default zero value. \
-                 Set QC_HMAC_SECRET environment variable or provide in config."
-            );
+            return Err(ConfigError::InsecureHmacSecret);
+        }
+        Ok(())
+    }
+}
+
+/// Configuration errors.
+#[derive(Debug)]
+pub enum ConfigError {
+    /// HMAC secret is not set (zero value).
+    InsecureHmacSecret,
+}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigError::InsecureHmacSecret => {
+                write!(
+                    f,
+                    "SECURITY VIOLATION: HMAC secret is default zero value. \
+                     Set QC_HMAC_SECRET environment variable or provide in config."
+                )
+            }
         }
     }
 }
+
+impl std::error::Error for ConfigError {}
 
 impl Default for NodeConfig {
     fn default() -> Self {
@@ -218,16 +238,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "HMAC secret is default zero value")]
     fn test_validate_rejects_default_hmac() {
         let config = NodeConfig::default();
-        config.validate_for_production();
+        assert!(config.validate_for_production().is_err());
     }
 
     #[test]
     fn test_validate_accepts_nonzero_hmac() {
         let mut config = NodeConfig::default();
         config.security.hmac_secret = [1u8; 32];
-        config.validate_for_production(); // Should not panic
+        assert!(config.validate_for_production().is_ok());
     }
 }
