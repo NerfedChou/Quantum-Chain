@@ -62,10 +62,17 @@ impl<S: ConsensusApi> IpcHandler<S> {
 
     /// Create a verifier for message validation
     fn create_verifier(&self) -> MessageVerifier<SimpleKeyProvider> {
+        // Safe: shared_secret is always 32 bytes from constructor
+        let secret: [u8; 32] = self
+            .key_provider
+            .shared_secret
+            .clone()
+            .try_into()
+            .unwrap_or([0u8; 32]); // Fallback to zero key (will fail verification)
         MessageVerifier::new(
             subsystem_ids::CONSENSUS,
             self.nonce_cache.clone(),
-            SimpleKeyProvider::new(self.key_provider.shared_secret.clone().try_into().unwrap()),
+            SimpleKeyProvider::new(secret),
         )
     }
 

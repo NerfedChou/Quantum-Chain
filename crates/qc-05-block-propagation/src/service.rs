@@ -395,6 +395,7 @@ fn extract_block_hash(data: &[u8]) -> Hash {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::outbound::PeerInfo;
 
     // Mock implementations for testing
     struct MockNetwork;

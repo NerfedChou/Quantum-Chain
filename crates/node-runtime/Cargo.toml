@@ -34,6 +34,9 @@ qc-10-signature-verification = { path = "../qc-10-signature-verification" }
 tokio.workspace = true
 async-trait.workspace = true
 
+# Synchronization
+parking_lot = "0.12"
+
 # Logging
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -41,3 +44,12 @@ tracing-subscriber.workspace = true
 # Error handling
 anyhow.workspace = true
 thiserror.workspace = true
+
+# Cryptography
+sha3.workspace = true
+
+# Random number generation
+rand = "0.8"
+
+# Encoding
+hex = "0.4"

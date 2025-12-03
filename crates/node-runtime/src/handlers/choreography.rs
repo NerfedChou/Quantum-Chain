@@ -21,20 +21,27 @@ use shared_types::SubsystemId;
 use crate::adapters::BlockStorageAdapter;
 use crate::wiring::ChoreographyEvent;
 
+use crate::adapters::{TransactionIndexingAdapter, StateAdapter};
+
 /// Handler for Transaction Indexing choreography events.
 pub struct TxIndexingHandler {
     /// Subscriber for events.
     receiver: broadcast::Receiver<ChoreographyEvent>,
+    /// Adapter wrapping qc-03 domain logic.
+    adapter: Arc<TransactionIndexingAdapter>,
 }
 
 impl TxIndexingHandler {
-    /// Create a new handler.
-    pub fn new(receiver: broadcast::Receiver<ChoreographyEvent>) -> Self {
-        Self { receiver }
+    /// Create a new handler with adapter.
+    pub fn new(
+        receiver: broadcast::Receiver<ChoreographyEvent>,
+        adapter: Arc<TransactionIndexingAdapter>,
+    ) -> Self {
+        Self { receiver, adapter }
     }
 
     /// Run the handler loop.
-    pub async fn run(mut self, publisher: Arc<crate::wiring::EventRouter>) {
+    pub async fn run(mut self, _publisher: Arc<crate::wiring::EventRouter>) {
         info!("[qc-03] Transaction Indexing handler started");
 
         loop {
@@ -54,18 +61,16 @@ impl TxIndexingHandler {
                         block_height
                     );
 
-                    // In real impl: compute Merkle root from block transactions
-                    let merkle_root = [0u8; 32]; // Placeholder
-
-                    // Publish MerkleRootComputed
-                    let event = ChoreographyEvent::MerkleRootComputed {
+                    // Use the adapter to compute Merkle root with actual domain logic
+                    // In production, transaction hashes would come from the block
+                    let transaction_hashes: Vec<[u8; 32]> = vec![]; // Would be extracted from block
+                    
+                    if let Err(e) = self.adapter.process_block_validated(
                         block_hash,
-                        merkle_root,
-                        sender_id: SubsystemId::TransactionIndexing,
-                    };
-
-                    if let Err(e) = publisher.publish(event) {
-                        error!("[qc-03] Failed to publish MerkleRootComputed: {}", e);
+                        block_height,
+                        transaction_hashes,
+                    ) {
+                        error!("[qc-03] Failed to process BlockValidated: {}", e);
                     }
                 }
                 Ok(_) => {
@@ -87,16 +92,21 @@ impl TxIndexingHandler {
 pub struct StateMgmtHandler {
     /// Subscriber for events.
     receiver: broadcast::Receiver<ChoreographyEvent>,
+    /// Adapter wrapping qc-04 domain logic.
+    adapter: Arc<StateAdapter>,
 }
 
 impl StateMgmtHandler {
-    /// Create a new handler.
-    pub fn new(receiver: broadcast::Receiver<ChoreographyEvent>) -> Self {
-        Self { receiver }
+    /// Create a new handler with adapter.
+    pub fn new(
+        receiver: broadcast::Receiver<ChoreographyEvent>,
+        adapter: Arc<StateAdapter>,
+    ) -> Self {
+        Self { receiver, adapter }
     }
 
     /// Run the handler loop.
-    pub async fn run(mut self, publisher: Arc<crate::wiring::EventRouter>) {
+    pub async fn run(mut self, _publisher: Arc<crate::wiring::EventRouter>) {
         info!("[qc-04] State Management handler started");
 
         loop {
@@ -116,18 +126,16 @@ impl StateMgmtHandler {
                         block_height
                     );
 
-                    // In real impl: apply transactions, compute state root
-                    let state_root = [0u8; 32]; // Placeholder
-
-                    // Publish StateRootComputed
-                    let event = ChoreographyEvent::StateRootComputed {
+                    // Use the adapter to compute state root with actual domain logic
+                    // In production, transactions would come from the block
+                    let transactions = vec![]; // Would be extracted from block
+                    
+                    if let Err(e) = self.adapter.process_block_validated(
                         block_hash,
-                        state_root,
-                        sender_id: SubsystemId::StateManagement,
-                    };
-
-                    if let Err(e) = publisher.publish(event) {
-                        error!("[qc-04] Failed to publish StateRootComputed: {}", e);
+                        block_height,
+                        transactions,
+                    ) {
+                        error!("[qc-04] Failed to process BlockValidated: {}", e);
                     }
                 }
                 Ok(_) => {

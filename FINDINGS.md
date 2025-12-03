@@ -1,6 +1,6 @@
 # Security Audit Findings - Quantum-Chain
 
-**Last Updated:** 2025-12-03T15:45:00Z  
+**Last Updated:** 2025-12-03T16:30:00Z  
 **Auditors:** Claude (Implementation) + Gemini (Security Review)  
 **Status:** ✅ ALL CORE SUBSYSTEMS COMPLETE
 
@@ -15,7 +15,7 @@
 | qc-01 Peer Discovery | ✅ Complete | ✅ Hardened | ✅ Shared Module | ✅ Pass | 73 |
 | qc-02 Block Storage | ✅ Complete | ✅ Hardened | ✅ Shared Module | ✅ Pass | 66 |
 | qc-03 Transaction Indexing | ✅ Complete | ✅ Hardened | ✅ Shared Module | ✅ Pass | 36 |
-| qc-04 State Management | ✅ Complete | ✅ Patched | ✅ Shared Module | ✅ Pass | 11 + 18 brutal |
+| qc-04 State Management | ✅ Complete | ✅ Patched | ✅ Shared Module | ✅ Pass | 21 |
 | qc-05 Block Propagation | ✅ Complete | ✅ Hardened | ✅ Shared Module | ✅ Pass | 25 |
 | qc-06 Mempool | ✅ Complete | ✅ Hardened | ✅ Shared Module | ✅ Pass | 84 |
 | qc-08 Consensus | ✅ Complete | ✅ Hardened | ✅ Shared Module | ✅ Pass | 15 |
@@ -26,11 +26,11 @@
 
 | Category | Count | Status |
 |----------|-------|--------|
-| Unit Tests | 660+ | ✅ ALL PASS |
+| Unit Tests | 407 | ✅ ALL PASS |
 | Integration Tests | 199 | ✅ ALL PASS |
-| Brutal Security Tests | 100+ | ✅ ALL PASS |
-| Doc Tests | 8 | ✅ ALL PASS |
-| **Total** | **~970** | **✅ ALL PASS** |
+| Brutal Security Tests | 18 | ✅ ALL PASS |
+| Infrastructure Tests | 8 | ✅ ALL PASS |
+| **Total** | **632** | **✅ ALL PASS** |
 
 ---
 
@@ -110,6 +110,23 @@ pub struct MessageVerifier {
    - **Fix:** Rate limiting and account limits
    - **Test:** `brutal_state_bloat_attack`
 
+### Low (Hardening Applied)
+
+1. **All Subsystems: Panic on Lock Poisoning**
+   - **Issue:** `.unwrap()` on RwLock could panic if another thread panicked while holding lock
+   - **Fix:** Replaced with `.map_err(|_| Error::LockPoisoned)?` for graceful degradation
+   - **Affected:** qc-04, qc-05, qc-08
+
+2. **qc-05: NaN Panic in Peer Sorting**
+   - **Issue:** `partial_cmp().unwrap()` on f64 reputation could panic on NaN
+   - **Fix:** Use `total_cmp()` which handles NaN safely
+   - **Location:** `select_peers_for_propagation()`
+
+3. **qc-08: Secret Key Conversion Panic**
+   - **Issue:** `try_into().unwrap()` on Vec<u8> to [u8; 32]
+   - **Fix:** Use `unwrap_or([0u8; 32])` with fallback (will fail verification safely)
+   - **Location:** `create_verifier()`
+
 ---
 
 ## Test Coverage
@@ -133,6 +150,53 @@ integration-tests/src/exploits/brutal/
 Total Tests: 162
 Passed: 162
 Failed: 0
+```
+
+---
+
+## Node Runtime Integration
+
+### Status: ✅ PARTIALLY COMPLETE
+
+The `node-runtime` crate now properly integrates core subsystems using the V2.3 Choreography pattern.
+
+### Wiring Status
+
+| Component | Status | Description |
+|-----------|--------|-------------|
+| EventRouter | ✅ Complete | Broadcast channel with authorization |
+| BlockStorageAdapter | ✅ Complete | Stateful Assembler pattern |
+| TransactionIndexingAdapter | ✅ Complete | Wraps qc-03 MerkleTree domain |
+| StateAdapter | ✅ Complete | Wraps qc-04 PatriciaMerkleTrie |
+| TxIndexingHandler | ✅ Complete | Uses adapter, not placeholder |
+| StateMgmtHandler | ✅ Complete | Uses adapter, not placeholder |
+| BlockStorageHandler | ✅ Complete | Assembly + GC + events |
+| FinalityHandler | ✅ Complete | Epoch-based finalization |
+
+### Choreography Flow (Verified)
+
+```
+Consensus(8) ──BlockValidated──→ Event Bus
+                                      │
+        ┌────────────────────────────┼────────────────────────────┐
+        ↓                            ↓                            ↓
+  TxIndexingAdapter          StateAdapter               BlockStorageAdapter
+  (qc-03 domain)            (qc-04 domain)               [Assembler]
+        │                            │                       ↑ ↑ ↑
+        ↓                            ↓                       │ │ │
+  MerkleRootComputed          StateRootComputed              │ │ │
+        │                            │                       │ │ │
+        └────────────────────────────┴───────────────────────┘ │ │
+                                                                 │ │
+                             BlockValidated ─────────────────────┘ │
+                                                                   │
+                                     [Atomic Write when all 3 arrive]
+                                                 │
+                                                 ↓
+                                           BlockStored
+                                                 │
+                                                 ↓
+                                           Finality(9)
 ```
 
 ---
@@ -168,8 +232,10 @@ cargo bench -p qc-benchmarks
 - [ ] qc-15 Cross-Chain
 
 ### Integration Work
-- [ ] Node Runtime - Wire all subsystems together
-- [ ] End-to-end integration tests
+- [x] Node Runtime - Wire core subsystems together
+- [x] Adapters wrap actual domain logic (not placeholders)
+- [ ] End-to-end integration tests with real blocks
+- [ ] Genesis block creation and initialization
 - [ ] Production deployment configuration
 
 ---

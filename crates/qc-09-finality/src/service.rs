@@ -639,7 +639,7 @@ mod tests {
     #[async_trait]
     impl ValidatorSetProvider for MockValidatorProvider {
         async fn get_validator_set_at_epoch(&self, _epoch: u64) -> FinalityResult<ValidatorSet> {
-            Ok(self.validators)
+            Ok(self.validators.clone())
         }
 
         async fn get_validator_stake(

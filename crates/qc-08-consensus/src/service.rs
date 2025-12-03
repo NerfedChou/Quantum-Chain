@@ -569,7 +569,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{Attestation, ValidatorInfo};
+    use crate::domain::{Attestation, ValidatorInfo, ValidatorSet, SignedTransaction};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     // Mock implementations for testing

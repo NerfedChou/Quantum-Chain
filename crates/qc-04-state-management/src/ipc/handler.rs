@@ -90,7 +90,10 @@ impl<K: KeyProvider> IpcHandler<K> {
         let start_time = Instant::now();
         let payload = &msg.payload;
 
-        let mut trie = self.trie.write().unwrap();
+        let mut trie = self
+            .trie
+            .write()
+            .map_err(|_| StateError::LockPoisoned)?;
         let previous_root = trie.root_hash();
         let mut accounts_modified = 0u32;
         let storage_modified = 0u32;
@@ -117,11 +120,17 @@ impl<K: KeyProvider> IpcHandler<K> {
 
         // Store state root for this height
         {
-            let mut heights = self.current_height.write().unwrap();
+            let mut heights = self
+                .current_height
+                .write()
+                .map_err(|_| StateError::LockPoisoned)?;
             *heights = payload.block_height;
         }
         {
-            let mut roots = self.state_roots.write().unwrap();
+            let mut roots = self
+                .state_roots
+                .write()
+                .map_err(|_| StateError::LockPoisoned)?;
             roots.insert(payload.block_height, new_root);
         }
 
@@ -155,7 +164,10 @@ impl<K: KeyProvider> IpcHandler<K> {
             return Err(StateError::UnauthorizedSender(msg.sender_id));
         }
 
-        let trie = self.trie.read().unwrap();
+        let trie = self
+            .trie
+            .read()
+            .map_err(|_| StateError::LockPoisoned)?;
         let payload = &msg.payload;
 
         let value = if let Some(key) = payload.storage_key {
@@ -169,7 +181,10 @@ impl<K: KeyProvider> IpcHandler<K> {
             })
         };
 
-        let height = *self.current_height.read().unwrap();
+        let height = *self
+            .current_height
+            .read()
+            .map_err(|_| StateError::LockPoisoned)?;
 
         Ok(StateReadResponsePayload {
             address: payload.address,
@@ -195,7 +210,10 @@ impl<K: KeyProvider> IpcHandler<K> {
             return Err(StateError::UnauthorizedSender(msg.sender_id));
         }
 
-        let mut trie = self.trie.write().unwrap();
+        let mut trie = self
+            .trie
+            .write()
+            .map_err(|_| StateError::LockPoisoned)?;
         let payload = &msg.payload;
 
         trie.set_storage(payload.address, payload.storage_key, payload.value)?;
@@ -219,7 +237,10 @@ impl<K: KeyProvider> IpcHandler<K> {
             return Err(StateError::UnauthorizedSender(msg.sender_id));
         }
 
-        let trie = self.trie.read().unwrap();
+        let trie = self
+            .trie
+            .read()
+            .map_err(|_| StateError::LockPoisoned)?;
         let payload = &msg.payload;
 
         let current_balance = trie.get_balance(payload.address)?;
@@ -261,17 +282,26 @@ impl<K: KeyProvider> IpcHandler<K> {
 
     // Direct API methods (for internal use)
     pub fn get_account(&self, address: Address) -> Result<Option<AccountState>, StateError> {
-        let trie = self.trie.read().unwrap();
+        let trie = self
+            .trie
+            .read()
+            .map_err(|_| StateError::LockPoisoned)?;
         trie.get_account(address)
     }
 
     pub fn get_balance(&self, address: Address) -> Result<u128, StateError> {
-        let trie = self.trie.read().unwrap();
+        let trie = self
+            .trie
+            .read()
+            .map_err(|_| StateError::LockPoisoned)?;
         trie.get_balance(address)
     }
 
     pub fn get_current_state_root(&self) -> Result<Hash, StateError> {
-        let trie = self.trie.read().unwrap();
+        let trie = self
+            .trie
+            .read()
+            .map_err(|_| StateError::LockPoisoned)?;
         Ok(trie.root_hash())
     }
 }

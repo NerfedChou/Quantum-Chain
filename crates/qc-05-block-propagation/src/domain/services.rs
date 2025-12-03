@@ -129,7 +129,8 @@ pub fn select_peers_for_propagation(
     fanout: usize,
 ) -> Vec<PeerPropagationState> {
     let mut sorted_peers = peers.to_vec();
-    sorted_peers.sort_by(|a, b| b.reputation.partial_cmp(&a.reputation).unwrap());
+    // Use total_cmp for safe f64 comparison (handles NaN gracefully)
+    sorted_peers.sort_by(|a, b| b.reputation.total_cmp(&a.reputation));
     sorted_peers.truncate(fanout);
     sorted_peers
 }

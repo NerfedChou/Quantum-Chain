@@ -24,18 +24,27 @@ impl Default for InMemoryTrieDb {
 
 impl TrieDatabase for InMemoryTrieDb {
     fn get_node(&self, hash: &Hash) -> Result<Option<Vec<u8>>, StateError> {
-        let nodes = self.nodes.read().unwrap();
+        let nodes = self
+            .nodes
+            .read()
+            .map_err(|_| StateError::LockPoisoned)?;
         Ok(nodes.get(hash).cloned())
     }
 
     fn put_node(&self, hash: Hash, data: Vec<u8>) -> Result<(), StateError> {
-        let mut nodes = self.nodes.write().unwrap();
+        let mut nodes = self
+            .nodes
+            .write()
+            .map_err(|_| StateError::LockPoisoned)?;
         nodes.insert(hash, data);
         Ok(())
     }
 
     fn batch_put(&self, batch: Vec<(Hash, Vec<u8>)>) -> Result<(), StateError> {
-        let mut nodes = self.nodes.write().unwrap();
+        let mut nodes = self
+            .nodes
+            .write()
+            .map_err(|_| StateError::LockPoisoned)?;
         for (hash, data) in batch {
             nodes.insert(hash, data);
         }
@@ -43,7 +52,10 @@ impl TrieDatabase for InMemoryTrieDb {
     }
 
     fn delete_node(&self, hash: &Hash) -> Result<(), StateError> {
-        let mut nodes = self.nodes.write().unwrap();
+        let mut nodes = self
+            .nodes
+            .write()
+            .map_err(|_| StateError::LockPoisoned)?;
         nodes.remove(hash);
         Ok(())
     }
@@ -70,13 +82,19 @@ impl Default for InMemorySnapshotStorage {
 
 impl SnapshotStorage for InMemorySnapshotStorage {
     fn create_snapshot(&self, height: u64, root: Hash) -> Result<(), StateError> {
-        let mut snapshots = self.snapshots.write().unwrap();
+        let mut snapshots = self
+            .snapshots
+            .write()
+            .map_err(|_| StateError::LockPoisoned)?;
         snapshots.insert(height, root);
         Ok(())
     }
 
     fn get_nearest_snapshot(&self, height: u64) -> Result<Option<(u64, Hash)>, StateError> {
-        let snapshots = self.snapshots.read().unwrap();
+        let snapshots = self
+            .snapshots
+            .read()
+            .map_err(|_| StateError::LockPoisoned)?;
 
         // Find the nearest snapshot at or before the given height
         let nearest = snapshots
@@ -89,7 +107,10 @@ impl SnapshotStorage for InMemorySnapshotStorage {
     }
 
     fn prune_snapshots(&self, keep_after: u64) -> Result<u64, StateError> {
-        let mut snapshots = self.snapshots.write().unwrap();
+        let mut snapshots = self
+            .snapshots
+            .write()
+            .map_err(|_| StateError::LockPoisoned)?;
         let before = snapshots.len();
         snapshots.retain(|h, _| *h >= keep_after);
         Ok((before - snapshots.len()) as u64)

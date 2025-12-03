@@ -44,4 +44,13 @@ pub enum StateError {
 
     #[error("Serialization error: {0}")]
     SerializationError(String),
+
+    #[error("State lock poisoned - internal consistency error")]
+    LockPoisoned,
+
+    #[error("Proof generation failed for address {address:?}")]
+    ProofGenerationFailed { address: Address },
+
+    #[error("Rollback depth exceeded: max {max_depth}, requested {requested}")]
+    RollbackDepthExceeded { max_depth: u64, requested: u64 },
 }

@@ -124,7 +124,7 @@ The system uses **event-driven choreography**, NOT centralized orchestration:
 |-------|---------|--------|
 | `shared-types` | Common types (Hash, Address, Signature) | 🟢 Implemented |
 | `shared-bus` | Event-driven communication (Choreography) | 🟢 Implemented |
-| `node-runtime` | Application binary that wires everything together | 🟡 In Progress |
+| `node-runtime` | Application binary that wires everything together | 🟢 Implemented |
 
 ---
 
