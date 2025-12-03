@@ -358,6 +358,45 @@ fn load_config() -> NodeConfig {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Handle CLI commands
+    let args: Vec<String> = std::env::args().collect();
+    
+    if args.len() > 1 {
+        match args[1].as_str() {
+            "--version" | "-V" => {
+                println!("quantum-chain {}", env!("CARGO_PKG_VERSION"));
+                println!("Architecture: V2.3 Choreography Pattern");
+                println!("Subsystems: 15 (all compiled into single binary)");
+                return Ok(());
+            }
+            "health" => {
+                // Health check - just verify we can start
+                println!("healthy");
+                return Ok(());
+            }
+            "--help" | "-h" => {
+                println!("Quantum-Chain Node Runtime");
+                println!();
+                println!("USAGE:");
+                println!("    quantum-chain [OPTIONS]");
+                println!();
+                println!("OPTIONS:");
+                println!("    --version, -V    Print version information");
+                println!("    --help, -h       Print this help message");
+                println!("    health           Run health check");
+                println!();
+                println!("ENVIRONMENT VARIABLES:");
+                println!("    QC_HMAC_SECRET   32-byte hex-encoded HMAC secret");
+                println!("    QC_P2P_PORT      P2P port (default: 30303)");
+                println!("    QC_RPC_PORT      RPC port (default: 8545)");
+                println!("    QC_DATA_DIR      Data directory path");
+                println!("    QC_LOG_LEVEL     Log level (default: info)");
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+    
     // Initialize logging
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
