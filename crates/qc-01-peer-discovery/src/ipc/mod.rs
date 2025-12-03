@@ -18,10 +18,10 @@
 //!
 //! All messages wrapped in `AuthenticatedMessage<T>` envelope per Architecture.md v2.2.
 
+pub mod handler;
 pub mod payloads;
 pub mod security;
-pub mod handler;
 
+pub use handler::*;
 pub use payloads::*;
 pub use security::*;
-pub use handler::*;

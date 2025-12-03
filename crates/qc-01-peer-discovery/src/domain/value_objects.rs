@@ -76,10 +76,10 @@ impl KademliaConfig {
     /// Create a config suitable for testing (smaller values)
     pub fn for_testing() -> Self {
         Self {
-            k: 3,                              // Smaller buckets for easier testing
+            k: 3, // Smaller buckets for easier testing
             alpha: 2,
             max_peers_per_subnet: 2,
-            max_pending_peers: 10,             // Small staging for testing
+            max_pending_peers: 10,              // Small staging for testing
             eviction_challenge_timeout_secs: 1, // Fast timeout for tests
             verification_timeout_secs: 2,
         }

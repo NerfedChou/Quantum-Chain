@@ -4,8 +4,8 @@
 //! Per IPC-MATRIX.md, only specific subsystems can call specific methods.
 
 use crate::domain::{
-    Hash, MempoolError, MempoolTransaction,
-    MempoolStatus, ProposeResult, ShortTxId, TransactionState,
+    Hash, MempoolError, MempoolStatus, MempoolTransaction, ProposeResult, ShortTxId,
+    TransactionState,
 };
 
 /// Primary API for the Mempool subsystem.
@@ -59,7 +59,8 @@ pub trait MempoolApi: Send + Sync {
     /// Returns transactions in priority order (highest gas price first).
     /// Respects nonce ordering for each sender.
     /// Only returns PENDING transactions, not PENDING_INCLUSION.
-    fn get_transactions_for_block(&self, max_count: usize, max_gas: u64) -> Vec<MempoolTransaction>;
+    fn get_transactions_for_block(&self, max_count: usize, max_gas: u64)
+        -> Vec<MempoolTransaction>;
 
     /// Proposes transactions for block inclusion (Phase 1 of Two-Phase Commit).
     ///
@@ -68,11 +69,7 @@ pub trait MempoolApi: Send + Sync {
     ///
     /// # Security
     /// Only Subsystem 8 (Consensus) is authorized to call this.
-    fn propose_transactions(
-        &mut self,
-        tx_hashes: &[Hash],
-        block_height: u64,
-    ) -> ProposeResult;
+    fn propose_transactions(&mut self, tx_hashes: &[Hash], block_height: u64) -> ProposeResult;
 
     /// Confirms that transactions were included in a stored block (Phase 2a).
     ///

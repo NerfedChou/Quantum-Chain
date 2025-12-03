@@ -279,10 +279,7 @@ impl BannedPeers {
 
     /// Get count of active bans
     pub fn count(&self, now: Timestamp) -> usize {
-        self.entries
-            .iter()
-            .filter(|e| e.banned_until > now)
-            .count()
+        self.entries.iter().filter(|e| e.banned_until > now).count()
     }
 }
 
@@ -621,7 +618,11 @@ impl RoutingTable {
     }
 
     /// Touch a peer (update last_seen)
-    pub fn touch_peer(&mut self, node_id: &NodeId, now: Timestamp) -> Result<(), PeerDiscoveryError> {
+    pub fn touch_peer(
+        &mut self,
+        node_id: &NodeId,
+        now: Timestamp,
+    ) -> Result<(), PeerDiscoveryError> {
         let bucket_idx = calculate_bucket_index(&self.local_node_id, node_id);
         let bucket = self
             .buckets
@@ -834,9 +835,7 @@ mod tests {
             .expect("Should have challenged peer");
 
         // Simulate: oldest peer is ALIVE (responded to PING)
-        table
-            .on_challenge_response(&challenged, true, now)
-            .unwrap();
+        table.on_challenge_response(&challenged, true, now).unwrap();
 
         // Verify: oldest peer is still in bucket, new peer rejected
         let bucket_idx = calculate_bucket_index(&local_id, &peers[0]);
@@ -1043,9 +1042,7 @@ mod tests {
         assert_eq!(table.total_peer_count(), 0);
 
         // Verify after verification it moves to bucket
-        table
-            .on_verification_result(&peer_id, true, now)
-            .unwrap();
+        table.on_verification_result(&peer_id, true, now).unwrap();
 
         assert_eq!(table.pending_verification_count(), 0);
         assert_eq!(table.total_peer_count(), 1);
@@ -1065,9 +1062,7 @@ mod tests {
         assert_eq!(table.pending_verification_count(), 1);
 
         // Verification fails - should be silently dropped (NOT banned)
-        table
-            .on_verification_result(&peer_id, false, now)
-            .unwrap();
+        table.on_verification_result(&peer_id, false, now).unwrap();
 
         assert_eq!(table.pending_verification_count(), 0);
         assert_eq!(table.total_peer_count(), 0);
@@ -1180,9 +1175,7 @@ mod tests {
         assert!(table.stage_peer(peer2.clone(), now).is_err());
 
         // Complete verification
-        table
-            .on_verification_result(&peer1_id, true, now)
-            .unwrap();
+        table.on_verification_result(&peer1_id, true, now).unwrap();
 
         // Now staging has room
         assert!(table.stage_peer(peer2, now).is_ok());

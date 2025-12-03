@@ -125,20 +125,20 @@ pub struct SignedTransaction {
 impl SignedTransaction {
     /// Compute the transaction hash.
     pub fn hash(&self) -> Hash {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
-        hasher.update(&self.from);
+        hasher.update(self.from);
         if let Some(to) = &self.to {
             hasher.update(to);
         }
         let mut value_bytes = [0u8; 32];
         self.value.to_big_endian(&mut value_bytes);
-        hasher.update(&value_bytes);
-        hasher.update(&self.nonce.to_le_bytes());
+        hasher.update(value_bytes);
+        hasher.update(self.nonce.to_le_bytes());
         let mut gas_price_bytes = [0u8; 32];
         self.gas_price.to_big_endian(&mut gas_price_bytes);
-        hasher.update(&gas_price_bytes);
-        hasher.update(&self.gas_limit.to_le_bytes());
+        hasher.update(gas_price_bytes);
+        hasher.update(self.gas_limit.to_le_bytes());
         hasher.update(&self.data);
         hasher.finalize().into()
     }

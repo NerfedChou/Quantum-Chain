@@ -77,7 +77,11 @@ impl EventBuilder {
 
     /// Build a PeerConnected event.
     #[must_use]
-    pub fn peer_connected(&self, peer_info: PeerInfo, bucket_index: u8) -> PeerDiscoveryEventPayload {
+    pub fn peer_connected(
+        &self,
+        peer_info: PeerInfo,
+        bucket_index: u8,
+    ) -> PeerDiscoveryEventPayload {
         PeerDiscoveryEventPayload::PeerConnected(PeerConnectedPayload {
             peer_info,
             bucket_index,
@@ -86,7 +90,11 @@ impl EventBuilder {
 
     /// Build a PeerDisconnected event.
     #[must_use]
-    pub fn peer_disconnected(&self, node_id: NodeId, reason: DisconnectReason) -> PeerDiscoveryEventPayload {
+    pub fn peer_disconnected(
+        &self,
+        node_id: NodeId,
+        reason: DisconnectReason,
+    ) -> PeerDiscoveryEventPayload {
         PeerDiscoveryEventPayload::PeerDisconnected(PeerDisconnectedPayload { node_id, reason })
     }
 
@@ -107,7 +115,11 @@ impl EventBuilder {
 
     /// Build a BootstrapCompleted event.
     #[must_use]
-    pub fn bootstrap_completed(&self, peer_count: usize, duration_ms: u64) -> PeerDiscoveryEventPayload {
+    pub fn bootstrap_completed(
+        &self,
+        peer_count: usize,
+        duration_ms: u64,
+    ) -> PeerDiscoveryEventPayload {
         PeerDiscoveryEventPayload::BootstrapCompleted(BootstrapCompletedPayload {
             peer_count,
             duration_ms,
@@ -153,7 +165,8 @@ impl NoOpEventPublisher {
 
 impl PeerDiscoveryEventPublisher for NoOpEventPublisher {
     fn publish(&self, _event: PeerDiscoveryEventPayload) -> Result<(), String> {
-        self.event_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.event_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
@@ -163,7 +176,8 @@ impl PeerDiscoveryEventPublisher for NoOpEventPublisher {
         _correlation_id: [u8; 16],
         _response: PeerListResponsePayload,
     ) -> Result<(), String> {
-        self.event_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.event_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 }
@@ -207,7 +221,10 @@ impl PeerDiscoveryEventPublisher for InMemoryEventPublisher {
         _correlation_id: [u8; 16],
         response: PeerListResponsePayload,
     ) -> Result<(), String> {
-        self.events.lock().unwrap().push(PeerDiscoveryEventPayload::PeerListResponse(response));
+        self.events
+            .lock()
+            .unwrap()
+            .push(PeerDiscoveryEventPayload::PeerListResponse(response));
         Ok(())
     }
 }

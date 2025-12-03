@@ -259,9 +259,11 @@ mod tests {
         assert_eq!(req.max_nodes, 5);
         assert!(req.preferred_region.is_none());
 
-        let req_with_region =
-            FullNodeListRequestPayload::with_region(10, "us-east".to_string());
+        let req_with_region = FullNodeListRequestPayload::with_region(10, "us-east".to_string());
         assert_eq!(req_with_region.max_nodes, 10);
-        assert_eq!(req_with_region.preferred_region, Some("us-east".to_string()));
+        assert_eq!(
+            req_with_region.preferred_region,
+            Some("us-east".to_string())
+        );
     }
 }

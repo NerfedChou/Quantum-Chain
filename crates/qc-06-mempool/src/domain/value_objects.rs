@@ -177,7 +177,7 @@ mod tests {
     fn test_pending_inclusion_batch_has_block_hash_field() {
         let mut batch = PendingInclusionBatch::new(1, 1000, vec![[1; 32]]);
         assert!(batch.block_hash.is_none());
-        
+
         batch.block_hash = Some([0xAB; 32]);
         assert_eq!(batch.block_hash, Some([0xAB; 32]));
     }

@@ -11,42 +11,25 @@ pub enum MempoolError {
     DuplicateTransaction(Hash),
 
     /// Gas price is below minimum.
-    GasPriceTooLow {
-        price: U256,
-        minimum: U256,
-    },
+    GasPriceTooLow { price: U256, minimum: U256 },
 
     /// Transaction gas limit exceeds maximum.
-    GasLimitTooHigh {
-        limit: u64,
-        maximum: u64,
-    },
+    GasLimitTooHigh { limit: u64, maximum: u64 },
 
     /// Account has reached maximum pending transactions.
-    AccountLimitReached {
-        address: Address,
-        limit: usize,
-    },
+    AccountLimitReached { address: Address, limit: usize },
 
     /// Pool has reached maximum capacity.
-    PoolFull {
-        capacity: usize,
-    },
+    PoolFull { capacity: usize },
 
     /// Transaction not found in the pool.
     TransactionNotFound(Hash),
 
     /// Insufficient balance for transaction (U256 per SPEC-06).
-    InsufficientBalance {
-        required: U256,
-        available: U256,
-    },
+    InsufficientBalance { required: U256, available: U256 },
 
     /// Invalid nonce (not the expected next nonce).
-    InvalidNonce {
-        expected: u64,
-        actual: u64,
-    },
+    InvalidNonce { expected: u64, actual: u64 },
 
     /// Nonce too far in the future (gap too large).
     NonceTooHigh {
@@ -72,13 +55,22 @@ pub enum MempoolError {
     CannotEvict(Hash),
 
     /// Unauthorized sender for IPC message.
-    UnauthorizedSender {
-        sender_id: u8,
-        allowed: Vec<u8>,
-    },
+    UnauthorizedSender { sender_id: u8, allowed: Vec<u8> },
 
     /// Transaction signature not verified.
     SignatureNotVerified,
+
+    /// Message timestamp is too old.
+    TimestampTooOld { timestamp: u64, now: u64 },
+
+    /// Message timestamp is too far in the future.
+    TimestampTooFuture { timestamp: u64, now: u64 },
+
+    /// Invalid HMAC signature.
+    InvalidSignature,
+
+    /// Replay attack detected (nonce reused).
+    ReplayDetected { nonce: u64 },
 
     /// State provider error.
     StateError(String),
@@ -113,7 +105,10 @@ impl std::fmt::Display for MempoolError {
             Self::TransactionNotFound(hash) => {
                 write!(f, "Transaction not found: {:?}", &hash[..4])
             }
-            Self::InsufficientBalance { required, available } => {
+            Self::InsufficientBalance {
+                required,
+                available,
+            } => {
                 write!(
                     f,
                     "Insufficient balance: required {}, available {}",
@@ -160,6 +155,20 @@ impl std::fmt::Display for MempoolError {
                 )
             }
             Self::SignatureNotVerified => write!(f, "Transaction signature not verified"),
+            Self::TimestampTooOld { timestamp, now } => {
+                write!(f, "Timestamp {} is too old (now: {})", timestamp, now)
+            }
+            Self::TimestampTooFuture { timestamp, now } => {
+                write!(
+                    f,
+                    "Timestamp {} is too far in the future (now: {})",
+                    timestamp, now
+                )
+            }
+            Self::InvalidSignature => write!(f, "Invalid HMAC signature"),
+            Self::ReplayDetected { nonce } => {
+                write!(f, "Replay attack detected for nonce {}", nonce)
+            }
             Self::StateError(msg) => write!(f, "State error: {}", msg),
             Self::Internal(msg) => write!(f, "Internal error: {}", msg),
         }

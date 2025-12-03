@@ -54,7 +54,9 @@ pub fn total_gas(transactions: &[&MempoolTransaction]) -> u64 {
 
 /// Computes the total value for a list of transactions.
 pub fn total_value(transactions: &[&MempoolTransaction]) -> U256 {
-    transactions.iter().fold(U256::zero(), |acc, tx| acc + tx.transaction.value)
+    transactions
+        .iter()
+        .fold(U256::zero(), |acc, tx| acc + tx.transaction.value)
 }
 
 #[cfg(test)]
@@ -95,13 +97,25 @@ mod tests {
     #[test]
     fn test_is_valid_rbf_bump() {
         // Exact bump
-        assert!(is_valid_rbf_bump(U256::from(1_000_000_000u64), U256::from(1_100_000_000u64), 10));
+        assert!(is_valid_rbf_bump(
+            U256::from(1_000_000_000u64),
+            U256::from(1_100_000_000u64),
+            10
+        ));
 
         // Above bump
-        assert!(is_valid_rbf_bump(U256::from(1_000_000_000u64), U256::from(1_200_000_000u64), 10));
+        assert!(is_valid_rbf_bump(
+            U256::from(1_000_000_000u64),
+            U256::from(1_200_000_000u64),
+            10
+        ));
 
         // Below bump
-        assert!(!is_valid_rbf_bump(U256::from(1_000_000_000u64), U256::from(1_050_000_000u64), 10));
+        assert!(!is_valid_rbf_bump(
+            U256::from(1_000_000_000u64),
+            U256::from(1_050_000_000u64),
+            10
+        ));
     }
 
     #[test]
@@ -143,7 +157,7 @@ mod tests {
 
         let txs: Vec<&MempoolTransaction> = vec![&tx1, &tx2];
         assert!(!validate_nonce_sequence(&txs, 0)); // Expected to start at 0
-        assert!(validate_nonce_sequence(&txs, 1));  // But starts at 1
+        assert!(validate_nonce_sequence(&txs, 1)); // But starts at 1
     }
 
     #[test]

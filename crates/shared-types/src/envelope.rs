@@ -114,3 +114,17 @@ pub enum VerificationResult {
         sender_id: u8,
     },
 }
+
+impl VerificationResult {
+    /// Returns true if the verification was successful.
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        matches!(self, VerificationResult::Valid)
+    }
+
+    /// Returns true if the verification failed.
+    #[must_use]
+    pub fn is_error(&self) -> bool {
+        !self.is_valid()
+    }
+}

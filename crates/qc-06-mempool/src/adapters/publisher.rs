@@ -105,6 +105,13 @@ pub struct RecordingPublisher {
 }
 
 #[cfg(test)]
+impl Default for RecordingPublisher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
 impl RecordingPublisher {
     pub fn new() -> Self {
         Self {
@@ -124,10 +131,12 @@ impl MempoolEventPublisher for RecordingPublisher {
         total_gas: u64,
         target_block_height: u64,
     ) -> Result<(), PublishError> {
-        self.batches
-            .lock()
-            .unwrap()
-            .push((correlation_id, tx_hashes, total_gas, target_block_height));
+        self.batches.lock().unwrap().push((
+            correlation_id,
+            tx_hashes,
+            total_gas,
+            target_block_height,
+        ));
         Ok(())
     }
 

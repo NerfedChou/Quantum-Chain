@@ -130,11 +130,54 @@ pub enum SecurityError {
     /// Nonce has been seen before (replay attack).
     ReplayDetected { nonce: u64 },
     /// Reply-to subsystem doesn't match sender (forwarding attack).
-    ReplyToMismatch { sender_id: u8, reply_to_subsystem: u8 },
+    ReplyToMismatch {
+        sender_id: u8,
+        reply_to_subsystem: u8,
+    },
     /// Unknown subsystem ID.
     UnknownSubsystem { id: u8 },
     /// Missing required reply_to for request.
     MissingReplyTo,
+    /// Nonce replay detected (UUID-based from shared-types).
+    ReplayDetectedUuid { nonce: uuid::Uuid },
+}
+
+impl SecurityError {
+    /// Convert from shared-types VerificationResult.
+    ///
+    /// This bridges the centralized security module's result type to
+    /// the subsystem-specific error type.
+    pub fn from_verification_result(result: shared_types::envelope::VerificationResult) -> Self {
+        use shared_types::envelope::VerificationResult;
+        match result {
+            VerificationResult::Valid => {
+                // This shouldn't happen - caller should check is_valid() first
+                panic!("Cannot convert Valid result to SecurityError")
+            }
+            VerificationResult::UnsupportedVersion {
+                received,
+                supported,
+            } => SecurityError::UnsupportedVersion {
+                received,
+                min_supported: supported,
+                max_supported: supported,
+            },
+            VerificationResult::TimestampOutOfRange { timestamp, now } => {
+                SecurityError::TimestampOutOfRange { timestamp, now }
+            }
+            VerificationResult::ReplayDetected { nonce } => {
+                SecurityError::ReplayDetectedUuid { nonce }
+            }
+            VerificationResult::InvalidSignature => SecurityError::InvalidSignature,
+            VerificationResult::ReplyToMismatch {
+                reply_to_subsystem,
+                sender_id,
+            } => SecurityError::ReplyToMismatch {
+                sender_id,
+                reply_to_subsystem,
+            },
+        }
+    }
 }
 
 impl std::fmt::Display for SecurityError {
@@ -150,7 +193,11 @@ impl std::fmt::Display for SecurityError {
                 received, min_supported, max_supported
             ),
             Self::TimestampOutOfRange { timestamp, now } => {
-                write!(f, "timestamp {} is outside valid window (now: {})", timestamp, now)
+                write!(
+                    f,
+                    "timestamp {} is outside valid window (now: {})",
+                    timestamp, now
+                )
             }
             Self::UnauthorizedSender {
                 sender_id,
@@ -164,6 +211,7 @@ impl std::fmt::Display for SecurityError {
             }
             Self::InvalidSignature => write!(f, "message signature is invalid"),
             Self::ReplayDetected { nonce } => write!(f, "replay detected for nonce {}", nonce),
+            Self::ReplayDetectedUuid { nonce } => write!(f, "replay detected for nonce {}", nonce),
             Self::ReplyToMismatch {
                 sender_id,
                 reply_to_subsystem,
@@ -274,7 +322,10 @@ impl AuthorizationRules {
     ///
     /// Prevents forwarding attacks where a compromised subsystem could
     /// set reply_to to a victim subsystem.
-    pub fn validate_reply_to(sender_id: u8, reply_to_subsystem: Option<u8>) -> Result<(), SecurityError> {
+    pub fn validate_reply_to(
+        sender_id: u8,
+        reply_to_subsystem: Option<u8>,
+    ) -> Result<(), SecurityError> {
         if let Some(reply_to) = reply_to_subsystem {
             if reply_to != sender_id {
                 return Err(SecurityError::ReplyToMismatch {
@@ -294,6 +345,123 @@ pub enum ValidationResult {
     Valid,
     /// Message failed validation.
     Invalid(SecurityError),
+}
+
+// =============================================================================
+// HMAC SIGNATURE VERIFICATION (Architecture.md Section 3.5)
+// =============================================================================
+
+use std::collections::HashSet;
+use std::sync::Mutex;
+
+/// HMAC-SHA256 key for IPC message signing.
+/// In production, this would be loaded from secure configuration.
+pub type HmacKey = [u8; 32];
+
+/// Time-bounded nonce cache for replay prevention.
+///
+/// Per Architecture.md Section 3.5:
+/// - Nonces are cached for 120 seconds
+/// - After that, they are evicted automatically
+pub struct NonceCache {
+    /// Set of seen nonces with their timestamps.
+    seen: Mutex<HashSet<(u64, u64)>>, // (nonce, timestamp)
+    /// Maximum age for nonces (seconds).
+    max_age: u64,
+}
+
+impl Default for NonceCache {
+    fn default() -> Self {
+        Self::new(120) // 2 minute window
+    }
+}
+
+impl NonceCache {
+    /// Create a new nonce cache with specified max age.
+    #[must_use]
+    pub fn new(max_age: u64) -> Self {
+        Self {
+            seen: Mutex::new(HashSet::new()),
+            max_age,
+        }
+    }
+
+    /// Check if a nonce has been seen, and if not, record it.
+    /// Returns `true` if nonce is fresh (not seen before).
+    pub fn check_and_record(&self, nonce: u64, timestamp: u64, now: u64) -> bool {
+        let mut seen = self.seen.lock().unwrap();
+
+        // First, evict old nonces
+        seen.retain(|(_, ts)| now.saturating_sub(*ts) <= self.max_age);
+
+        // Check if this nonce exists
+        if seen.contains(&(nonce, timestamp)) {
+            return false; // Replay detected
+        }
+
+        // Record the new nonce
+        seen.insert((nonce, timestamp));
+        true
+    }
+
+    /// Clear all nonces (for testing).
+    #[cfg(test)]
+    pub fn clear(&self) {
+        self.seen.lock().unwrap().clear();
+    }
+}
+
+/// Validates HMAC-SHA256 signature on IPC message.
+///
+/// # Arguments
+/// * `message` - The message bytes to verify (excluding signature)
+/// * `signature` - The 32-byte HMAC signature
+/// * `key` - The shared HMAC key
+///
+/// # Returns
+/// * `Ok(())` if signature is valid
+/// * `Err(SecurityError::InvalidSignature)` if invalid
+pub fn validate_hmac_signature(
+    message: &[u8],
+    signature: &[u8; 32],
+    key: &HmacKey,
+) -> Result<(), SecurityError> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    type HmacSha256 = Hmac<Sha256>;
+
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC can take key of any size");
+    mac.update(message);
+
+    // Constant-time comparison to prevent timing attacks
+    if mac.verify_slice(signature).is_err() {
+        return Err(SecurityError::InvalidSignature);
+    }
+    Ok(())
+}
+
+/// Validates nonce has not been seen before.
+///
+/// # Arguments
+/// * `nonce` - The message nonce
+/// * `timestamp` - The message timestamp  
+/// * `now` - Current time
+/// * `cache` - The nonce cache
+///
+/// # Returns
+/// * `Ok(())` if nonce is fresh
+/// * `Err(SecurityError::ReplayDetected)` if nonce was seen before
+pub fn validate_nonce(
+    nonce: u64,
+    timestamp: u64,
+    now: u64,
+    cache: &NonceCache,
+) -> Result<(), SecurityError> {
+    if !cache.check_and_record(nonce, timestamp, now) {
+        return Err(SecurityError::ReplayDetected { nonce });
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -360,10 +528,16 @@ mod tests {
         assert!(AuthorizationRules::validate_version(1).is_ok());
 
         let result = AuthorizationRules::validate_version(0);
-        assert!(matches!(result, Err(SecurityError::UnsupportedVersion { .. })));
+        assert!(matches!(
+            result,
+            Err(SecurityError::UnsupportedVersion { .. })
+        ));
 
         let result = AuthorizationRules::validate_version(2);
-        assert!(matches!(result, Err(SecurityError::UnsupportedVersion { .. })));
+        assert!(matches!(
+            result,
+            Err(SecurityError::UnsupportedVersion { .. })
+        ));
     }
 
     #[test]
@@ -377,10 +551,16 @@ mod tests {
 
         // Invalid timestamps
         let result = AuthorizationRules::validate_timestamp(now - 100, now);
-        assert!(matches!(result, Err(SecurityError::TimestampOutOfRange { .. })));
+        assert!(matches!(
+            result,
+            Err(SecurityError::TimestampOutOfRange { .. })
+        ));
 
         let result = AuthorizationRules::validate_timestamp(now + 100, now);
-        assert!(matches!(result, Err(SecurityError::TimestampOutOfRange { .. })));
+        assert!(matches!(
+            result,
+            Err(SecurityError::TimestampOutOfRange { .. })
+        ));
     }
 
     #[test]
@@ -390,7 +570,10 @@ mod tests {
         assert!(AuthorizationRules::validate_peer_list_sender(13).is_ok());
 
         let result = AuthorizationRules::validate_peer_list_sender(8);
-        assert!(matches!(result, Err(SecurityError::UnauthorizedSender { .. })));
+        assert!(matches!(
+            result,
+            Err(SecurityError::UnauthorizedSender { .. })
+        ));
     }
 
     #[test]

@@ -232,7 +232,10 @@ mod tests {
         assert!(tx.is_pending_inclusion());
         assert_eq!(tx.target_block, Some(1));
         match tx.state {
-            TransactionState::PendingInclusion { block_height, proposed_at } => {
+            TransactionState::PendingInclusion {
+                block_height,
+                proposed_at,
+            } => {
                 assert_eq!(block_height, 1);
                 assert_eq!(proposed_at, 2000);
             }
@@ -311,7 +314,10 @@ mod tests {
         };
         let tx = MempoolTransaction::new(signed_tx, 1000);
 
-        assert_eq!(tx.gas_cost(), U256::from(2_000_000_000u64) * U256::from(21000u64));
+        assert_eq!(
+            tx.gas_cost(),
+            U256::from(2_000_000_000u64) * U256::from(21000u64)
+        );
     }
 
     #[test]

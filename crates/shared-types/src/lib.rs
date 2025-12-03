@@ -15,8 +15,10 @@ pub mod entities;
 pub mod envelope;
 pub mod errors;
 pub mod ipc;
+pub mod security;
 
 pub use entities::*;
 pub use envelope::AuthenticatedMessage;
 pub use errors::*;
 pub use ipc::*;
+pub use security::*;

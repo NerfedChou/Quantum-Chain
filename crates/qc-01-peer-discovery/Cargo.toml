@@ -10,7 +10,15 @@ keywords = ["blockchain", "peer-discovery", "kademlia", "dht"]
 categories = ["network-programming", "cryptography"]
 
 [dependencies]
-# No dependencies in domain layer - pure Rust
+# Shared types including centralized IPC security module
+shared-types = { path = "../shared-types" }
+
+# HMAC for IPC message signature verification (Architecture.md Section 3.5)
+hmac = "0.12"
+sha2 = "0.10"
+
+# UUID for nonce handling
+uuid = { version = "1.0", features = ["v4"] }
 
 [dev-dependencies]
 # Testing utilities will be added as needed

@@ -106,7 +106,9 @@ impl<S> EventHandler<S> {
     }
 }
 
-impl<S: crate::ports::PeerDiscoveryApi + Send + Sync> PeerDiscoveryEventSubscriber for EventHandler<S> {
+impl<S: crate::ports::PeerDiscoveryApi + Send + Sync> PeerDiscoveryEventSubscriber
+    for EventHandler<S>
+{
     fn on_node_identity_result(
         &mut self,
         sender_id: u8,
@@ -121,13 +123,13 @@ impl<S: crate::ports::PeerDiscoveryApi + Send + Sync> PeerDiscoveryEventSubscrib
         // Note: We would need to wire this to the service properly
         // For now, this is a structural implementation showing the pattern
         // The actual implementation would use a timestamp from the result
-        
+
         // This would typically call something like:
         // self.service.on_verification_result(&node_id, result.identity_valid)
-        
+
         // For now, we just validate the pattern is correct
         let _ = (node_id, result.identity_valid);
-        
+
         Ok(())
     }
 }

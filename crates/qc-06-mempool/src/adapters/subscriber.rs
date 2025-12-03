@@ -93,6 +93,13 @@ pub struct RecordingSubscriber {
 }
 
 #[cfg(test)]
+impl Default for RecordingSubscriber {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
 impl RecordingSubscriber {
     pub fn new() -> Self {
         Self {

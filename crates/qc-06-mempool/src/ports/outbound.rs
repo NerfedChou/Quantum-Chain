@@ -63,6 +63,13 @@ pub struct MockStateProvider {
 }
 
 #[cfg(test)]
+impl Default for MockStateProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
 impl MockStateProvider {
     pub fn new() -> Self {
         Self {
@@ -136,7 +143,7 @@ mod tests {
     fn test_system_time_source() {
         let source = SystemTimeSource;
         let now = source.now();
-        
+
         // Should be a reasonable timestamp (after year 2020)
         assert!(now > 1577836800000); // Jan 1, 2020 in ms
     }

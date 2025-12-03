@@ -7,9 +7,13 @@
 //! - Eviction policies
 //! - Replace-by-Fee support
 
-use super::entities::{Address, Hash, MempoolConfig, MempoolTransaction, Timestamp, TransactionState, U256};
+use super::entities::{
+    Address, Hash, MempoolConfig, MempoolTransaction, Timestamp, TransactionState, U256,
+};
 use super::errors::MempoolError;
-use super::value_objects::{MempoolStatus, PendingInclusionBatch, PricedTransaction, ProposeResult};
+use super::value_objects::{
+    MempoolStatus, PendingInclusionBatch, PricedTransaction, ProposeResult,
+};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Transaction priority queue with multiple indices.
@@ -137,11 +141,7 @@ impl TransactionPool {
         }
 
         // Check account limit
-        let sender_count = self
-            .by_sender
-            .get(&tx.sender)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let sender_count = self.by_sender.get(&tx.sender).map(|m| m.len()).unwrap_or(0);
         if sender_count >= self.config.max_per_account {
             // Check for RBF opportunity when at account limit
             return self.try_rbf_at_limit(tx);
@@ -225,11 +225,8 @@ impl TransactionPool {
 
         // Add to price index (only if pending)
         if tx.is_pending() {
-            self.by_price.insert(PricedTransaction::new(
-                tx.gas_price,
-                tx.hash,
-                tx.added_at,
-            ));
+            self.by_price
+                .insert(PricedTransaction::new(tx.gas_price, tx.hash, tx.added_at));
         }
 
         // Add to sender index
@@ -245,7 +242,11 @@ impl TransactionPool {
     }
 
     /// Checks if new transaction can replace existing via RBF.
-    fn can_replace(&self, existing: &MempoolTransaction, new: &MempoolTransaction) -> Result<bool, MempoolError> {
+    fn can_replace(
+        &self,
+        existing: &MempoolTransaction,
+        new: &MempoolTransaction,
+    ) -> Result<bool, MempoolError> {
         // Cannot replace if existing is pending inclusion
         if existing.is_pending_inclusion() {
             return Err(MempoolError::TransactionPendingInclusion(existing.hash));
@@ -264,6 +265,10 @@ impl TransactionPool {
     }
 
     /// Tries to evict the lowest priority transaction to make room.
+    ///
+    /// Only evicts if the new transaction has strictly higher priority (higher gas price
+    /// or same gas price with earlier timestamp). Hash-based tie-breaking does NOT
+    /// justify eviction to ensure deterministic behavior.
     fn try_evict_for(&mut self, new_tx: &MempoolTransaction) -> Result<bool, MempoolError> {
         // Get the lowest priority pending transaction
         let lowest = match self.by_price.iter().next_back() {
@@ -271,10 +276,22 @@ impl TransactionPool {
             None => return Ok(false), // No pending transactions to evict
         };
 
-        // New transaction must have higher priority
-        let new_priced = PricedTransaction::new(new_tx.gas_price, new_tx.hash, new_tx.added_at);
-        if new_priced >= lowest {
-            return Ok(false); // New tx is not higher priority
+        // Get the lowest tx details for comparison
+        let lowest_tx = match self.by_hash.get(&lowest.hash) {
+            Some(tx) => tx,
+            None => return Ok(false),
+        };
+
+        // New transaction must have STRICTLY higher priority to evict:
+        // - Higher gas price, OR
+        // - Same gas price but earlier timestamp
+        // Hash tie-breaker does NOT justify eviction
+        let has_higher_gas = new_tx.gas_price > lowest_tx.gas_price;
+        let has_same_gas_earlier_time =
+            new_tx.gas_price == lowest_tx.gas_price && new_tx.added_at < lowest_tx.added_at;
+
+        if !has_higher_gas && !has_same_gas_earlier_time {
+            return Ok(false); // New tx is not strictly higher priority
         }
 
         // Evict the lowest
@@ -295,11 +312,8 @@ impl TransactionPool {
             .ok_or(MempoolError::TransactionNotFound(*hash))?;
 
         // Remove from price index
-        self.by_price.remove(&PricedTransaction::new(
-            tx.gas_price,
-            tx.hash,
-            tx.added_at,
-        ));
+        self.by_price
+            .remove(&PricedTransaction::new(tx.gas_price, tx.hash, tx.added_at));
 
         // Remove from sender index
         if let Some(sender_txs) = self.by_sender.get_mut(&tx.sender) {
@@ -413,6 +427,8 @@ impl TransactionPool {
     ///
     /// Permanently deletes the confirmed transactions.
     pub fn confirm(&mut self, hashes: &[Hash]) -> Vec<Hash> {
+        use std::collections::HashSet;
+
         let mut confirmed = Vec::new();
 
         for hash in hashes {
@@ -421,9 +437,13 @@ impl TransactionPool {
             }
         }
 
-        // Clean up pending batches
+        // Clean up pending batches - O(1) lookup with HashSet
+        let confirmed_set: HashSet<_> = confirmed.iter().collect();
         self.pending_batches.retain(|batch| {
-            !batch.transaction_hashes.iter().all(|h| confirmed.contains(h))
+            !batch
+                .transaction_hashes
+                .iter()
+                .all(|h| confirmed_set.contains(h))
         });
 
         confirmed
@@ -530,7 +550,12 @@ mod tests {
         MempoolTransaction::new(signed_tx, 1000)
     }
 
-    fn create_tx_at(sender_byte: u8, nonce: u64, gas_price: u64, added_at: Timestamp) -> MempoolTransaction {
+    fn create_tx_at(
+        sender_byte: u8,
+        nonce: u64,
+        gas_price: u64,
+        added_at: Timestamp,
+    ) -> MempoolTransaction {
         let signed_tx = create_signed_tx(sender_byte, nonce, U256::from(gas_price));
         let mut tx = MempoolTransaction::new(signed_tx, added_at);
         tx.added_at = added_at;
@@ -557,7 +582,7 @@ mod tests {
 
         // Transaction should now be pending inclusion
         assert!(pool.get(&hash).unwrap().is_pending_inclusion());
-        
+
         // Transaction still exists in pool
         assert!(pool.contains(&hash));
     }
@@ -670,9 +695,9 @@ mod tests {
 
         // Add transactions with sequential nonces and decreasing gas prices
         // Higher nonce = lower gas price to test that nonces are respected
-        let tx0 = create_tx(0xAA, 0, 3_000_000_000);  // nonce 0, highest priority
-        let tx1 = create_tx(0xAA, 1, 2_000_000_000);  // nonce 1, medium priority  
-        let tx2 = create_tx(0xAA, 2, 1_000_000_000);  // nonce 2, lowest priority
+        let tx0 = create_tx(0xAA, 0, 3_000_000_000); // nonce 0, highest priority
+        let tx1 = create_tx(0xAA, 1, 2_000_000_000); // nonce 1, medium priority
+        let tx2 = create_tx(0xAA, 2, 1_000_000_000); // nonce 2, lowest priority
 
         // Add out of order
         pool.add(tx2).unwrap();
@@ -696,7 +721,7 @@ mod tests {
         // Add nonces 0 and 2 (gap at 1)
         let tx0 = create_tx(0xAA, 0, 1_000_000_000);
         let tx2 = create_tx(0xAA, 2, 2_000_000_000);
-        
+
         pool.add(tx0).unwrap();
         pool.add(tx2).unwrap();
 
@@ -791,7 +816,10 @@ mod tests {
         pool.add(tx1).unwrap();
         let result = pool.add(tx2);
 
-        assert!(matches!(result, Err(MempoolError::InsufficientFeeBump { .. })));
+        assert!(matches!(
+            result,
+            Err(MempoolError::InsufficientFeeBump { .. })
+        ));
         assert!(pool.contains(&hash1));
     }
 
@@ -824,7 +852,10 @@ mod tests {
         pool.propose(&[hash1], 1, 2000);
 
         let result = pool.add(tx2);
-        assert!(matches!(result, Err(MempoolError::TransactionPendingInclusion(_))));
+        assert!(matches!(
+            result,
+            Err(MempoolError::TransactionPendingInclusion(_))
+        ));
     }
 
     // =========================================================================
@@ -879,7 +910,10 @@ mod tests {
         let tx = create_tx(0xAA, 3, 1_000_000_000);
         let result = pool.add(tx);
 
-        assert!(matches!(result, Err(MempoolError::AccountLimitReached { .. })));
+        assert!(matches!(
+            result,
+            Err(MempoolError::AccountLimitReached { .. })
+        ));
     }
 
     // =========================================================================
