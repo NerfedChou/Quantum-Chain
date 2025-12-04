@@ -1,7 +1,14 @@
-//! Outbound (Driven) ports for the Mempool subsystem.
+//! # Outbound Ports - External Dependencies
 //!
-//! These traits define dependencies on external systems that the Mempool
-//! needs for operation.
+//! Driven ports for state queries and time abstraction.
+//!
+//! ## StateProvider
+//!
+//! Interface to Subsystem 4 (State Management) for balance/nonce validation.
+//!
+//! ## TimeSource
+//!
+//! Abstracted time for consistent timestamp handling and testability.
 
 use crate::domain::{Address, MempoolError, Timestamp};
 

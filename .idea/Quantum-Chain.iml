@@ -25,6 +25,9 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/qc-06-mempool/benches" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/qc-06-mempool/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/qc-03-transaction-indexing/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-04-state-management/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/benchmarks/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/benchmarks/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/crates/integration-tests" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/tests" />

@@ -1,6 +1,15 @@
-//! Adapters layer for the Mempool subsystem.
+//! # Adapters Layer - Event Bus Integration
 //!
-//! Provides event bus integration for inter-subsystem communication.
+//! Publisher and subscriber adapters for the shared event bus.
+//!
+//! ## Publisher
+//!
+//! Publishes transaction batch proposals and status updates.
+//!
+//! ## Subscriber
+//!
+//! Receives storage confirmations and block rejection notifications
+//! for Two-Phase Commit coordination.
 
 pub mod publisher;
 pub mod subscriber;

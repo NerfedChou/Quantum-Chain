@@ -39,43 +39,36 @@ pub fn xor_distance(a: &NodeId, b: &NodeId) -> Distance {
     Distance::new(255)
 }
 
-/// Calculate the bucket index for a remote node relative to local node
+/// Calculate the bucket index for a remote node relative to local node.
 ///
-/// This is essentially the same as xor_distance but named for clarity
-/// when used in routing table operations.
+/// Bucket index equals the XOR distance, determining which k-bucket
+/// stores peers at that distance range per Kademlia specification.
 ///
-/// # Returns
-/// Bucket index (0-255) where this peer should be stored
+/// Reference: SPEC-01 Section 2.4 (INVARIANT-6: Distance Ordering)
 pub fn calculate_bucket_index(local: &NodeId, remote: &NodeId) -> usize {
     xor_distance(local, remote).bucket_index() as usize
 }
 
-/// Check if two IP addresses are in the same subnet
+/// Check if two IP addresses share the same subnet prefix.
 ///
-/// # Arguments
-/// * `a` - First IP address
-/// * `b` - Second IP address
-/// * `mask` - Subnet mask to use for comparison
+/// Used to enforce INVARIANT-3 (IP Diversity) for Sybil attack resistance.
+/// Compares addresses using the specified prefix length (e.g., /24 for IPv4).
 ///
-/// # Returns
-/// true if both addresses are in the same subnet
-///
-/// # Note
-/// IPv4 and IPv6 addresses are never in the same subnet
+/// Reference: SPEC-01 Section 6.1 (Sybil Attack Resistance)
 pub fn is_same_subnet(a: &IpAddr, b: &IpAddr, mask: &SubnetMask) -> bool {
     match (a, b) {
         (IpAddr::V4(a_bytes), IpAddr::V4(b_bytes)) => {
             let prefix_bytes = (mask.prefix_length / 8) as usize;
             let remaining_bits = mask.prefix_length % 8;
 
-            // Check full bytes
+            // Compare full bytes within prefix
             for i in 0..prefix_bytes.min(4) {
                 if a_bytes[i] != b_bytes[i] {
                     return false;
                 }
             }
 
-            // Check remaining bits if any
+            // Compare partial byte if prefix doesn't align to byte boundary
             if remaining_bits > 0 && prefix_bytes < 4 {
                 let mask_byte = 0xFF << (8 - remaining_bits);
                 if (a_bytes[prefix_bytes] & mask_byte) != (b_bytes[prefix_bytes] & mask_byte) {
@@ -89,14 +82,12 @@ pub fn is_same_subnet(a: &IpAddr, b: &IpAddr, mask: &SubnetMask) -> bool {
             let prefix_bytes = (mask.prefix_length / 8) as usize;
             let remaining_bits = mask.prefix_length % 8;
 
-            // Check full bytes
             for i in 0..prefix_bytes.min(16) {
                 if a_bytes[i] != b_bytes[i] {
                     return false;
                 }
             }
 
-            // Check remaining bits if any
             if remaining_bits > 0 && prefix_bytes < 16 {
                 let mask_byte = 0xFF << (8 - remaining_bits);
                 if (a_bytes[prefix_bytes] & mask_byte) != (b_bytes[prefix_bytes] & mask_byte) {
@@ -106,25 +97,21 @@ pub fn is_same_subnet(a: &IpAddr, b: &IpAddr, mask: &SubnetMask) -> bool {
 
             true
         }
-        // IPv4 and IPv6 are never in the same subnet
+        // IPv4 and IPv6 addresses are in disjoint address spaces
         _ => false,
     }
 }
 
-/// Sort peers by XOR distance from a target node
+/// Sort peers by XOR distance from a target node (closest first).
 ///
-/// # Arguments
-/// * `peers` - List of peers to sort
-/// * `target` - Target NodeId to measure distance from
-///
-/// # Returns
-/// New vector with peers sorted by distance (closest first)
+/// Higher bucket index indicates closer distance in Kademlia XOR metric.
+/// Used for iterative lookups per SPEC-01 Section 3.1 (`find_closest_peers`).
 pub fn sort_peers_by_distance(peers: &[PeerInfo], target: &NodeId) -> Vec<PeerInfo> {
     let mut sorted = peers.to_vec();
     sorted.sort_by(|a, b| {
         let dist_a = xor_distance(&a.node_id, target);
         let dist_b = xor_distance(&b.node_id, target);
-        // Higher bucket index = closer = should come first
+        // Higher bucket index = closer in XOR space = sort first
         dist_b.cmp(&dist_a)
     });
     sorted
@@ -245,23 +232,24 @@ mod tests {
         let peers = vec![peer_far.clone(), peer_mid.clone(), peer_close.clone()];
         let sorted = sort_peers_by_distance(&peers, &target);
 
-        // Closest should be first (highest bucket index)
+        // XOR metric: higher bucket index = closer = sorted first
         assert_eq!(
             sorted[0].node_id, peer_close.node_id,
-            "Closest peer should be first"
+            "Closest peer (highest bucket index) first"
         );
         assert_eq!(
             sorted[1].node_id, peer_mid.node_id,
-            "Middle peer should be second"
+            "Middle distance peer second"
         );
         assert_eq!(
             sorted[2].node_id, peer_far.node_id,
-            "Farthest peer should be last"
+            "Farthest peer (lowest bucket index) last"
         );
     }
 
     // =========================================================================
-    // Test Group 3: IP Diversity (SPEC-01 Section 5.1)
+    // Test Group 3: IP Diversity
+    // Reference: SPEC-01 Section 5.1 (Sybil Attack Resistance Tests)
     // =========================================================================
 
     #[test]

@@ -44,11 +44,16 @@ pub struct PendingRequest {
     pub correlation_id: CorrelationId,
 }
 
-/// Simple key provider for testing and development.
-/// In production, this would interface with a proper key management system.
+/// Static key provider using pre-configured shared secrets.
+///
+/// Maps each subsystem ID (1-15) to its HMAC shared secret for message
+/// authentication per Architecture.md Section 3.5. Production deployments
+/// load secrets from environment variables via `NodeConfig`.
+///
+/// Reference: Architecture.md Section 7.1 (Defense in Depth - Layer 3: IPC Security)
 #[derive(Clone)]
 pub struct StaticKeyProvider {
-    /// Shared secrets indexed by subsystem ID
+    /// HMAC-SHA256 shared secrets indexed by subsystem ID (1-15).
     secrets: HashMap<u8, Vec<u8>>,
 }
 
@@ -226,7 +231,7 @@ impl<K: KeyProvider> IpcHandler<K> {
         // Step 3: Process the request
         let payload = &message.payload;
         let filter = PeerFilter {
-            min_reputation: 50, // Full nodes should have good reputation
+            min_reputation: 50, // Full nodes require baseline reputation per SPEC-01 Section 6.1
             exclude_subnets: vec![],
         };
 
@@ -309,12 +314,16 @@ mod tests {
     };
     use crate::ports::PeerDiscoveryApi;
 
-    /// Mock service for testing
-    struct MockPeerDiscoveryService {
+    /// Test-only implementation of PeerDiscoveryApi for IPC handler unit tests.
+    /// Uses a real RoutingTable with deterministic timestamps (epoch 1000).
+    #[allow(dead_code)]
+    struct TestPeerDiscoveryService {
         routing_table: RoutingTable,
     }
 
-    impl MockPeerDiscoveryService {
+    impl TestPeerDiscoveryService {
+        /// Creates an empty service with zero-initialized local NodeId.
+        #[allow(dead_code)]
         fn new() -> Self {
             let local_id = NodeId::new([0u8; 32]);
             let config = KademliaConfig::for_testing();
@@ -323,6 +332,9 @@ mod tests {
             }
         }
 
+        /// Creates a service pre-populated with verified peers for testing.
+        /// Each peer has unique NodeId and IP address in distinct /24 subnets.
+        #[allow(dead_code)]
         fn with_peers(peer_count: usize) -> Self {
             let mut service = Self::new();
             let now = Timestamp::new(1000);
@@ -345,7 +357,7 @@ mod tests {
         }
     }
 
-    impl PeerDiscoveryApi for MockPeerDiscoveryService {
+    impl PeerDiscoveryApi for TestPeerDiscoveryService {
         fn find_closest_peers(&self, target_id: NodeId, count: usize) -> Vec<PeerInfo> {
             self.routing_table.find_closest_peers(&target_id, count)
         }
@@ -406,12 +418,12 @@ mod tests {
         handler.register_pending_request(correlation_id, now);
         assert_eq!(handler.pending_request_count(), 1);
 
-        // Match the response
+        // Correlation ID lookup removes the pending request (one-time use per Architecture.md 3.3)
         let matched = handler.match_response(&correlation_id);
         assert!(matched.is_some());
         assert_eq!(handler.pending_request_count(), 0);
 
-        // Second match should fail
+        // Subsequent lookups return None - correlation IDs are single-use for replay prevention
         let matched_again = handler.match_response(&correlation_id);
         assert!(matched_again.is_none());
     }
@@ -425,7 +437,7 @@ mod tests {
         handler.register_pending_request(correlation_id, now);
         assert_eq!(handler.pending_request_count(), 1);
 
-        // After timeout, request should be removed
+        // GC removes requests past their deadline (default 30s per Architecture.md 3.3)
         let expired_time = now + IpcHandler::<StaticKeyProvider>::DEFAULT_TIMEOUT_SECS + 1;
         let removed = handler.gc_expired_requests(expired_time);
         assert_eq!(removed, 1);

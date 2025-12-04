@@ -47,4 +47,8 @@ pub enum SignatureError {
         expected: [u8; 20],
         actual: [u8; 20],
     },
+
+    /// Failed to submit verified transaction to mempool
+    #[error("Submission to mempool failed: {0}")]
+    SubmissionFailed(String),
 }

@@ -16,6 +16,8 @@ shared-bus.workspace = true
 k256.workspace = true
 blst.workspace = true
 sha3.workspace = true
+subtle = "2.5"      # Constant-time operations for side-channel resistance
+zeroize = "1.7"     # Secure memory clearing
 
 # Serialization
 serde.workspace = true

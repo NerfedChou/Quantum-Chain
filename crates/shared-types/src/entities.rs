@@ -9,12 +9,85 @@
 //! - **Consensus & Finality**: Validator, Attestation, `FinalityProof`
 //! - **State & Storage**: `AccountState`, `StateRoot`, `MerkleRoot`
 //! - **Networking**: `PeerInfo`, `NodeId`
+//! - **IPC**: `SubsystemId` for inter-subsystem authorization
 
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Bytes};
 
 // Re-export U256 from primitive-types for use across all subsystems
 pub use primitive_types::U256;
+
+// =============================================================================
+// SUBSYSTEM IDENTIFICATION (IPC-MATRIX.md)
+// =============================================================================
+
+/// Identifier for each subsystem in the system.
+///
+/// Used for IPC authorization per IPC-MATRIX.md. Each message envelope
+/// contains `sender_id` and `recipient_id` of this type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum SubsystemId {
+    /// Subsystem 1: Peer Discovery & Routing
+    PeerDiscovery = 1,
+    /// Subsystem 2: Block Storage Engine (Stateful Assembler)
+    BlockStorage = 2,
+    /// Subsystem 3: Transaction Indexing (Merkle Trees)
+    TransactionIndexing = 3,
+    /// Subsystem 4: State Management (Patricia Trie)
+    StateManagement = 4,
+    /// Subsystem 5: Block Propagation (Gossip Protocol)
+    BlockPropagation = 5,
+    /// Subsystem 6: Mempool (Transaction Pool)
+    Mempool = 6,
+    /// Subsystem 7: Bloom Filters (SPV Support)
+    BloomFilters = 7,
+    /// Subsystem 8: Consensus Mechanism (PoS/PBFT)
+    Consensus = 8,
+    /// Subsystem 9: Finality Gadget (Casper-FFG)
+    Finality = 9,
+    /// Subsystem 10: Signature Verification (ECDSA)
+    SignatureVerification = 10,
+    /// Subsystem 11: Smart Contract Execution (EVM)
+    SmartContracts = 11,
+    /// Subsystem 12: Transaction Ordering (DAG)
+    TransactionOrdering = 12,
+    /// Subsystem 13: Light Client Sync (SPV)
+    LightClient = 13,
+    /// Subsystem 14: Sharding (Advanced)
+    Sharding = 14,
+    /// Subsystem 15: Cross-Chain Communication (HTLC)
+    CrossChain = 15,
+}
+
+impl SubsystemId {
+    /// Get the numeric ID of the subsystem.
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
+
+    /// Create from numeric ID.
+    pub fn from_u8(id: u8) -> Option<Self> {
+        match id {
+            1 => Some(Self::PeerDiscovery),
+            2 => Some(Self::BlockStorage),
+            3 => Some(Self::TransactionIndexing),
+            4 => Some(Self::StateManagement),
+            5 => Some(Self::BlockPropagation),
+            6 => Some(Self::Mempool),
+            7 => Some(Self::BloomFilters),
+            8 => Some(Self::Consensus),
+            9 => Some(Self::Finality),
+            10 => Some(Self::SignatureVerification),
+            11 => Some(Self::SmartContracts),
+            12 => Some(Self::TransactionOrdering),
+            13 => Some(Self::LightClient),
+            14 => Some(Self::Sharding),
+            15 => Some(Self::CrossChain),
+            _ => None,
+        }
+    }
+}
 
 // =============================================================================
 // CLUSTER A: THE CHAIN

@@ -17,6 +17,11 @@ pub mod errors;
 pub mod ipc;
 pub mod security;
 
+/// Subsystem identification types.
+pub mod subsystem {
+    pub use crate::entities::SubsystemId;
+}
+
 pub use entities::*;
 pub use envelope::AuthenticatedMessage;
 pub use errors::*;

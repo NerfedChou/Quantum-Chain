@@ -193,18 +193,20 @@ pub trait BlockAssemblerApi {
         now: Timestamp,
     ) -> Result<(), StorageError>;
 
-    /// Periodic garbage collection of expired assemblies.
+    /// Periodic garbage collection of expired assemblies (INVARIANT-7).
     ///
-    /// Should be called periodically (e.g., every 5 seconds) to purge
-    /// incomplete assemblies that have exceeded the timeout.
+    /// Call at 5-second intervals from the runtime's GC task.
+    /// Purges assemblies exceeding `assembly_timeout_secs` (default: 30s).
     ///
-    /// Returns the list of purged block hashes.
+    /// Reference: SPEC-02 Section 2.6 (INVARIANT-7: Assembly Timeout)
     fn gc_expired_assemblies(&mut self, now: Timestamp) -> Vec<Hash>;
 
-    /// Garbage collection with full data for event emission.
+    /// Garbage collection returning full assembly data for event emission.
     ///
-    /// Returns tuples of (block_hash, PendingBlockAssembly) for creating
-    /// AssemblyTimeout events.
+    /// Returns (block_hash, PendingBlockAssembly) tuples for `AssemblyTimeout` events.
+    /// Used by the runtime to emit monitoring/alerting events.
+    ///
+    /// Reference: SPEC-02 Section 4.3 (AssemblyTimeoutPayload)
     fn gc_expired_assemblies_with_data(
         &mut self,
         now: Timestamp,

@@ -1,7 +1,7 @@
-//! IPC message payloads for the Mempool subsystem.
+//! # IPC Message Payloads
 //!
-//! Defines request/response types for inter-subsystem communication.
-//! All payloads are wrapped in `AuthenticatedMessage<T>` per Architecture.md v2.2.
+//! Request/response types for inter-subsystem communication.
+//! All payloads are wrapped in `AuthenticatedMessage<T>` per Architecture.md v2.3.
 
 use crate::domain::{Hash, MempoolStatus};
 use serde::{Deserialize, Serialize};

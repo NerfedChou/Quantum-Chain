@@ -6,4 +6,23 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+metrics = ["prometheus"]
+
 [dependencies]
+shared-types = { path = "../shared-types" }
+thiserror = "1.0"
+async-trait = "0.1"
+tokio = { version = "1.0", features = ["sync", "time"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_with = "3.0"
+sha3 = "0.10"
+k256 = { version = "0.13", features = ["ecdsa"] }
+parking_lot = "0.12"
+tracing = "0.1"
+prometheus = { version = "0.13", optional = true }
+lazy_static = "1.4"
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["full", "test-util"] }

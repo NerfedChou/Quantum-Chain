@@ -1,80 +1,70 @@
 //! # Block Storage Engine (qc-02)
 //!
 //! The Block Storage subsystem is the authoritative persistence layer for all
-//! blockchain data. It implements the V2.3 **Stateful Assembler** pattern.
+//! blockchain data. Provides domain logic for the V2.3 Stateful Assembler pattern.
 //!
-//! ## Architecture (V2.3 Choreography Pattern)
+//! ## Architecture
 //!
-//! Block Storage does NOT receive a pre-assembled package. Instead, it subscribes
-//! to THREE independent event streams and assembles them:
+//! This crate provides **domain logic only**. Choreography (event buffering and
+//! assembly) is handled by `node-runtime::adapters::BlockStorageAdapter`.
 //!
 //! ```text
-//! Consensus (8) ────BlockValidated────→ ┐
-//!                                        │
-//! Tx Indexing (3) ──MerkleRootComputed──→├──→ Block Storage (2)
-//!                                        │    [Stateful Assembler]
-//! State Mgmt (4) ───StateRootComputed───→┘
-//!                                        ↓
-//!                             [Atomic Write when all 3 present]
+//! node-runtime
+//! ├── BlockStorageAdapter (choreography, event buffering)
+//! │   └── calls qc-02 domain logic
+//! │
+//! qc-02-block-storage
+//! ├── BlockStorageService (write_block, read_block, mark_finalized)
+//! ├── BlockStorageApi (port trait)
+//! └── Domain invariants (1-8)
 //! ```
 //!
 //! ## Domain Invariants
 //!
-//! | ID | Invariant | Description |
+//! | ID | Invariant | Enforcement |
 //! |----|-----------|-------------|
-//! | 1 | Sequential Blocks | Parent block must exist for height > 0 |
-//! | 2 | Disk Space Safety | Writes fail if disk < 5% available |
-//! | 3 | Data Integrity | Checksum verified on every read |
-//! | 4 | Atomic Writes | All or nothing - no partial writes |
-//! | 5 | Finalization Monotonicity | Finalization cannot regress |
-//! | 6 | Genesis Immutability | Genesis hash never changes |
-//! | 7 | Assembly Timeout | Incomplete assemblies purged after 30s |
-//! | 8 | Bounded Assembly Buffer | Max 1000 pending assemblies |
+//! | 1 | Sequential Blocks | `check_parent_exists()` |
+//! | 2 | Disk Space Safety | `check_disk_space()` |
+//! | 3 | Data Integrity | `verify_block_checksum()` |
+//! | 4 | Atomic Writes | `atomic_batch_write()` |
+//! | 5 | Finalization Monotonicity | `metadata.on_finalized()` |
+//! | 6 | Genesis Immutability | `StorageMetadata::set_genesis()` |
+//! | 7 | Assembly Timeout | Enforced by node-runtime |
+//! | 8 | Bounded Assembly Buffer | Enforced by node-runtime |
 //!
 //! ## Crate Structure (Hexagonal Architecture)
 //!
-//! - `domain/` - Pure domain logic (entities, value objects, services)
+//! - `domain/` - Pure domain logic (entities, value objects, invariants)
 //! - `ports/` - Port traits (inbound API, outbound SPI)
-//! - `service.rs` - Application service implementing the API
-//! - `ipc/` - IPC message handlers and security boundaries
-//! - `bus/` - Event bus adapter for V2.3 Choreography
+//! - `service.rs` - Application service implementing BlockStorageApi
+//! - `ipc/` - IPC envelope validation and message handlers
 //!
-//! ## Usage
+//! ## Reference
 //!
-//! ```ignore
-//! use qc_02_block_storage::{BlockStorageService, StorageConfig};
-//!
-//! // Create service with in-memory adapters
-//! let config = StorageConfig::default();
-//! let service = BlockStorageService::new_in_memory(config);
-//!
-//! // Write a block
-//! let hash = service.write_block(block, merkle_root, state_root)?;
-//!
-//! // Read a block
-//! let stored = service.read_block(&hash)?;
-//! ```
+//! - SPEC-02-BLOCK-STORAGE.md (specification)
+//! - Architecture.md Section 5.1 (choreography pattern)
+//! - IPC-MATRIX.md (sender authorization)
 
-pub mod bus;
 pub mod domain;
 pub mod ipc;
 pub mod ports;
 pub mod service;
 
-// Re-export key types for convenience
+// Re-export domain types
 pub use domain::assembler::{AssemblyConfig, BlockAssemblyBuffer, PendingBlockAssembly};
 pub use domain::entities::{BlockIndex, BlockIndexEntry, StoredBlock};
 pub use domain::errors::StorageError;
 pub use domain::value_objects::{KeyPrefix, StorageConfig, TransactionLocation};
+
+// Re-export port traits
 pub use ports::inbound::BlockStorageApi;
 pub use ports::outbound::{
     BlockSerializer, ChecksumProvider, FileSystemAdapter, KeyValueStore, TimeSource,
 };
+
+// Re-export service
 pub use service::BlockStorageService;
 
 // Re-export IPC types
 pub use ipc::payloads::*;
 pub use ipc::{AuthenticatedMessage, BlockStorageHandler, EnvelopeError, EnvelopeValidator};
-
-// Re-export Bus types
-pub use bus::{event_types, BlockStorageBusAdapter};

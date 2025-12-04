@@ -1,0 +1,31 @@
+# Build artifacts
+target/
+**/*.rs.bk
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Documentation (not needed for build)
+Documentation/
+SPECS/
+*.md
+!README.md
+
+# Docker artifacts
+docker/monitoring/
+Dockerfile*
+docker-compose*.yml
+!docker/
+
+# Local development
+.env
+.env.local
+*.log

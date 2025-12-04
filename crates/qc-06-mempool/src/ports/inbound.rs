@@ -1,7 +1,15 @@
-//! Inbound (Driving) ports for the Mempool subsystem.
+//! # Inbound Port - MempoolApi
 //!
-//! These traits define the API that the Mempool exposes to other subsystems.
-//! Per IPC-MATRIX.md, only specific subsystems can call specific methods.
+//! Primary driving port exposing the transaction pool API.
+//!
+//! ## Authorization (IPC-MATRIX.md)
+//!
+//! | Method | Authorized Caller |
+//! |--------|-------------------|
+//! | `add_transaction` | Subsystem 10 (Signature Verification) |
+//! | `get_transactions_for_block` | Subsystem 8 (Consensus) |
+//! | `confirm_inclusion` | Subsystem 2 (Block Storage) |
+//! | `rollback_proposal` | Subsystems 2, 8 |
 
 use crate::domain::{
     Hash, MempoolError, MempoolStatus, MempoolTransaction, ProposeResult, ShortTxId,

@@ -80,7 +80,10 @@ impl std::error::Error for NetworkError {}
 
 /// Abstract interface for time-related operations.
 ///
-/// Allows testing with mock time for deterministic tests.
+/// Enables deterministic testing by injecting controllable time sources.
+/// Production implementations use system time; tests use fixed timestamps.
+///
+/// Reference: SPEC-01 Section 3.2 (`TimeSource` driven port)
 ///
 /// # Example Implementation
 ///
@@ -152,18 +155,18 @@ pub trait NodeIdValidator: Send + Sync {
 mod tests {
     use super::*;
 
-    // Mock implementations for testing
-    struct MockTimeSource(u64);
+    /// Test-only TimeSource returning a fixed timestamp for deterministic assertions.
+    struct FixedTimeSource(u64);
 
-    impl TimeSource for MockTimeSource {
+    impl TimeSource for FixedTimeSource {
         fn now(&self) -> Timestamp {
             Timestamp::new(self.0)
         }
     }
 
     #[test]
-    fn test_mock_time_source() {
-        let source = MockTimeSource(1000);
+    fn test_fixed_time_source_returns_configured_value() {
+        let source = FixedTimeSource(1000);
         assert_eq!(source.now().as_secs(), 1000);
     }
 

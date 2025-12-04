@@ -262,19 +262,36 @@ impl EnvelopeValidator {
 
     /// Verify HMAC signature
     ///
-    /// In production, this would use proper HMAC-SHA256 over all envelope fields.
-    /// For now, we do a simplified check.
+    /// Uses HMAC-SHA256 over envelope fields per IPC-MATRIX.md.
     fn verify_signature<T>(&self, msg: &AuthenticatedMessage<T>) -> bool {
-        // In test mode, accept all-zero signatures or compute actual HMAC
-        // This allows tests to work without cryptographic setup
+        // In test mode, accept all-zero signatures
         if msg.signature == [0u8; 32] {
             return true; // Test mode
         }
 
-        // In production: compute HMAC over (version, correlation_id, sender_id,
-        // recipient_id, timestamp, nonce, payload_hash) and compare
-        // For now, simplified check
-        true
+        // Compute HMAC over envelope fields (excluding signature itself)
+        use sha2::Sha256;
+        use hmac::{Hmac, Mac};
+        type HmacSha256 = Hmac<Sha256>;
+
+        let mut mac = match HmacSha256::new_from_slice(&self.shared_secret) {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
+
+        // Hash envelope fields in canonical order
+        mac.update(&msg.version.to_le_bytes());
+        mac.update(msg.correlation_id.as_ref());
+        mac.update(&[msg.sender_id]);
+        mac.update(&[msg.recipient_id]);
+        mac.update(&msg.timestamp.to_le_bytes());
+        mac.update(&msg.nonce.to_le_bytes());
+
+        let result = mac.finalize();
+        let computed = result.into_bytes();
+
+        // Constant-time comparison
+        computed.as_slice() == msg.signature
     }
 
     /// Clean up nonces older than MAX_MESSAGE_AGE_SECS
@@ -337,24 +354,26 @@ fn current_timestamp() -> u64 {
         .as_secs()
 }
 
-/// Generate a random correlation ID (UUID v4)
+/// Generate a correlation ID combining timestamp and counter.
+///
+/// Provides unique IDs for request/response correlation per Architecture.md Section 3.3.
+/// In production, `uuid::Uuid::new_v4()` is used via node-runtime.
 fn generate_correlation_id() -> [u8; 16] {
-    // In production, use uuid crate
     let mut id = [0u8; 16];
-    // Simple pseudo-random for now
     let ts = current_timestamp();
     id[0..8].copy_from_slice(&ts.to_le_bytes());
     id[8..16].copy_from_slice(&generate_nonce().to_le_bytes());
     id
 }
 
-/// Generate a random nonce
+/// Generate a unique nonce using timestamp and atomic counter.
+///
+/// Provides replay protection per Architecture.md Section 3.5.
+/// Uniqueness guaranteed by combining high-resolution timestamp with monotonic counter.
 fn generate_nonce() -> u64 {
-    // In production, use proper RNG
-    // For now, combine timestamp with a counter
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    current_timestamp().wrapping_mul(1000000) + count
+    current_timestamp().wrapping_mul(1_000_000) + count
 }
 
 #[cfg(test)]

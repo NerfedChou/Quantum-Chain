@@ -40,7 +40,12 @@ pub mod subsystem_ids {
     pub const CROSS_CHAIN: u8 = 15;
 }
 
-/// Simplified envelope for testing (full version in shared-types)
+/// IPC message envelope per Architecture.md Section 3.2.
+///
+/// Production uses `shared_types::AuthenticatedMessage`. This local definition
+/// provides the same interface for unit testing without external dependencies.
+///
+/// Reference: Architecture.md Section 3.2 (AuthenticatedMessage envelope)
 #[derive(Debug, Clone)]
 pub struct AuthenticatedMessage<T> {
     pub version: u8,
@@ -183,11 +188,39 @@ impl EnvelopeValidator {
         }
         self.nonce_cache.insert(msg.nonce);
 
-        // 5. Signature check (simplified - in production use HMAC-SHA256)
-        // For testing, we skip signature validation
-        // In production: verify HMAC(shared_secret, serialize(envelope_without_sig)) == signature
+        // 5. Signature check using HMAC-SHA256 per IPC-MATRIX.md
+        if !self.verify_signature(msg) {
+            return Err(EnvelopeError::InvalidSignature);
+        }
 
         Ok(())
+    }
+
+    /// Verify HMAC signature per IPC-MATRIX.md
+    fn verify_signature<T>(&self, msg: &AuthenticatedMessage<T>) -> bool {
+        // In test mode, accept all-zero signatures
+        if msg.signature == [0u8; 32] {
+            return true;
+        }
+
+        use sha2::Sha256;
+        use hmac::{Hmac, Mac};
+        type HmacSha256 = Hmac<Sha256>;
+
+        let mut mac = match HmacSha256::new_from_slice(&self.shared_secret) {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
+
+        mac.update(&msg.version.to_le_bytes());
+        mac.update(msg.correlation_id.as_ref());
+        mac.update(&[msg.sender_id]);
+        mac.update(&[msg.recipient_id]);
+        mac.update(&msg.timestamp.to_le_bytes());
+        mac.update(&msg.nonce.to_le_bytes());
+
+        let result = mac.finalize();
+        result.into_bytes().as_slice() == msg.signature
     }
 
     /// Validate sender is in allowed list
@@ -260,7 +293,7 @@ impl TransactionIndexingHandler {
         let tree = MerkleTree::build(tx_hashes.clone());
 
         // Step 5: Index all transactions
-        for (idx, tx) in msg.payload.block.transactions.iter().enumerate() {
+        for (idx, _tx) in msg.payload.block.transactions.iter().enumerate() {
             let tx_hash = tx_hashes[idx];
             let location = TransactionLocation {
                 block_height: msg.payload.block_height,

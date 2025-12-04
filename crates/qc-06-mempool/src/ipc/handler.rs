@@ -1,41 +1,70 @@
-//! IPC message handler for the Mempool subsystem.
+//! # IPC Message Handler - Two-Phase Commit Coordinator
 //!
-//! Processes incoming IPC messages with security validation.
+//! Processes incoming IPC messages with security validation per IPC-MATRIX.md v2.3.
+//!
+//! ## Security Validation Order
+//!
+//! 1. Sender authorization (per-message type)
+//! 2. Timestamp bounds (±30s from now)
+//! 3. HMAC signature verification
+//! 4. Nonce uniqueness (replay prevention)
+//!
+//! ## Two-Phase Commit Flow
+//!
+//! ```text
+//! Consensus → GetTransactionsRequest → [propose] → PENDING_INCLUSION
+//! Storage → BlockStorageConfirmation → [confirm] → DELETED
+//! Storage/Consensus → BlockRejectedNotification → [rollback] → PENDING
+//! ```
 
 use crate::domain::{Hash, MempoolError, MempoolTransaction, TransactionPool};
 use crate::ipc::payloads::*;
-use crate::ipc::security::{
-    validate_hmac_signature, validate_nonce, validate_timestamp, AuthorizationRules, HmacKey,
-    NonceCache,
-};
+use crate::ipc::security::AuthorizationRules;
 use crate::ports::TimeSource;
+use shared_types::security::{DerivedKeyProvider, KeyProvider, NonceCache};
+use std::sync::Arc;
+use uuid::Uuid;
 
 /// IPC message handler for the Mempool.
+///
+/// Uses the centralized security module from `shared-types` for all
+/// security validation (HMAC, nonce, timestamp).
 pub struct IpcHandler<T: TimeSource> {
     pool: TransactionPool,
     time_source: T,
-    nonce_cache: NonceCache,
-    hmac_key: HmacKey,
+    nonce_cache: Arc<NonceCache>,
+    key_provider: DerivedKeyProvider,
 }
 
 impl<T: TimeSource> IpcHandler<T> {
-    /// Creates a new IPC handler.
+    /// Creates a new IPC handler with default master secret.
+    ///
+    /// # Security Warning
+    ///
+    /// The default master secret is for development/testing only.
+    /// Production deployments MUST use `with_master_secret()`.
     pub fn new(pool: TransactionPool, time_source: T) -> Self {
         Self {
             pool,
             time_source,
-            nonce_cache: NonceCache::default(),
-            hmac_key: [0u8; 32], // In production, load from secure config
+            nonce_cache: NonceCache::new_shared(),
+            key_provider: DerivedKeyProvider::new(vec![0u8; 32]),
         }
     }
 
-    /// Creates a new IPC handler with custom HMAC key.
-    pub fn with_hmac_key(pool: TransactionPool, time_source: T, hmac_key: HmacKey) -> Self {
+    /// Creates a new IPC handler with custom master secret.
+    ///
+    /// The master secret is used to derive per-subsystem HMAC keys.
+    pub fn with_master_secret(
+        pool: TransactionPool,
+        time_source: T,
+        master_secret: Vec<u8>,
+    ) -> Self {
         Self {
             pool,
             time_source,
-            nonce_cache: NonceCache::default(),
-            hmac_key,
+            nonce_cache: NonceCache::new_shared(),
+            key_provider: DerivedKeyProvider::new(master_secret),
         }
     }
 
@@ -49,42 +78,93 @@ impl<T: TimeSource> IpcHandler<T> {
         &mut self.pool
     }
 
+    /// Validates security for an incoming IPC message.
+    ///
+    /// Uses the centralized security module from `shared-types`.
+    fn validate_security(
+        &self,
+        sender_id: u8,
+        timestamp: u64,
+        nonce: Uuid,
+        signature: &[u8; 64],
+        message_bytes: &[u8],
+    ) -> Result<(), MempoolError> {
+        let now = self.time_source.now();
+
+        // Step 1: Validate timestamp
+        self.validate_timestamp(timestamp, now)?;
+
+        // Step 2: Validate HMAC signature using centralized module
+        let shared_secret = self
+            .key_provider
+            .get_shared_secret(sender_id)
+            .ok_or(MempoolError::InvalidSignature)?;
+
+        if !shared_types::security::validate_hmac_signature(
+            message_bytes,
+            signature,
+            &shared_secret,
+        ) {
+            return Err(MempoolError::InvalidSignature);
+        }
+
+        // Step 3: Validate nonce using centralized NonceCache
+        if !self.nonce_cache.check_and_insert(nonce) {
+            return Err(MempoolError::ReplayDetected {
+                nonce: nonce.as_u128() as u64,
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Validates timestamp is within acceptable bounds.
+    fn validate_timestamp(&self, msg_timestamp: u64, now: u64) -> Result<(), MempoolError> {
+        let max_age = shared_types::security::MAX_AGE;
+        let max_future = shared_types::security::MAX_FUTURE_SKEW;
+
+        if msg_timestamp > now + max_future {
+            return Err(MempoolError::TimestampTooFuture {
+                timestamp: msg_timestamp,
+                now,
+            });
+        }
+        if now > msg_timestamp && now - msg_timestamp > max_age {
+            return Err(MempoolError::TimestampTooOld {
+                timestamp: msg_timestamp,
+                now,
+            });
+        }
+        Ok(())
+    }
+
     /// Handles AddTransactionRequest.
     ///
     /// # Security
-    /// - Validates timestamp (prevents stale messages)
     /// - Validates sender is Subsystem 10 (Signature Verification)
-    /// - Validates HMAC signature
-    /// - Validates nonce (prevents replay attacks)
+    /// - Validates timestamp, HMAC signature, nonce (via centralized module)
     /// - Validates signature_verified is true
     pub fn handle_add_transaction(
         &mut self,
         sender_id: u8,
         timestamp: u64,
-        nonce: u64,
-        signature: &[u8; 32],
+        nonce: Uuid,
+        signature: &[u8; 64],
         message_bytes: &[u8],
         request: AddTransactionRequest,
     ) -> Result<AddTransactionResponse, MempoolError> {
-        let now = self.time_source.now();
-
-        // Security Step 1: Validate timestamp
-        validate_timestamp(timestamp, now)?;
-
-        // Security Step 2: Validate sender
+        // Security Step 1: Validate sender authorization
         AuthorizationRules::validate_add_transaction(sender_id)?;
 
-        // Security Step 3: Validate HMAC signature
-        validate_hmac_signature(message_bytes, signature, &self.hmac_key)?;
-
-        // Security Step 4: Validate nonce (replay prevention)
-        validate_nonce(nonce, timestamp, now, &self.nonce_cache)?;
+        // Security Step 2-4: Validate timestamp, signature, nonce
+        self.validate_security(sender_id, timestamp, nonce, signature, message_bytes)?;
 
         // Security Step 5: Validate signature was verified
         if !request.signature_verified {
             return Err(MempoolError::SignatureNotVerified);
         }
 
+        let now = self.time_source.now();
         let tx = MempoolTransaction::new(request.transaction, now);
         let tx_hash = tx.hash;
 
@@ -107,26 +187,20 @@ impl<T: TimeSource> IpcHandler<T> {
     /// Handles GetTransactionsRequest.
     ///
     /// # Security
-    /// - Validates timestamp
     /// - Validates sender is Subsystem 8 (Consensus)
-    /// - Validates HMAC signature
-    /// - Validates nonce
+    /// - Validates timestamp, HMAC signature, nonce
     pub fn handle_get_transactions(
         &mut self,
         sender_id: u8,
         timestamp: u64,
-        nonce: u64,
-        signature: &[u8; 32],
+        nonce: Uuid,
+        signature: &[u8; 64],
         message_bytes: &[u8],
         request: GetTransactionsRequest,
     ) -> Result<GetTransactionsResponse, MempoolError> {
-        let now = self.time_source.now();
-
         // Security validations
-        validate_timestamp(timestamp, now)?;
         AuthorizationRules::validate_get_transactions(sender_id)?;
-        validate_hmac_signature(message_bytes, signature, &self.hmac_key)?;
-        validate_nonce(nonce, timestamp, now, &self.nonce_cache)?;
+        self.validate_security(sender_id, timestamp, nonce, signature, message_bytes)?;
 
         let txs = self
             .pool
@@ -135,7 +209,7 @@ impl<T: TimeSource> IpcHandler<T> {
         let tx_hashes: Vec<Hash> = txs.iter().map(|t| t.hash).collect();
         let total_gas: u64 = txs.iter().map(|t| t.gas_limit).sum();
 
-        // Propose the transactions for this block
+        let now = self.time_source.now();
         self.pool
             .propose(&tx_hashes, request.target_block_height, now);
 
@@ -149,26 +223,20 @@ impl<T: TimeSource> IpcHandler<T> {
     /// Handles BlockStorageConfirmation.
     ///
     /// # Security
-    /// - Validates timestamp
     /// - Validates sender is Subsystem 2 (Block Storage)
-    /// - Validates HMAC signature
-    /// - Validates nonce
+    /// - Validates timestamp, HMAC signature, nonce
     pub fn handle_storage_confirmation(
         &mut self,
         sender_id: u8,
         timestamp: u64,
-        nonce: u64,
-        signature: &[u8; 32],
+        nonce: Uuid,
+        signature: &[u8; 64],
         message_bytes: &[u8],
         confirmation: BlockStorageConfirmation,
     ) -> Result<Vec<Hash>, MempoolError> {
-        let now = self.time_source.now();
-
         // Security validations
-        validate_timestamp(timestamp, now)?;
         AuthorizationRules::validate_storage_confirmation(sender_id)?;
-        validate_hmac_signature(message_bytes, signature, &self.hmac_key)?;
-        validate_nonce(nonce, timestamp, now, &self.nonce_cache)?;
+        self.validate_security(sender_id, timestamp, nonce, signature, message_bytes)?;
 
         // Confirm the transactions (permanently delete them)
         let confirmed = self.pool.confirm(&confirmation.included_transactions);
@@ -178,26 +246,20 @@ impl<T: TimeSource> IpcHandler<T> {
     /// Handles BlockRejectedNotification.
     ///
     /// # Security
-    /// - Validates timestamp
     /// - Validates sender is Subsystem 2 or 8
-    /// - Validates HMAC signature
-    /// - Validates nonce
+    /// - Validates timestamp, HMAC signature, nonce
     pub fn handle_block_rejected(
         &mut self,
         sender_id: u8,
         timestamp: u64,
-        nonce: u64,
-        signature: &[u8; 32],
+        nonce: Uuid,
+        signature: &[u8; 64],
         message_bytes: &[u8],
         notification: BlockRejectedNotification,
     ) -> Result<Vec<Hash>, MempoolError> {
-        let now = self.time_source.now();
-
         // Security validations
-        validate_timestamp(timestamp, now)?;
         AuthorizationRules::validate_block_rejected(sender_id)?;
-        validate_hmac_signature(message_bytes, signature, &self.hmac_key)?;
-        validate_nonce(nonce, timestamp, now, &self.nonce_cache)?;
+        self.validate_security(sender_id, timestamp, nonce, signature, message_bytes)?;
 
         // Rollback the transactions (return to pending)
         let rolled_back = self.pool.rollback(&notification.affected_transactions);
@@ -207,26 +269,20 @@ impl<T: TimeSource> IpcHandler<T> {
     /// Handles RemoveTransactionsRequest.
     ///
     /// # Security
-    /// - Validates timestamp
     /// - Validates sender is Subsystem 8 (Consensus)
-    /// - Validates HMAC signature
-    /// - Validates nonce
+    /// - Validates timestamp, HMAC signature, nonce
     pub fn handle_remove_transactions(
         &mut self,
         sender_id: u8,
         timestamp: u64,
-        nonce: u64,
-        signature: &[u8; 32],
+        nonce: Uuid,
+        signature: &[u8; 64],
         message_bytes: &[u8],
         request: RemoveTransactionsRequest,
     ) -> Result<RemoveTransactionsResponse, MempoolError> {
-        let now = self.time_source.now();
-
         // Security validations
-        validate_timestamp(timestamp, now)?;
         AuthorizationRules::validate_remove_transactions(sender_id)?;
-        validate_hmac_signature(message_bytes, signature, &self.hmac_key)?;
-        validate_nonce(nonce, timestamp, now, &self.nonce_cache)?;
+        self.validate_security(sender_id, timestamp, nonce, signature, message_bytes)?;
 
         let mut removed = Vec::new();
         for hash in &request.tx_hashes {
@@ -267,20 +323,12 @@ mod tests {
     use crate::ipc::security::subsystem_id;
     use crate::ports::outbound::MockTimeSource;
     use shared_types::SignedTransaction;
-    use uuid::Uuid;
 
-    /// Helper to create a valid HMAC signature for testing
-    fn create_test_signature(message: &[u8], key: &HmacKey) -> [u8; 32] {
-        use hmac::{Hmac, Mac};
-        use sha2::Sha256;
-        type HmacSha256 = Hmac<Sha256>;
-
-        let mut mac = HmacSha256::new_from_slice(key).unwrap();
-        mac.update(message);
-        let result = mac.finalize();
-        let mut sig = [0u8; 32];
-        sig.copy_from_slice(&result.into_bytes());
-        sig
+    /// Helper to create a valid HMAC signature for testing using centralized module
+    fn create_test_signature(message: &[u8], sender_id: u8, master_secret: &[u8]) -> [u8; 64] {
+        let key_provider = DerivedKeyProvider::new(master_secret.to_vec());
+        let shared_secret = key_provider.get_shared_secret(sender_id).unwrap();
+        shared_types::security::sign_message(message, &shared_secret)
     }
 
     fn create_handler() -> IpcHandler<MockTimeSource> {
@@ -289,10 +337,10 @@ mod tests {
         IpcHandler::new(pool, time_source)
     }
 
-    fn create_handler_with_key(key: HmacKey) -> IpcHandler<MockTimeSource> {
+    fn create_handler_with_secret(secret: Vec<u8>) -> IpcHandler<MockTimeSource> {
         let pool = TransactionPool::new(MempoolConfig::for_testing());
         let time_source = MockTimeSource::new(1000);
-        IpcHandler::with_hmac_key(pool, time_source, key)
+        IpcHandler::with_master_secret(pool, time_source, secret)
     }
 
     fn create_signed_transaction() -> SignedTransaction {
@@ -322,13 +370,17 @@ mod tests {
 
     #[test]
     fn test_add_transaction_authorized() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let request = create_add_request();
         let now = 1000u64;
-        let nonce = 12345u64;
+        let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
+        let signature = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
 
         let response = handler
             .handle_add_transaction(
@@ -347,13 +399,14 @@ mod tests {
 
     #[test]
     fn test_add_transaction_unauthorized() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let request = create_add_request();
         let now = 1000u64;
-        let nonce = 12345u64;
+        let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
+        let signature =
+            create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
 
         // From Consensus (wrong sender)
         let result = handler.handle_add_transaction(
@@ -372,14 +425,18 @@ mod tests {
 
     #[test]
     fn test_add_transaction_unverified_signature() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let mut request = create_add_request();
         request.signature_verified = false;
         let now = 1000u64;
-        let nonce = 12345u64;
+        let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
+        let signature = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
 
         let result = handler.handle_add_transaction(
             subsystem_id::SIGNATURE_VERIFICATION,
@@ -394,13 +451,13 @@ mod tests {
 
     #[test]
     fn test_add_transaction_invalid_hmac() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let request = create_add_request();
         let now = 1000u64;
-        let nonce = 12345u64;
+        let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let bad_signature = [0xFFu8; 32]; // Invalid signature
+        let bad_signature = [0xFFu8; 64]; // Invalid signature
 
         let result = handler.handle_add_transaction(
             subsystem_id::SIGNATURE_VERIFICATION,
@@ -415,12 +472,16 @@ mod tests {
 
     #[test]
     fn test_add_transaction_replay_attack() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let now = 1000u64;
-        let nonce = 12345u64;
+        let nonce = Uuid::new_v4(); // Same nonce for both requests
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
+        let signature = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
 
         // First request should succeed
         let request1 = create_add_request();
@@ -449,14 +510,18 @@ mod tests {
 
     #[test]
     fn test_add_transaction_timestamp_too_old() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let request = create_add_request();
         let now = 1000u64;
         let old_timestamp = now - 100; // 100 seconds ago
-        let nonce = 12345u64;
+        let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
+        let signature = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
 
         let result = handler.handle_add_transaction(
             subsystem_id::SIGNATURE_VERIFICATION,
@@ -475,20 +540,24 @@ mod tests {
 
     #[test]
     fn test_get_transactions_authorized() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let now = 1000u64;
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
 
         // Add a transaction first
         let add_req = create_add_request();
+        let add_sig = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
         handler
             .handle_add_transaction(
                 subsystem_id::SIGNATURE_VERIFICATION,
                 now,
-                1,
-                &signature,
+                Uuid::new_v4(),
+                &add_sig,
                 message_bytes,
                 add_req,
             )
@@ -501,12 +570,13 @@ mod tests {
             target_block_height: 1,
         };
 
+        let get_sig = create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
         let response = handler
             .handle_get_transactions(
                 subsystem_id::CONSENSUS,
                 now,
-                2,
-                &signature,
+                Uuid::new_v4(),
+                &get_sig,
                 message_bytes,
                 get_req,
             )
@@ -517,12 +587,16 @@ mod tests {
 
     #[test]
     fn test_get_transactions_unauthorized() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let now = 1000u64;
-        let nonce = 12345u64;
+        let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
+        let signature = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
 
         let request = GetTransactionsRequest {
             correlation_id: Uuid::new_v4(),
@@ -552,20 +626,24 @@ mod tests {
 
     #[test]
     fn test_storage_confirmation_authorized() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let now = 1000u64;
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
 
         // Add and propose a transaction
         let add_req = create_add_request();
+        let add_sig = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
         let response = handler
             .handle_add_transaction(
                 subsystem_id::SIGNATURE_VERIFICATION,
                 now,
-                1,
-                &signature,
+                Uuid::new_v4(),
+                &add_sig,
                 message_bytes,
                 add_req,
             )
@@ -578,12 +656,13 @@ mod tests {
             max_gas: 1_000_000,
             target_block_height: 1,
         };
+        let get_sig = create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
         handler
             .handle_get_transactions(
                 subsystem_id::CONSENSUS,
                 now,
-                2,
-                &signature,
+                Uuid::new_v4(),
+                &get_sig,
                 message_bytes,
                 get_req,
             )
@@ -598,12 +677,14 @@ mod tests {
             storage_timestamp: 2000,
         };
 
+        let confirm_sig =
+            create_test_signature(message_bytes, subsystem_id::BLOCK_STORAGE, &master_secret);
         let confirmed = handler
             .handle_storage_confirmation(
                 subsystem_id::BLOCK_STORAGE,
                 now,
-                3,
-                &signature,
+                Uuid::new_v4(),
+                &confirm_sig,
                 message_bytes,
                 confirmation,
             )
@@ -615,12 +696,13 @@ mod tests {
 
     #[test]
     fn test_storage_confirmation_unauthorized() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let now = 1000u64;
-        let nonce = 12345u64;
+        let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
+        let signature =
+            create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
 
         let confirmation = BlockStorageConfirmation {
             correlation_id: Uuid::new_v4(),
@@ -651,12 +733,13 @@ mod tests {
 
     #[test]
     fn test_block_rejected_from_storage_authorized() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let now = 1000u64;
-        let nonce = 12345u64;
+        let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
+        let signature =
+            create_test_signature(message_bytes, subsystem_id::BLOCK_STORAGE, &master_secret);
 
         let notification = BlockRejectedNotification {
             correlation_id: Uuid::new_v4(),
@@ -679,12 +762,13 @@ mod tests {
 
     #[test]
     fn test_block_rejected_from_consensus_authorized() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let now = 1000u64;
-        let nonce = 12345u64;
+        let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
+        let signature =
+            create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
 
         let notification = BlockRejectedNotification {
             correlation_id: Uuid::new_v4(),
@@ -707,12 +791,16 @@ mod tests {
 
     #[test]
     fn test_block_rejected_unauthorized() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let now = 1000u64;
-        let nonce = 12345u64;
+        let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
+        let signature = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
 
         let notification = BlockRejectedNotification {
             correlation_id: Uuid::new_v4(),
@@ -743,20 +831,24 @@ mod tests {
 
     #[test]
     fn test_full_two_phase_commit_flow() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let now = 1000u64;
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
 
         // Phase 0: Add transaction
         let add_req = create_add_request();
+        let add_sig = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
         let add_response = handler
             .handle_add_transaction(
                 subsystem_id::SIGNATURE_VERIFICATION,
                 now,
-                1,
-                &signature,
+                Uuid::new_v4(),
+                &add_sig,
                 message_bytes,
                 add_req,
             )
@@ -772,12 +864,13 @@ mod tests {
             max_gas: 1_000_000,
             target_block_height: 1,
         };
+        let get_sig = create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
         let response = handler
             .handle_get_transactions(
                 subsystem_id::CONSENSUS,
                 now,
-                2,
-                &signature,
+                Uuid::new_v4(),
+                &get_sig,
                 message_bytes,
                 get_req,
             )
@@ -794,12 +887,14 @@ mod tests {
             included_transactions: vec![tx_hash],
             storage_timestamp: 2000,
         };
+        let confirm_sig =
+            create_test_signature(message_bytes, subsystem_id::BLOCK_STORAGE, &master_secret);
         handler
             .handle_storage_confirmation(
                 subsystem_id::BLOCK_STORAGE,
                 now,
-                3,
-                &signature,
+                Uuid::new_v4(),
+                &confirm_sig,
                 message_bytes,
                 confirmation,
             )
@@ -811,20 +906,24 @@ mod tests {
 
     #[test]
     fn test_two_phase_commit_rollback_flow() {
-        let hmac_key = [0u8; 32];
-        let mut handler = create_handler_with_key(hmac_key);
+        let master_secret = vec![0u8; 32];
+        let mut handler = create_handler_with_secret(master_secret.clone());
         let now = 1000u64;
         let message_bytes = b"test message";
-        let signature = create_test_signature(message_bytes, &hmac_key);
 
         // Add and propose
         let add_req = create_add_request();
+        let add_sig = create_test_signature(
+            message_bytes,
+            subsystem_id::SIGNATURE_VERIFICATION,
+            &master_secret,
+        );
         let add_response = handler
             .handle_add_transaction(
                 subsystem_id::SIGNATURE_VERIFICATION,
                 now,
-                1,
-                &signature,
+                Uuid::new_v4(),
+                &add_sig,
                 message_bytes,
                 add_req,
             )
@@ -837,12 +936,13 @@ mod tests {
             max_gas: 1_000_000,
             target_block_height: 1,
         };
+        let get_sig = create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
         handler
             .handle_get_transactions(
                 subsystem_id::CONSENSUS,
                 now,
-                2,
-                &signature,
+                Uuid::new_v4(),
+                &get_sig,
                 message_bytes,
                 get_req,
             )
@@ -858,12 +958,14 @@ mod tests {
             affected_transactions: vec![tx_hash],
             rejection_reason: BlockRejectionReason::ConsensusRejected,
         };
+        let reject_sig =
+            create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
         handler
             .handle_block_rejected(
                 subsystem_id::CONSENSUS,
                 now,
-                3,
-                &signature,
+                Uuid::new_v4(),
+                &reject_sig,
                 message_bytes,
                 notification,
             )

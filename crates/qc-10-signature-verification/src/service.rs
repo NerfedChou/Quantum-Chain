@@ -28,8 +28,10 @@ use shared_types::{Hash, Transaction};
 ///
 /// This service implements `SignatureVerificationApi` and delegates
 /// cryptographic operations to the domain layer.
+/// 
+/// The mempool gateway is used for the async `verify_and_submit` flow
+/// per SPEC-10 Section 4.1 (AddTransactionRequest to Mempool).
 pub struct SignatureVerificationService<M: MempoolGateway> {
-    #[allow(dead_code)]
     mempool: M,
 }
 
@@ -40,6 +42,28 @@ impl<M: MempoolGateway> SignatureVerificationService<M> {
     /// * `mempool` - The mempool gateway for forwarding verified transactions
     pub fn new(mempool: M) -> Self {
         Self { mempool }
+    }
+
+    /// Verify a transaction and submit to mempool if valid.
+    ///
+    /// Reference: SPEC-10 Section 4.1 - AddTransactionRequest flow
+    ///
+    /// This is the async entry point that combines verification with
+    /// submission to the mempool subsystem.
+    pub async fn verify_and_submit(
+        &self,
+        transaction: Transaction,
+    ) -> Result<(), SignatureError> {
+        // First verify the transaction
+        let verified = self.verify_transaction(transaction)?;
+        
+        // Then submit to mempool
+        self.mempool
+            .submit_verified_transaction(verified)
+            .await
+            .map_err(|e| SignatureError::SubmissionFailed(e.to_string()))?;
+        
+        Ok(())
     }
 }
 
@@ -94,6 +118,22 @@ impl<M: MempoolGateway> SignatureVerificationApi for SignatureVerificationServic
         bls::aggregate_bls_signatures(signatures)
     }
 
+    /// Verify a signed transaction and prepare it for Mempool submission.
+    ///
+    /// Reference: SPEC-10 Section 3.1 `verify_transaction`
+    ///
+    /// # Security Warning: Replay Protection
+    ///
+    /// **This function does NOT prevent replay attacks.**
+    ///
+    /// Callers MUST validate transaction nonces separately to prevent replay attacks.
+    /// The Mempool subsystem (Subsystem 6) is responsible for:
+    /// - Checking nonce against current account state
+    /// - Rejecting transactions with already-used nonces
+    /// - Ensuring sequential nonce ordering
+    ///
+    /// Additionally, block proposers should ensure block height is included in
+    /// signed data to prevent cross-block replay.
     fn verify_transaction(
         &self,
         transaction: Transaction,
@@ -170,17 +210,6 @@ fn extract_rs_from_signature(tx: &Transaction) -> Result<([u8; 32], [u8; 32]), S
     s.copy_from_slice(&tx.signature[32..]);
 
     Ok((r, s))
-}
-
-/// Extract ECDSA signature from transaction (legacy helper).
-///
-/// shared_types::Signature is [u8; 64] = r || s
-/// We need to determine the recovery ID by trying both values.
-#[allow(dead_code)]
-fn extract_ecdsa_signature(tx: &Transaction) -> Result<EcdsaSignature, SignatureError> {
-    let (r, s) = extract_rs_from_signature(tx)?;
-    // Default to v=27, caller should try v=28 if this fails
-    Ok(EcdsaSignature { r, s, v: 27 })
 }
 
 /// Derive Ethereum-style address from a 32-byte public key.
@@ -442,9 +471,9 @@ mod tests {
         assert_eq!(hash1, hash2);
     }
 
-    /// Test: extract_ecdsa_signature extracts r and s correctly
+    /// Test: extract_rs_from_signature extracts r and s correctly
     #[test]
-    fn test_extract_ecdsa_signature() {
+    fn test_extract_rs_from_signature() {
         let mut sig = [0u8; 64];
         sig[..32].copy_from_slice(&[0xAA; 32]); // r
         sig[32..].copy_from_slice(&[0xBB; 32]); // s
@@ -458,10 +487,9 @@ mod tests {
             signature: sig,
         };
 
-        let ecdsa_sig = extract_ecdsa_signature(&tx).unwrap();
+        let (r, s) = extract_rs_from_signature(&tx).unwrap();
 
-        assert_eq!(ecdsa_sig.r, [0xAA; 32]);
-        assert_eq!(ecdsa_sig.s, [0xBB; 32]);
-        assert_eq!(ecdsa_sig.v, 27);
+        assert_eq!(r, [0xAA; 32]);
+        assert_eq!(s, [0xBB; 32]);
     }
 }

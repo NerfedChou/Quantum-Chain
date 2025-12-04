@@ -1,6 +1,11 @@
-//! Event subscriber adapter for the Mempool subsystem.
+//! # Event Subscriber - Two-Phase Commit Receiver
 //!
-//! Subscribes to events from the shared bus for Two-Phase Commit handling.
+//! Subscribes to storage confirmations and block rejections from the event bus.
+//!
+//! ## Topics
+//!
+//! - `storage.block_confirmed` - Phase 2a: Confirm and delete transactions
+//! - `consensus.block_rejected` - Phase 2b: Rollback to PENDING state
 
 use crate::domain::Hash;
 use crate::ipc::payloads::{BlockRejectedNotification, BlockStorageConfirmation};

@@ -4,27 +4,28 @@
 
 use std::hash::Hash;
 
-/// 256-bit node identifier derived from public key hash
+/// 256-bit node identifier derived from public key hash.
 ///
-/// # Security
-/// NodeId is the unique identity of a peer in the Kademlia DHT.
-/// It should be derived from a cryptographic hash of the peer's public key
-/// to prevent Sybil attacks.
+/// NodeId uniquely identifies a peer in the Kademlia DHT. Generated from
+/// SHA-256(public_key) to cryptographically bind identity to key ownership,
+/// providing Sybil attack resistance per SPEC-01 Section 6.1.
+///
+/// Reference: SPEC-01 Section 2.1 (`NodeId`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(pub [u8; 32]);
 
 impl NodeId {
-    /// Create a new NodeId from raw bytes
+    /// Create a NodeId from raw 32-byte array.
     pub fn new(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 
-    /// Get the raw bytes of the NodeId
+    /// Get the underlying bytes for XOR distance calculation.
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 
-    /// Create a NodeId with all zeros (for testing)
+    /// Create a zero-initialized NodeId for testing bucket index 255.
     pub fn zero() -> Self {
         Self([0u8; 32])
     }
@@ -36,18 +37,18 @@ impl AsRef<[u8]> for NodeId {
     }
 }
 
-/// Complete peer information
+/// Complete peer information stored in routing table.
 ///
-/// Reference: SPEC-01 Section 2.1
+/// Reference: SPEC-01 Section 2.1 (`PeerInfo`)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerInfo {
-    /// Unique node identifier
+    /// Unique node identifier (SHA-256 of public key).
     pub node_id: NodeId,
-    /// Network address (IP + port)
+    /// Network address for P2P communication.
     pub socket_addr: SocketAddr,
-    /// Last time this peer was seen (Unix timestamp)
+    /// Unix timestamp of last successful communication.
     pub last_seen: Timestamp,
-    /// Reputation score (0-100, starts at 50)
+    /// Reputation score (0-100) for peer selection priority.
     pub reputation_score: u8,
 }
 

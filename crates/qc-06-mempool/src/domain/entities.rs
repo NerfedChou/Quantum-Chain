@@ -1,7 +1,19 @@
-//! Core domain entities for the Mempool subsystem.
+//! # Core Domain Entities - Mempool Subsystem
 //!
-//! Defines the transaction state machine and related types as specified
-//! in SPEC-06-MEMPOOL.md Section 2.1.
+//! Defines transaction state machine and configuration per SPEC-06 Section 2.1.
+//!
+//! ## Transaction State Machine
+//!
+//! ```text
+//! [PENDING] ──propose──→ [PENDING_INCLUSION] ──confirm──→ [DELETED]
+//!                               │
+//!                               └── timeout/reject ──→ [PENDING]
+//! ```
+//!
+//! ## Invariants
+//!
+//! - INVARIANT-1: No two transactions can have the same hash
+//! - INVARIANT-2: Transactions from same sender must be ordered by nonce
 
 // Re-export from shared-types for convenience
 pub use shared_types::{Address, Hash, SignedTransaction, U256};
