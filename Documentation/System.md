@@ -849,6 +849,17 @@ SUBSYSTEM 14: Sharding
 SUBSYSTEM 15: Cross-Chain
     ├── Depends on: Subsystem 11 (HTLC contracts)
     └── Depends on: Subsystem 8 (Finality on both chains)
+
+SUBSYSTEM 16: API Gateway (External Interface)
+    ├── Depends on: Subsystem 1 (Peer info queries)
+    ├── Depends on: Subsystem 2 (Block queries)
+    ├── Depends on: Subsystem 3 (Transaction/receipt queries)
+    ├── Depends on: Subsystem 4 (State queries - eth_getBalance)
+    ├── Depends on: Subsystem 6 (Transaction submission)
+    ├── Depends on: Subsystem 10 (Transaction signature validation)
+    ├── Depends on: Subsystem 11 (eth_call, estimateGas)
+    ├── Subscribes to: Event Bus (WebSocket subscriptions)
+    └── Exposed to: External HTTP/WS clients (wallets, dApps, explorers)
 ```
 
 **V2.3 Data Flow Diagrams:**
@@ -901,6 +912,40 @@ Light Client (13) ──MerkleProofRequest──→ Transaction Indexing (3)
                                                                  [Return Proof]
 ```
 
+**3. External API Request Flow (V2.4 - API Gateway):**
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      EXTERNAL API REQUEST FLOW                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  [External Client] (MetaMask, dApp, CLI)                                    │
+│         │                                                                   │
+│         │ eth_sendRawTransaction / eth_getBalance / eth_call                │
+│         ▼                                                                   │
+│  ┌──────────────────────────────────────────────────────────────────┐      │
+│  │ API Gateway (16)                                                  │      │
+│  │ ├─ Rate Limiting (Tower middleware)                              │      │
+│  │ ├─ Request Validation                                            │      │
+│  │ ├─ Method Whitelist Check                                        │      │
+│  │ └─ Route to Internal Subsystem                                   │      │
+│  └──────────────────────────────────────────────────────────────────┘      │
+│         │                                                                   │
+│    ┌────┴────┬────────────┬────────────┬────────────┐                      │
+│    ▼         ▼            ▼            ▼            ▼                      │
+│ [qc-04]  [qc-06]      [qc-02]      [qc-03]      [qc-11]                    │
+│ State    Mempool      Storage      TxIndex      Contracts                  │
+│ (balance) (submit)   (blocks)     (receipts)   (eth_call)                  │
+│    │         │            │            │            │                      │
+│    └────┬────┴────────────┴────────────┴────────────┘                      │
+│         ▼                                                                   │
+│  [API Gateway (16)] ← Response                                              │
+│         │                                                                   │
+│         ▼                                                                   │
+│  [External Client] ← JSON-RPC Response                                      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## IMPLEMENTATION PRIORITY
@@ -924,6 +969,10 @@ Light Client (13) ──MerkleProofRequest──→ Transaction Indexing (3)
 - Subsystem 13 (Light Clients) - Needs 1, 3, 7
 - Subsystem 12 (Ordering) - Optional, needs 11, 4
 
-**Phase 4 (Optional - Weeks 13+):**
+**Phase 4 (External Interface - Weeks 13-14):**
+- Subsystem 16 (API Gateway) - Needs 1, 2, 3, 4, 6, 10, 11 (Axum + Tower + jsonrpsee)
+- LGTM Telemetry Integration (quantum-telemetry crate)
+
+**Phase 5 (Optional Scaling - Weeks 15+):**
 - Subsystem 14 (Sharding) - Needs 8, 4
 - Subsystem 15 (Cross-Chain) - Needs 11, 8

@@ -12,9 +12,7 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 use tracing::{debug, error};
 
-use qc_03_transaction_indexing::{
-    IndexConfig, MerkleTree, TransactionIndex, TransactionLocation,
-};
+use qc_03_transaction_indexing::{IndexConfig, MerkleTree, TransactionIndex, TransactionLocation};
 use shared_types::{Hash, SubsystemId};
 
 use crate::adapters::EventBusAdapter;
@@ -36,7 +34,7 @@ impl TransactionIndexingAdapter {
         let event_bus = EventBusAdapter::new(router, SubsystemId::TransactionIndexing);
         let config = IndexConfig::default();
         let index = Arc::new(RwLock::new(TransactionIndex::new(config)));
-        
+
         Self { event_bus, index }
     }
 
@@ -44,7 +42,7 @@ impl TransactionIndexingAdapter {
     pub fn with_config(router: Arc<EventRouter>, config: IndexConfig) -> Self {
         let event_bus = EventBusAdapter::new(router, SubsystemId::TransactionIndexing);
         let index = Arc::new(RwLock::new(TransactionIndex::new(config)));
-        
+
         Self { event_bus, index }
     }
 

@@ -32,37 +32,37 @@ use crate::container::config::NodeConfig;
 
 // Import subsystem services
 use qc_01_peer_discovery::PeerDiscoveryService;
-use qc_02_block_storage::{
-    AssemblyConfig, BlockAssemblyBuffer, BlockStorageService,
-    ports::outbound::{
-        BincodeBlockSerializer, DefaultChecksumProvider,
-        SystemTimeSource as StorageTimeSource,
-    },
-};
 #[cfg(not(feature = "rocksdb"))]
 use qc_02_block_storage::ports::outbound::{InMemoryKVStore, MockFileSystemAdapter};
+use qc_02_block_storage::{
+    ports::outbound::{
+        BincodeBlockSerializer, DefaultChecksumProvider, SystemTimeSource as StorageTimeSource,
+    },
+    AssemblyConfig, BlockAssemblyBuffer, BlockStorageService,
+};
 
 use qc_03_transaction_indexing::{IndexConfig, TransactionIndex};
 use qc_04_state_management::PatriciaMerkleTrie;
 use qc_06_mempool::TransactionPool;
 
 // Consensus service and adapters
-use qc_08_consensus::{ConsensusConfig, ConsensusService};
 use crate::adapters::ports::consensus::{
-    ConsensusEventBusAdapter, ConsensusMempoolAdapter, 
-    ConsensusSignatureAdapter, ConsensusValidatorSetAdapter,
+    ConsensusEventBusAdapter, ConsensusMempoolAdapter, ConsensusSignatureAdapter,
+    ConsensusValidatorSetAdapter,
 };
+use qc_08_consensus::{ConsensusConfig, ConsensusService};
 
 // Finality service and adapters
-use qc_09_finality::service::{FinalityConfig, FinalityService};
 use crate::adapters::ports::finality::{
-    ConcreteFinalityBlockStorageAdapter, FinalityAttestationAdapter, 
-    FinalityValidatorSetAdapter,
+    ConcreteFinalityBlockStorageAdapter, FinalityAttestationAdapter, FinalityValidatorSetAdapter,
 };
+use qc_09_finality::service::{FinalityConfig, FinalityService};
 
 // RocksDB imports (when feature is enabled)
 #[cfg(feature = "rocksdb")]
-use crate::adapters::storage::{RocksDbStore, RocksDbConfig, ProductionFileSystemAdapter, RocksDbTrieDatabase};
+use crate::adapters::storage::{
+    ProductionFileSystemAdapter, RocksDbConfig, RocksDbStore, RocksDbTrieDatabase,
+};
 
 #[cfg(feature = "rocksdb")]
 use std::sync::Arc as StdArc;
@@ -239,10 +239,7 @@ impl SubsystemContainer {
         // =====================================================================
         info!("Phase 5: Initializing Level 3 subsystems");
 
-        let consensus = Self::init_consensus(
-            Arc::clone(&event_bus),
-            Arc::clone(&mempool),
-        );
+        let consensus = Self::init_consensus(Arc::clone(&event_bus), Arc::clone(&mempool));
         info!("  [8] Consensus initialized (PoS/PBFT)");
 
         // =====================================================================
@@ -262,9 +259,7 @@ impl SubsystemContainer {
         info!("  [9] Finality initialized (Casper FFG)");
 
         info!("All subsystems initialized successfully");
-        info!(
-            "Choreography ready: Consensus→TxIndexing→StateManagement→BlockStorage→Finality"
-        );
+        info!("Choreography ready: Consensus→TxIndexing→StateManagement→BlockStorage→Finality");
 
         Self {
             peer_discovery,
@@ -293,9 +288,7 @@ impl SubsystemContainer {
     // =========================================================================
 
     fn init_peer_discovery() -> Arc<RwLock<PeerDiscoveryService>> {
-        use qc_01_peer_discovery::{
-            KademliaConfig, NodeId, TimeSource, Timestamp,
-        };
+        use qc_01_peer_discovery::{KademliaConfig, NodeId, TimeSource, Timestamp};
 
         // Create a simple time source (no panics)
         struct SimpleTimeSource;
@@ -305,7 +298,7 @@ impl SubsystemContainer {
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs())
-                        .unwrap_or(0) // Fallback to epoch if system time is before UNIX_EPOCH
+                        .unwrap_or(0), // Fallback to epoch if system time is before UNIX_EPOCH
                 )
             }
         }
@@ -355,12 +348,11 @@ impl SubsystemContainer {
             path: db_path.to_string_lossy().to_string(),
             ..RocksDbConfig::default()
         };
-        
+
         // Open RocksDB for state
-        let store = RocksDbStore::open(rocks_config)
-            .expect("Failed to open RocksDB for state");
+        let store = RocksDbStore::open(rocks_config).expect("Failed to open RocksDB for state");
         let trie_db = RocksDbTrieDatabase::new(StdArc::new(store));
-        
+
         // Try to load existing state, or create new
         let trie = match PatriciaMerkleTrie::load_from_db(&trie_db) {
             Ok(t) => {
@@ -372,13 +364,16 @@ impl SubsystemContainer {
                 PatriciaMerkleTrie::new()
             }
         };
-        
+
         Arc::new(RwLock::new(trie))
     }
 
     fn init_block_storage(
         config: &NodeConfig,
-    ) -> (Arc<RwLock<ConcreteBlockStorageService>>, Arc<RwLock<BlockAssemblyBuffer>>) {
+    ) -> (
+        Arc<RwLock<ConcreteBlockStorageService>>,
+        Arc<RwLock<BlockAssemblyBuffer>>,
+    ) {
         // Create assembly buffer for choreography
         let assembly_config = AssemblyConfig {
             assembly_timeout_secs: config.storage.assembly_timeout_secs,
@@ -400,10 +395,11 @@ impl SubsystemContainer {
                 path: db_path.to_string_lossy().to_string(),
                 ..RocksDbConfig::default()
             };
-            let kv_store = RocksDbStore::open(rocks_config)
-                .expect("Failed to open RocksDB");
-            let fs_adapter = ProductionFileSystemAdapter::new(config.storage.data_dir.to_string_lossy().to_string());
-            
+            let kv_store = RocksDbStore::open(rocks_config).expect("Failed to open RocksDB");
+            let fs_adapter = ProductionFileSystemAdapter::new(
+                config.storage.data_dir.to_string_lossy().to_string(),
+            );
+
             BlockStorageService::new(
                 kv_store,
                 fs_adapter,
@@ -419,7 +415,7 @@ impl SubsystemContainer {
             info!("Initializing Block Storage with in-memory backend (testing mode)");
             let kv_store = InMemoryKVStore::new();
             let fs_adapter = MockFileSystemAdapter::new(50); // 50% disk available
-            
+
             BlockStorageService::new(
                 kv_store,
                 fs_adapter,
@@ -568,7 +564,7 @@ mod tests {
     fn test_event_bus_accessible() {
         let container = SubsystemContainer::new_for_testing();
         let bus = container.event_bus();
-        
+
         // Should be able to subscribe
         let _sub = bus.subscribe(shared_bus::EventFilter::all());
         assert_eq!(bus.subscriber_count(), 1);

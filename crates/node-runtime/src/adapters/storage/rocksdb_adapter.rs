@@ -25,12 +25,12 @@
 //! - Level compaction
 //! - fsync on write for durability
 
-use qc_02_block_storage::ports::outbound::{BatchOperation, KeyValueStore, FileSystemAdapter};
-use qc_02_block_storage::domain::errors::{KVStoreError, FSError};
-use rocksdb::{DB, Options, WriteBatch, ColumnFamilyDescriptor, IteratorMode};
+use parking_lot::RwLock;
+use qc_02_block_storage::domain::errors::{FSError, KVStoreError};
+use qc_02_block_storage::ports::outbound::{BatchOperation, FileSystemAdapter, KeyValueStore};
+use rocksdb::{ColumnFamilyDescriptor, IteratorMode, Options, WriteBatch, DB};
 use std::path::Path;
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 /// Column family names for subsystem isolation
 pub const CF_BLOCKS: &str = "blocks";
@@ -64,10 +64,10 @@ impl Default for RocksDbConfig {
     fn default() -> Self {
         Self {
             path: "./data/rocksdb".to_string(),
-            block_cache_size: 256 * 1024 * 1024,     // 256MB
-            write_buffer_size: 64 * 1024 * 1024,      // 64MB
+            block_cache_size: 256 * 1024 * 1024, // 256MB
+            write_buffer_size: 64 * 1024 * 1024, // 64MB
             max_write_buffer_number: 3,
-            target_file_size_base: 64 * 1024 * 1024,  // 64MB
+            target_file_size_base: 64 * 1024 * 1024, // 64MB
             sync_writes: true,
             enable_statistics: false,
         }
@@ -101,15 +101,15 @@ impl RocksDbStore {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
-        
+
         // Performance tuning
         opts.set_write_buffer_size(config.write_buffer_size);
         opts.set_max_write_buffer_number(config.max_write_buffer_number);
         opts.set_target_file_size_base(config.target_file_size_base);
-        
+
         // Compression
         opts.set_compression_type(rocksdb::DBCompressionType::Snappy);
-        
+
         // Bloom filter for faster lookups
         let mut block_opts = rocksdb::BlockBasedOptions::default();
         block_opts.set_bloom_filter(10.0, false);
@@ -127,8 +127,11 @@ impl RocksDbStore {
             .collect();
 
         // Open database
-        let db = DB::open_cf_descriptors(&opts, &config.path, cf_descriptors)
-            .map_err(|e| KVStoreError::IOError { message: format!("Failed to open RocksDB: {}", e) })?;
+        let db = DB::open_cf_descriptors(&opts, &config.path, cf_descriptors).map_err(|e| {
+            KVStoreError::IOError {
+                message: format!("Failed to open RocksDB: {}", e),
+            }
+        })?;
 
         Ok(Self {
             db: Arc::new(RwLock::new(db)),
@@ -154,23 +157,27 @@ impl RocksDbStore {
 impl KeyValueStore for RocksDbStore {
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, KVStoreError> {
         let db = self.db.read();
-        db.get(key)
-            .map_err(|e| KVStoreError::IOError { message: format!("RocksDB get failed: {}", e) })
+        db.get(key).map_err(|e| KVStoreError::IOError {
+            message: format!("RocksDB get failed: {}", e),
+        })
     }
 
     fn put(&mut self, key: &[u8], value: &[u8]) -> Result<(), KVStoreError> {
         let db = self.db.write();
         let mut write_opts = rocksdb::WriteOptions::default();
         write_opts.set_sync(self.config.sync_writes);
-        
+
         db.put_opt(key, value, &write_opts)
-            .map_err(|e| KVStoreError::IOError { message: format!("RocksDB put failed: {}", e) })
+            .map_err(|e| KVStoreError::IOError {
+                message: format!("RocksDB put failed: {}", e),
+            })
     }
 
     fn delete(&mut self, key: &[u8]) -> Result<(), KVStoreError> {
         let db = self.db.write();
-        db.delete(key)
-            .map_err(|e| KVStoreError::IOError { message: format!("RocksDB delete failed: {}", e) })
+        db.delete(key).map_err(|e| KVStoreError::IOError {
+            message: format!("RocksDB delete failed: {}", e),
+        })
     }
 
     fn atomic_batch_write(&mut self, operations: Vec<BatchOperation>) -> Result<(), KVStoreError> {
@@ -192,14 +199,18 @@ impl KeyValueStore for RocksDbStore {
         write_opts.set_sync(self.config.sync_writes);
 
         db.write_opt(batch, &write_opts)
-            .map_err(|e| KVStoreError::IOError { message: format!("RocksDB batch write failed: {}", e) })
+            .map_err(|e| KVStoreError::IOError {
+                message: format!("RocksDB batch write failed: {}", e),
+            })
     }
 
     fn exists(&self, key: &[u8]) -> Result<bool, KVStoreError> {
         let db = self.db.read();
         db.get_pinned(key)
             .map(|v| v.is_some())
-            .map_err(|e| KVStoreError::IOError { message: format!("RocksDB exists check failed: {}", e) })
+            .map_err(|e| KVStoreError::IOError {
+                message: format!("RocksDB exists check failed: {}", e),
+            })
     }
 
     fn prefix_scan(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, KVStoreError> {
@@ -207,7 +218,7 @@ impl KeyValueStore for RocksDbStore {
         let mut results = Vec::new();
 
         let iter = db.iterator(IteratorMode::From(prefix, rocksdb::Direction::Forward));
-        
+
         for item in iter {
             match item {
                 Ok((key, value)) => {
@@ -217,7 +228,9 @@ impl KeyValueStore for RocksDbStore {
                     results.push((key.to_vec(), value.to_vec()));
                 }
                 Err(e) => {
-                    return Err(KVStoreError::IOError { message: format!("RocksDB scan failed: {}", e) });
+                    return Err(KVStoreError::IOError {
+                        message: format!("RocksDB scan failed: {}", e),
+                    });
                 }
             }
         }
@@ -245,18 +258,22 @@ impl FileSystemAdapter for ProductionFileSystemAdapter {
         use std::path::Path;
 
         let path = Path::new(&self.data_dir);
-        
+
         // Get available and total space
-        let available = available_space(path)
-            .map_err(|e| FSError::IOError { message: e.to_string() })?;
-        
-        let total = fs2::total_space(path)
-            .map_err(|e| FSError::IOError { message: e.to_string() })?;
-        
+        let available = available_space(path).map_err(|e| FSError::IOError {
+            message: e.to_string(),
+        })?;
+
+        let total = fs2::total_space(path).map_err(|e| FSError::IOError {
+            message: e.to_string(),
+        })?;
+
         if total == 0 {
-            return Err(FSError::IOError { message: "Unable to determine disk space".to_string() });
+            return Err(FSError::IOError {
+                message: "Unable to determine disk space".to_string(),
+            });
         }
-        
+
         let percent = ((available as f64 / total as f64) * 100.0) as u8;
         Ok(percent)
     }
@@ -264,19 +281,21 @@ impl FileSystemAdapter for ProductionFileSystemAdapter {
     fn available_disk_space_bytes(&self) -> Result<u64, FSError> {
         use fs2::available_space;
         use std::path::Path;
-        
+
         let path = Path::new(&self.data_dir);
-        available_space(path)
-            .map_err(|e| FSError::IOError { message: e.to_string() })
+        available_space(path).map_err(|e| FSError::IOError {
+            message: e.to_string(),
+        })
     }
 
     fn total_disk_space_bytes(&self) -> Result<u64, FSError> {
         use fs2::total_space;
         use std::path::Path;
-        
+
         let path = Path::new(&self.data_dir);
-        total_space(path)
-            .map_err(|e| FSError::IOError { message: e.to_string() })
+        total_space(path).map_err(|e| FSError::IOError {
+            message: e.to_string(),
+        })
     }
 }
 
@@ -284,12 +303,12 @@ impl FileSystemAdapter for ProductionFileSystemAdapter {
 // State Trie RocksDB Database
 // =============================================================================
 
-use qc_04_state_management::ports::database::{TrieDatabase, SnapshotStorage};
 use qc_04_state_management::domain::StateError;
+use qc_04_state_management::ports::database::{SnapshotStorage, TrieDatabase};
 use shared_types::Hash;
 
 /// RocksDB-backed state trie database
-/// 
+///
 /// Persists Patricia Merkle Trie nodes to RocksDB for durability.
 /// Uses the CF_STATE column family for isolation.
 pub struct RocksDbTrieDatabase {
@@ -304,9 +323,11 @@ impl RocksDbTrieDatabase {
 
     /// Create with a new RocksDB instance
     pub fn open(config: RocksDbConfig) -> Result<Self, StateError> {
-        let store = RocksDbStore::open(config)
-            .map_err(|e| StateError::DatabaseError(e.to_string()))?;
-        Ok(Self { store: Arc::new(store) })
+        let store =
+            RocksDbStore::open(config).map_err(|e| StateError::DatabaseError(e.to_string()))?;
+        Ok(Self {
+            store: Arc::new(store),
+        })
     }
 
     fn make_key(hash: &Hash) -> Vec<u8> {
@@ -320,7 +341,8 @@ impl RocksDbTrieDatabase {
 impl TrieDatabase for RocksDbTrieDatabase {
     fn get_node(&self, hash: &Hash) -> Result<Option<Vec<u8>>, StateError> {
         let key = Self::make_key(hash);
-        self.store.get(&key)
+        self.store
+            .get(&key)
             .map_err(|e| StateError::DatabaseError(e.to_string()))
     }
 
@@ -381,12 +403,13 @@ impl SnapshotStorage for RocksDbSnapshotStorage {
 
     fn get_nearest_snapshot(&self, height: u64) -> Result<Option<(u64, Hash)>, StateError> {
         let db = self.store.db.read();
-        
+
         // Scan backwards from requested height
         for h in (0..=height).rev() {
             let key = Self::make_snapshot_key(h);
-            if let Some(value) = db.get(&key)
-                .map_err(|e| StateError::DatabaseError(e.to_string()))? 
+            if let Some(value) = db
+                .get(&key)
+                .map_err(|e| StateError::DatabaseError(e.to_string()))?
             {
                 if value.len() == 32 {
                     let mut root = [0u8; 32];
@@ -401,7 +424,7 @@ impl SnapshotStorage for RocksDbSnapshotStorage {
     fn prune_snapshots(&self, keep_after: u64) -> Result<u64, StateError> {
         let db = self.store.db.write();
         let mut pruned = 0u64;
-        
+
         // Delete snapshots before keep_after
         for h in 0..keep_after {
             let key = Self::make_snapshot_key(h);
@@ -411,7 +434,7 @@ impl SnapshotStorage for RocksDbSnapshotStorage {
                 pruned += 1;
             }
         }
-        
+
         Ok(pruned)
     }
 }
@@ -425,7 +448,7 @@ mod tests {
     fn test_rocksdb_basic_operations() {
         let temp_dir = TempDir::new().unwrap();
         let config = RocksDbConfig::for_testing(temp_dir.path().to_string_lossy().to_string());
-        
+
         let mut store = RocksDbStore::open(config).unwrap();
 
         // Put and get
@@ -446,7 +469,7 @@ mod tests {
     fn test_rocksdb_batch_write() {
         let temp_dir = TempDir::new().unwrap();
         let config = RocksDbConfig::for_testing(temp_dir.path().to_string_lossy().to_string());
-        
+
         let mut store = RocksDbStore::open(config).unwrap();
 
         let ops = vec![
@@ -466,7 +489,7 @@ mod tests {
     fn test_rocksdb_prefix_scan() {
         let temp_dir = TempDir::new().unwrap();
         let config = RocksDbConfig::for_testing(temp_dir.path().to_string_lossy().to_string());
-        
+
         let mut store = RocksDbStore::open(config).unwrap();
 
         store.put(b"block:0001", b"data1").unwrap();

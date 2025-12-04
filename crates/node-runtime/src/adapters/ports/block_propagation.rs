@@ -134,7 +134,7 @@ impl ConsensusGateway for BlockPropConsensusAdapter {
 
 /// Adapter implementing qc-05's MempoolGateway trait.
 /// Used for compact block reconstruction.
-/// 
+///
 /// Note: This adapter will be wired into the BlockPropagationService
 /// during Phase 3 of implementation (IMPLEMENTATION-PLAN.md §5.5).
 pub struct BlockPropMempoolAdapter {
@@ -148,7 +148,7 @@ impl BlockPropMempoolAdapter {
     }
 
     /// Get the underlying mempool for short-ID lookups.
-    /// 
+    ///
     /// Currently returns the pool reference for future use when
     /// proper short-ID indexing is implemented in the mempool.
     pub fn mempool(&self) -> &Arc<RwLock<TransactionPool>> {
@@ -196,8 +196,8 @@ impl SignatureVerifier for BlockPropSignatureAdapter {
         proposer_pubkey: &[u8],
         signature: &[u8],
     ) -> Result<bool, PropagationError> {
-        use qc_10_signature_verification::domain::entities::EcdsaSignature;
         use qc_10_signature_verification::domain::ecdsa::verify_ecdsa;
+        use qc_10_signature_verification::domain::entities::EcdsaSignature;
 
         // Signature must be 65 bytes (r: 32, s: 32, v: 1)
         if signature.len() < 65 {

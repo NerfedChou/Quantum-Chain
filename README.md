@@ -4,7 +4,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-stable%20(1.85%2B)-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
-[![Architecture](https://img.shields.io/badge/architecture-v2.3-green.svg)](Documentation/Architecture.md)
+[![Architecture](https://img.shields.io/badge/architecture-v2.4-green.svg)](Documentation/Architecture.md)
 [![Tests](https://img.shields.io/badge/tests-731%20passing-brightgreen.svg)](#test-coverage)
 [![CI](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/rust.yml/badge.svg)](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/rust.yml)
 
@@ -14,13 +14,14 @@
 
 1. [Overview](#overview)
 2. [Architecture](#architecture)
-3. [Subsystems](#subsystems)
-4. [Test Coverage](#test-coverage)
-5. [Quick Start](#quick-start)
-6. [Development](#development)
-7. [Security](#security)
-8. [Documentation](#documentation)
-9. [Contributing](#contributing)
+3. [API Gateway](#api-gateway)
+4. [Subsystems](#subsystems)
+5. [Test Coverage](#test-coverage)
+6. [Quick Start](#quick-start)
+7. [Development](#development)
+8. [Security](#security)
+9. [Documentation](#documentation)
+10. [Contributing](#contributing)
 
 ---
 
@@ -49,6 +50,8 @@ RULE #4: Consensus-critical signatures are re-verified independently
 | Core Subsystems (1-6, 8-10) | ✅ Production Ready | 432 |
 | Integration Tests | ✅ All Passing | 219 |
 | Node Runtime Wiring | ✅ Complete | 34 |
+| API Gateway (Spec) | ✅ Designed | - |
+| LGTM Telemetry | ✅ Ready | - |
 | **Total** | **✅ Ready** | **731** |
 
 ---
@@ -60,6 +63,25 @@ RULE #4: Consensus-critical signatures are re-verified independently
 Quantum-Chain is architected as a **fortress of isolated subsystems**, each representing a distinct business capability (Bounded Context):
 
 ```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           EXTERNAL WORLD                                    │
+│         (Wallets, dApps, Block Explorers, CLI Tools, Monitoring)           │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     SUBSYSTEM 16: API GATEWAY                               │
+│     ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐        │
+│     │JSON-RPC │  │WebSocket│  │  REST   │  │ Metrics │  │ Health  │        │
+│     │ :8545   │  │ :8546   │  │ :8080   │  │ :9090   │  │ :8081   │        │
+│     └─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────┘        │
+│         │             │            │            │            │              │
+│         └─────────────┴────────────┴────────────┴────────────┘              │
+│                                    │                                        │
+│              Tower Middleware: Rate Limit → Timeout → CORS                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         QUANTUM-CHAIN NODE RUNTIME                          │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -77,14 +99,14 @@ Quantum-Chain is architected as a **fortress of isolated subsystems**, each repr
 │       │              │              │              │              │         │
 │       ▼              ▼              ▼              ▼              ▼         │
 │  ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐       │
-│  │ Mempool │   │Consensus│   │Finality │   │ Sig     │   │  Node   │       │
-│  │   (6)   │   │   (8)   │   │   (9)   │   │ Ver(10) │   │ Runtime │       │
+│  │ Mempool │   │Consensus│   │Finality │   │ Sig     │   │Telemetry│       │
+│  │   (6)   │   │   (8)   │   │   (9)   │   │ Ver(10) │   │  LGTM   │       │
 │  └─────────┘   └─────────┘   └─────────┘   └─────────┘   └─────────┘       │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### V2.3 Choreography Pattern
+### V2.4 Choreography Pattern
 
 The system uses **event-driven choreography** for block processing:
 
@@ -113,12 +135,67 @@ The system uses **event-driven choreography** for block processing:
 
 | Layer | Protection | Implementation |
 |-------|------------|----------------|
+| **API Security** | Rate limiting, method whitelists, CORS | `qc-16` Tower |
 | **IPC Security** | HMAC-SHA256 authenticated envelopes | `shared-bus` |
 | **Replay Prevention** | Time-bounded nonce cache (120s) | `TimeBoundedNonceCache` |
 | **Zero-Trust** | Signatures re-verified at Consensus & Finality | `qc-08`, `qc-09` |
 | **Side-Channel** | Constant-time cryptographic operations | `subtle` crate |
 | **Memory Safety** | Zeroization of sensitive data | `zeroize` crate |
 | **Malleability** | EIP-2 low-S enforcement | `qc-10` |
+
+---
+
+## API Gateway
+
+### Subsystem 16: External Interface
+
+The API Gateway (`qc-16-api-gateway`) is the **single entry point** for all external interactions:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         API GATEWAY INTERFACES                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   JSON-RPC 2.0 (:8545)        Ethereum-compatible API                       │
+│   ├─ eth_getBalance           → qc-04 State Management                      │
+│   ├─ eth_sendRawTransaction   → qc-06 Mempool                               │
+│   ├─ eth_getBlock*            → qc-02 Block Storage                         │
+│   ├─ eth_getTransaction*      → qc-03 Transaction Indexing                  │
+│   ├─ eth_call                 → qc-11 Smart Contracts                       │
+│   └─ eth_subscribe            → Event Bus                                   │
+│                                                                             │
+│   WebSocket (:8546)           Real-time subscriptions                       │
+│   ├─ newHeads                 Block notifications                           │
+│   ├─ logs                     Event log notifications                       │
+│   └─ pendingTransactions      Mempool notifications                         │
+│                                                                             │
+│   REST API (:8080)            Admin endpoints (protected)                   │
+│   ├─ /admin/peers             Node peer management                          │
+│   └─ /admin/status            Node status                                   │
+│                                                                             │
+│   Prometheus (:9090)          Metrics for Grafana/Mimir                     │
+│   └─ /metrics                 Request counts, latencies, errors             │
+│                                                                             │
+│   Health (:8081)              Kubernetes/Docker probes                      │
+│   ├─ /health/live             Liveness probe                                │
+│   └─ /health/ready            Readiness probe                               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Method Security Tiers
+
+| Tier | Access | Examples |
+|------|--------|----------|
+| **Tier 1: Public** | No auth | `eth_getBalance`, `eth_sendRawTransaction`, `eth_call` |
+| **Tier 2: Protected** | API key or localhost | `admin_peers`, `txpool_status` |
+| **Tier 3: Admin** | Localhost + auth | `admin_addPeer`, `miner_start`, `debug_*` |
+
+### Stack
+
+- **Axum** - HTTP/WebSocket framework
+- **Tower** - Middleware (rate limiting, timeout, CORS)
+- **jsonrpsee** - JSON-RPC 2.0 protocol
 
 ---
 
@@ -138,12 +215,19 @@ The system uses **event-driven choreography** for block processing:
 | 9 | `qc-09-finality` | Casper FFG, slashing, circuit breaker | 32 | ✅ |
 | 10 | `qc-10-signature-verification` | ECDSA/BLS, batch verification | 60 | ✅ |
 
+### External Interface (New)
+
+| ID | Crate | Description | Status |
+|----|-------|-------------|--------|
+| 16 | `qc-16-api-gateway` | JSON-RPC/WebSocket/REST API | 📐 Spec Complete |
+
 ### Infrastructure
 
 | Crate | Purpose | Status |
 |-------|---------|--------|
 | `shared-types` | Common types (Hash, Address, Signature, SubsystemId) | ✅ |
 | `shared-bus` | HMAC-authenticated event bus, nonce cache | ✅ |
+| `quantum-telemetry` | LGTM observability (Loki, Grafana, Tempo, Mimir) | ✅ |
 | `node-runtime` | Application binary, subsystem wiring | ✅ |
 | `integration-tests` | End-to-end exploit & choreography tests | ✅ |
 
@@ -220,21 +304,27 @@ cd Quantum-Chain
 # Build all crates
 cargo build --release
 
-# Run all tests (651 tests)
+# Run all tests (731 tests)
 cargo test --all
 
 # Run the node
 cargo run --release --bin node-runtime
 ```
 
-### Docker Deployment
+### Docker Deployment with LGTM Monitoring
 
 ```bash
 # Build the Docker image
 docker build -t quantum-chain:latest .
 
-# Run with monitoring
+# Run with full LGTM monitoring stack
 docker compose -f docker/docker-compose.yml --profile monitoring up
+
+# Access monitoring dashboards:
+# - Grafana: http://localhost:3000 (admin/admin)
+# - Prometheus: http://localhost:9090
+# - Tempo: http://localhost:3200
+# - Loki: http://localhost:3100
 ```
 
 ### Verify Installation
@@ -263,17 +353,19 @@ cargo test -p node-runtime
 Quantum-Chain/
 ├── Cargo.toml                    # Workspace root
 ├── Documentation/                # Master architecture documents
-│   ├── Architecture.md          # V2.3 - Hybrid Architecture Spec
-│   ├── System.md                # V2.3 - Subsystem Definitions
-│   └── IPC-MATRIX.md            # V2.3 - Inter-Process Communication
+│   ├── Architecture.md          # V2.4 - Hybrid Architecture Spec
+│   ├── System.md                # V2.4 - Subsystem Definitions
+│   └── IPC-MATRIX.md            # V2.4 - Inter-Process Communication
 ├── SPECS/                        # Micro-level specifications
 │   ├── SPEC-01-PEER-DISCOVERY.md
 │   ├── SPEC-02-BLOCK-STORAGE.md
+│   ├── SPEC-16-API-GATEWAY.md   # NEW: External API specification
 │   └── ...
 └── crates/                       # Rust library crates
     ├── node-runtime/            # Main binary (wiring layer)
     ├── shared-types/            # Common types
     ├── shared-bus/              # Event bus infrastructure
+    ├── quantum-telemetry/       # LGTM observability
     ├── integration-tests/       # Cross-subsystem tests
     └── qc-XX-*/                  # Subsystem implementations
 ```
@@ -327,6 +419,7 @@ cargo fmt -- --check
 
 | Layer | Protection |
 |-------|------------|
+| **API Gateway** | Rate limiting, method whitelists, CORS |
 | **Cryptographic** | ECDSA/BLS with EIP-2 malleability protection |
 | **Constant-Time** | Side-channel resistant comparisons (`subtle`) |
 | **Memory Safety** | Zeroization of sensitive buffers (`zeroize`) |
@@ -340,6 +433,7 @@ cargo fmt -- --check
 
 | Subsystem | Security Features |
 |-----------|-------------------|
+| **qc-16** | Rate limiting, method tiers, CORS, request validation |
 | **qc-10** | Constant-time ops, EIP-2, zeroization, batch verification |
 | **qc-08** | Zero-trust re-verification, PBFT signature validation |
 | **qc-09** | Slashing detection, inactivity leak, circuit breaker |
@@ -358,7 +452,7 @@ Please report security vulnerabilities responsibly via GitHub Security Advisorie
 
 | Document | Description |
 |----------|-------------|
-| [Architecture.md](Documentation/Architecture.md) | V2.3 Hybrid Architecture Specification |
+| [Architecture.md](Documentation/Architecture.md) | V2.4 Hybrid Architecture Specification |
 | [System.md](Documentation/System.md) | Subsystem Definitions & Algorithms |
 | [IPC-MATRIX.md](Documentation/IPC-MATRIX.md) | Inter-Process Communication Rules |
 
@@ -371,6 +465,7 @@ Each subsystem has a detailed specification in `SPECS/`:
 - `SPEC-08-CONSENSUS.md` - PoS/PBFT validation
 - `SPEC-09-FINALITY.md` - Casper FFG
 - `SPEC-10-SIGNATURE-VERIFICATION.md` - ECDSA/BLS
+- **`SPEC-16-API-GATEWAY.md`** - External API (NEW)
 
 ---
 
@@ -405,10 +500,10 @@ This project is licensed under the [Unlicense](LICENSE).
 - **Domain-Driven Design:** Eric Evans
 - **Hexagonal Architecture:** Alistair Cockburn
 - **Casper FFG:** Vitalik Buterin, Virgil Griffith
-- **Rust Ecosystem:** k256, blst, subtle, zeroize
+- **Rust Ecosystem:** k256, blst, subtle, zeroize, axum, tower, jsonrpsee
 
 ---
 
-**Version:** 0.3.0 | **Architecture:** V2.3 | **Last Updated:** 2025-12-04
+**Version:** 0.4.0 | **Architecture:** V2.4 | **Last Updated:** 2025-12-04
 
 **Status:** ✅ Production Ready (731 tests passing)

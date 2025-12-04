@@ -31,10 +31,10 @@
 //! └─────────────────────────────────────────────────────────────────────┘
 //! ```
 
+pub mod block_propagation;
 pub mod consensus;
 pub mod finality;
-pub mod block_propagation;
 
+pub use block_propagation::*;
 pub use consensus::*;
 pub use finality::*;
-pub use block_propagation::*;

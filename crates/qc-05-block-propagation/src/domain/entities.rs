@@ -171,7 +171,6 @@ impl CompactBlock {
         }
     }
 
-
     /// Builder method: set short transaction IDs.
     pub fn with_short_txids(mut self, short_txids: Vec<ShortTxId>) -> Self {
         self.short_txids = short_txids;

@@ -29,8 +29,8 @@
 //! - Ethereum Yellow Paper Appendix D
 
 use super::{
-    AccountState, Address, Hash, StateConfig, StateError, StateProof, StorageKey, StorageValue,
-    StorageProof, EMPTY_TRIE_ROOT,
+    AccountState, Address, Hash, StateConfig, StateError, StateProof, StorageKey, StorageProof,
+    StorageValue, EMPTY_TRIE_ROOT,
 };
 use sha3::{Digest, Keccak256};
 use std::collections::HashMap;
@@ -175,7 +175,7 @@ impl Nibbles {
 pub enum TrieNode {
     /// Empty node (null reference, hash = EMPTY_TRIE_ROOT).
     Empty,
-    
+
     /// Leaf node: stores remaining key path and the value.
     /// RLP: [hex_prefix_encode(path, true), value]
     Leaf {
@@ -184,7 +184,7 @@ pub enum TrieNode {
         /// RLP-encoded value (account state or storage value).
         value: Vec<u8>,
     },
-    
+
     /// Extension node: shared prefix optimization.
     /// RLP: [hex_prefix_encode(path, false), child_hash]
     Extension {
@@ -193,7 +193,7 @@ pub enum TrieNode {
         /// Hash of child node.
         child: Hash,
     },
-    
+
     /// Branch node: 16-way branch for each nibble value.
     /// RLP: [child[0], ..., child[15], value]
     Branch {
@@ -312,7 +312,10 @@ fn rlp_encode_list_items(items: &[Vec<u8>]) -> Vec<u8> {
 /// Encode a length as minimal big-endian bytes.
 fn encode_length(len: usize) -> Vec<u8> {
     let bytes = len.to_be_bytes();
-    let start = bytes.iter().position(|&b| b != 0).unwrap_or(bytes.len() - 1);
+    let start = bytes
+        .iter()
+        .position(|&b| b != 0)
+        .unwrap_or(bytes.len() - 1);
     bytes[start..].to_vec()
 }
 
@@ -635,10 +638,7 @@ impl PatriciaMerkleTrie {
         let common_len = items
             .iter()
             .skip(1)
-            .map(|(k, _)| {
-                k.slice(depth)
-                    .common_prefix_len(&first_key.slice(depth))
-            })
+            .map(|(k, _)| k.slice(depth).common_prefix_len(&first_key.slice(depth)))
             .min()
             .unwrap_or(0);
 
@@ -1051,8 +1051,10 @@ mod tests {
 
     #[test]
     fn test_nibbles_from_address() {
-        let addr = [0xAB, 0xCD, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF];
+        let addr = [
+            0xAB, 0xCD, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
+        ];
         let nibbles = Nibbles::from_address(&addr);
         assert_eq!(nibbles.len(), 40);
         assert_eq!(nibbles.at(0), 0x0A);
@@ -1233,7 +1235,8 @@ mod tests {
         let mut trie = PatriciaMerkleTrie::new();
         let address = [0xCD; 20];
 
-        trie.insert_account(address, &AccountState::new(500)).unwrap();
+        trie.insert_account(address, &AccountState::new(500))
+            .unwrap();
 
         let proof = trie.generate_proof(address).unwrap();
         let root = trie.root_hash();
@@ -1289,7 +1292,8 @@ mod tests {
         let mut trie = PatriciaMerkleTrie::new();
         trie.set_balance([0x01; 20], 1000).unwrap();
         trie.set_balance([0x02; 20], 2000).unwrap();
-        trie.set_storage([0x01; 20], [0xAA; 32], [0xBB; 32]).unwrap();
+        trie.set_storage([0x01; 20], [0xAA; 32], [0xBB; 32])
+            .unwrap();
 
         let original_root = trie.root_hash();
         let serialized = trie.serialize().unwrap();

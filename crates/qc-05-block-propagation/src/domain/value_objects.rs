@@ -119,7 +119,7 @@ pub struct SeenBlockInfo {
 
 /// LRU cache for seen blocks (deduplication).
 /// LRU cache for seen blocks (deduplication).
-/// 
+///
 /// Uses VecDeque for O(1) eviction of oldest entries.
 pub struct SeenBlockCache {
     cache: RwLock<HashMap<Hash, SeenBlockInfo>>,

@@ -25,6 +25,7 @@ rocksdb = ["dep:rocksdb"]
 # Internal crates - Core subsystems
 shared-types.workspace = true
 shared-bus = { path = "../shared-bus" }
+quantum-telemetry = { path = "../quantum-telemetry" }
 qc-01-peer-discovery = { path = "../qc-01-peer-discovery" }
 qc-02-block-storage = { path = "../qc-02-block-storage" }
 qc-03-transaction-indexing = { path = "../qc-03-transaction-indexing" }
@@ -34,6 +35,7 @@ qc-06-mempool = { path = "../qc-06-mempool" }
 qc-08-consensus = { path = "../qc-08-consensus" }
 qc-09-finality = { path = "../qc-09-finality" }
 qc-10-signature-verification = { path = "../qc-10-signature-verification" }
+qc-16-api-gateway = { path = "../qc-16-api-gateway" }
 
 # Production storage (optional)
 rocksdb = { workspace = true, optional = true }

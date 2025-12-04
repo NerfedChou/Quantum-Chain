@@ -72,15 +72,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use tracing::{error, info, warn, Level};
-use tracing_subscriber::FmtSubscriber;
+use tracing::{error, info, warn};
 
-use qc_02_block_storage::BlockStorageApi;
 use crate::adapters::BlockStorageAdapter;
 use crate::container::{NodeConfig, SubsystemContainer};
 use crate::genesis::{GenesisBuilder, GenesisConfig};
 use crate::handlers::{BlockStorageHandler, FinalityHandler, StateMgmtHandler, TxIndexingHandler};
 use crate::wiring::ChoreographyCoordinator;
+use qc_02_block_storage::BlockStorageApi;
+use qc_16_api_gateway::{ApiGatewayService, GatewayConfig};
+use quantum_telemetry::{init_telemetry, TelemetryConfig};
 
 /// The main node runtime orchestrating all subsystems.
 pub struct NodeRuntime {
@@ -88,6 +89,8 @@ pub struct NodeRuntime {
     container: Arc<SubsystemContainer>,
     /// Choreography coordinator for event routing.
     choreography: ChoreographyCoordinator,
+    /// API Gateway service (optional).
+    api_gateway: Option<ApiGatewayService>,
     /// Shutdown signal sender.
     shutdown_tx: tokio::sync::watch::Sender<bool>,
     /// Shutdown signal receiver.
@@ -105,21 +108,23 @@ impl NodeRuntime {
     /// 4. Initialize Level 2: Tx Indexing, State Management
     /// 5. Initialize Level 3: Consensus
     /// 6. Initialize Level 4: Block Storage, Finality
+    /// 7. Initialize Level 5: API Gateway (external interface)
     pub fn new(config: NodeConfig) -> Self {
         info!("Creating Quantum-Chain node runtime");
-        
+
         // Create subsystem container (initializes all subsystems)
         let container = Arc::new(SubsystemContainer::new(config));
-        
+
         // Create choreography coordinator
         let choreography = ChoreographyCoordinator::new();
-        
+
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
         Self {
             container,
             choreography,
+            api_gateway: None,
             shutdown_tx,
             shutdown_rx,
         }
@@ -133,8 +138,9 @@ impl NodeRuntime {
     /// 2. Initialize genesis block (if not exists)
     /// 3. Start choreography coordinator
     /// 4. Start event handlers
-    /// 5. Signal ready
-    pub async fn start(&self) -> Result<()> {
+    /// 5. Start API Gateway
+    /// 6. Signal ready
+    pub async fn start(&mut self) -> Result<()> {
         info!("===========================================");
         info!("  Quantum-Chain Node Runtime v0.1.0");
         info!("  Architecture: V2.3 Choreography Pattern");
@@ -149,10 +155,72 @@ impl NodeRuntime {
         // Step 3: Start event handlers
         self.start_choreography_handlers().await?;
 
+        // Step 4: Start API Gateway
+        if self.container.config.api_gateway.enabled {
+            self.start_api_gateway().await?;
+        }
+
         info!("All core subsystems initialized and running");
         info!("P2P Port: {}", self.container.config.network.p2p_port);
-        info!("RPC Port: {}", self.container.config.network.rpc_port);
+        info!("RPC Port: {}", self.container.config.api_gateway.http_port);
+        info!("WS Port: {}", self.container.config.api_gateway.ws_port);
+        info!(
+            "Admin Port: {}",
+            self.container.config.api_gateway.admin_port
+        );
         info!("Data Dir: {:?}", self.container.config.storage.data_dir);
+
+        Ok(())
+    }
+
+    /// Start the API Gateway service.
+    async fn start_api_gateway(&mut self) -> Result<()> {
+        info!("Starting API Gateway (qc-16)...");
+
+        // Create gateway configuration from node config
+        let api_config = &self.container.config.api_gateway;
+        let mut gateway_config = GatewayConfig::default();
+        gateway_config.http.port = api_config.http_port;
+        gateway_config.websocket.port = api_config.ws_port;
+        gateway_config.admin.port = api_config.admin_port;
+        gateway_config.admin.api_key = api_config.api_key.clone();
+        gateway_config.rate_limit.requests_per_second = api_config.rate_limit_per_second;
+        gateway_config.limits.max_batch_size = api_config.max_batch_size;
+        gateway_config.chain.chain_id = api_config.chain_id;
+
+        // Create IPC sender that connects to event bus
+        let ipc_sender = Arc::new(crate::adapters::api_gateway::EventBusIpcSender::new(
+            Arc::clone(&self.container.event_bus),
+        ));
+
+        // Create API Gateway service
+        let mut gateway = ApiGatewayService::new(
+            gateway_config,
+            ipc_sender,
+            self.container.config.storage.data_dir.clone(),
+        )
+        .context("Failed to create API Gateway service")?;
+
+        // Spawn gateway in background task
+        let mut shutdown_rx = self.shutdown_rx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                result = gateway.start() => {
+                    if let Err(e) = result {
+                        error!("API Gateway error: {}", e);
+                    }
+                }
+                _ = shutdown_rx.changed() => {
+                    info!("[qc-16] Shutdown signal received");
+                    gateway.shutdown();
+                }
+            }
+        });
+
+        info!(
+            "  [16] API Gateway started (HTTP:{}, WS:{}, Admin:{})",
+            api_config.http_port, api_config.ws_port, api_config.admin_port
+        );
 
         Ok(())
     }
@@ -163,7 +231,7 @@ impl NodeRuntime {
 
         // Check if genesis exists in block storage
         let storage = self.container.block_storage.read();
-        
+
         // Try to read block at height 0
         let genesis_exists = storage.read_block_by_height(0).is_ok();
         drop(storage);
@@ -190,7 +258,7 @@ impl NodeRuntime {
         // Store genesis block
         // Note: Genesis bypasses the normal assembly flow
         let mut storage = self.container.block_storage.write();
-        
+
         // Create a genesis ValidatedBlock using shared-types
         let genesis_block = shared_types::ValidatedBlock {
             header: shared_types::BlockHeader {
@@ -205,10 +273,14 @@ impl NodeRuntime {
             transactions: vec![],
             consensus_proof: shared_types::ConsensusProof::default(),
         };
-        
+
         // Write block using the proper API
         storage
-            .write_block(genesis_block, genesis.header.merkle_root, genesis.header.state_root)
+            .write_block(
+                genesis_block,
+                genesis.header.merkle_root,
+                genesis.header.state_root,
+            )
             .context("Failed to store genesis block")?;
 
         info!("Genesis block stored successfully");
@@ -360,7 +432,7 @@ fn load_config() -> NodeConfig {
 async fn main() -> Result<()> {
     // Handle CLI commands
     let args: Vec<String> = std::env::args().collect();
-    
+
     if args.len() > 1 {
         match args[1].as_str() {
             "--version" | "-V" => {
@@ -391,19 +463,24 @@ async fn main() -> Result<()> {
                 println!("    QC_RPC_PORT      RPC port (default: 8545)");
                 println!("    QC_DATA_DIR      Data directory path");
                 println!("    QC_LOG_LEVEL     Log level (default: info)");
+                println!();
+                println!("TELEMETRY (LGTM Stack):");
+                println!("    OTEL_EXPORTER_OTLP_ENDPOINT   Tempo endpoint (default: http://localhost:4317)");
+                println!("    LOKI_ENDPOINT                 Loki endpoint (default: http://localhost:3100)");
+                println!(
+                    "    QC_METRICS_PORT               Prometheus metrics port (default: 9100)"
+                );
                 return Ok(());
             }
             _ => {}
         }
     }
-    
-    // Initialize logging
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
-        .with_target(true)
-        .with_thread_ids(true)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
+
+    // Initialize LGTM telemetry (Loki, Grafana, Tempo, Metrics)
+    let telemetry_config = TelemetryConfig::from_env();
+    let _telemetry_guard = init_telemetry(telemetry_config)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to initialize telemetry: {}", e))?;
 
     // Load configuration
     let config = load_config();
@@ -412,7 +489,7 @@ async fn main() -> Result<()> {
     // config.validate_for_production();
 
     // Create and start the node runtime
-    let runtime = NodeRuntime::new(config);
+    let mut runtime = NodeRuntime::new(config);
     runtime.start().await?;
 
     // Keep the node running

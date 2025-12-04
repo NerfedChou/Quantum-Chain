@@ -12,7 +12,7 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 use tracing::{debug, error};
 
-use qc_04_state_management::{PatriciaMerkleTrie, StateConfig, Hash as StateHash};
+use qc_04_state_management::{Hash as StateHash, PatriciaMerkleTrie, StateConfig};
 use shared_types::{Hash, SubsystemId};
 
 use crate::adapters::EventBusAdapter;
@@ -50,7 +50,7 @@ impl StateAdapter {
     pub fn new(router: Arc<EventRouter>) -> Self {
         let event_bus = EventBusAdapter::new(router, SubsystemId::StateManagement);
         let trie = Arc::new(RwLock::new(PatriciaMerkleTrie::new()));
-        
+
         Self { event_bus, trie }
     }
 
@@ -58,7 +58,7 @@ impl StateAdapter {
     pub fn with_config(router: Arc<EventRouter>, config: StateConfig) -> Self {
         let event_bus = EventBusAdapter::new(router, SubsystemId::StateManagement);
         let trie = Arc::new(RwLock::new(PatriciaMerkleTrie::with_config(config)));
-        
+
         Self { event_bus, trie }
     }
 
@@ -112,7 +112,10 @@ impl StateAdapter {
             return Err(StateAdapterError::PublishFailed(e.to_string()));
         }
 
-        debug!("[qc-04] StateRootComputed published: {:?}", &state_root[..4]);
+        debug!(
+            "[qc-04] StateRootComputed published: {:?}",
+            &state_root[..4]
+        );
 
         Ok(state_root)
     }

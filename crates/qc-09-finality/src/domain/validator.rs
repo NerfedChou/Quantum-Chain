@@ -102,7 +102,12 @@ impl ValidatorSet {
     }
 
     /// Add a validator with explicit public key
-    pub fn add_validator_with_pubkey(&mut self, id: ValidatorId, stake: u128, pubkey: BlsPublicKey) {
+    pub fn add_validator_with_pubkey(
+        &mut self,
+        id: ValidatorId,
+        stake: u128,
+        pubkey: BlsPublicKey,
+    ) {
         let index = self.index_to_id.len();
         let validator = Validator::with_pubkey(id, stake, index, pubkey);
         self.validators.insert(id, validator);
@@ -223,9 +228,9 @@ mod tests {
         let mut set = ValidatorSet::new(1);
         let id = test_validator_id(1);
         let pubkey = [42u8; 96];
-        
+
         set.add_validator_with_pubkey(id, 100, pubkey);
-        
+
         let retrieved_pubkey = set.get_pubkey(&id);
         assert!(retrieved_pubkey.is_some());
         assert_eq!(retrieved_pubkey.unwrap()[0], 42);

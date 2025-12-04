@@ -64,12 +64,10 @@ impl<S: ConsensusApi> IpcHandler<S> {
     fn create_verifier(&self) -> MessageVerifier<SimpleKeyProvider> {
         // SECURITY: Shared secret MUST be exactly 32 bytes
         // Panic on invalid configuration rather than using insecure fallback
-        let secret: [u8; 32] = self
-            .key_provider
-            .shared_secret
-            .clone()
-            .try_into()
-            .expect("CRITICAL: IPC shared secret must be exactly 32 bytes. Check configuration.");
+        let secret: [u8; 32] =
+            self.key_provider.shared_secret.clone().try_into().expect(
+                "CRITICAL: IPC shared secret must be exactly 32 bytes. Check configuration.",
+            );
         MessageVerifier::new(
             subsystem_ids::CONSENSUS,
             self.nonce_cache.clone(),
@@ -290,7 +288,10 @@ mod tests {
         let result = handler.handle_validate_request(envelope, &[]).await;
 
         // Should fail - either sig verification or sender authorization
-        assert!(result.is_err(), "Should reject request from unauthorized sender");
+        assert!(
+            result.is_err(),
+            "Should reject request from unauthorized sender"
+        );
     }
 
     #[tokio::test]
@@ -323,7 +324,10 @@ mod tests {
 
         let result = handler.handle_attestation(envelope, &[]).await;
 
-        assert!(result.is_err(), "Should reject attestation from unauthorized sender");
+        assert!(
+            result.is_err(),
+            "Should reject attestation from unauthorized sender"
+        );
     }
 
     #[test]

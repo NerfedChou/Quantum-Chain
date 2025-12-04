@@ -24,8 +24,7 @@ use serde::{Deserialize, Serialize};
 ///     │                                                                    │
 ///     └────────────────── manual intervention ─────────────────────────────┘
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FinalityState {
     /// Normal operation - processing attestations and finalizing blocks
     #[default]
@@ -35,7 +34,6 @@ pub enum FinalityState {
     /// Halted after max sync failures - requires manual intervention
     HaltedAwaitingIntervention,
 }
-
 
 /// Events that trigger circuit breaker state transitions
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

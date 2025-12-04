@@ -364,18 +364,21 @@ where
         // =======================================================================
 
         // Step 1: Parse compact block structure
-        let (short_ids, nonce, proposer_pubkey, signature) = parse_compact_block(&compact_block_data)?;
-        
+        let (short_ids, nonce, proposer_pubkey, signature) =
+            parse_compact_block(&compact_block_data)?;
+
         // Step 2: Look up transactions from mempool using short IDs
-        let tx_hashes = self.mempool.get_transactions_by_short_ids(&short_ids, nonce);
-        
+        let tx_hashes = self
+            .mempool
+            .get_transactions_by_short_ids(&short_ids, nonce);
+
         // Step 3: Check for missing transactions
         let missing: Vec<u16> = tx_hashes
             .iter()
             .enumerate()
             .filter_map(|(i, opt)| if opt.is_none() { Some(i as u16) } else { None })
             .collect();
-        
+
         if !missing.is_empty() {
             // Missing transactions - enter reconstruction state
             // V1.0: Falls back to full block request (handled by caller)
@@ -384,27 +387,26 @@ where
                 .update_state(&block_hash, PropagationState::Reconstructing);
             return Ok(());
         }
-        
+
         // Step 4: Verify block signature (SPEC-05 Appendix B.2)
-        let sig_valid = self.sig_verifier.verify_block_signature(
-            &block_hash,
-            &proposer_pubkey,
-            &signature,
-        )?;
-        
+        let sig_valid =
+            self.sig_verifier
+                .verify_block_signature(&block_hash, &proposer_pubkey, &signature)?;
+
         if !sig_valid {
             // Silent drop per Architecture.md IP spoofing defense
             self.seen_cache
                 .update_state(&block_hash, PropagationState::Invalid);
             return Ok(());
         }
-        
+
         // 5. Reconstruct full block and submit to consensus
         let reconstructed = reconstruct_block(&compact_block_data, &tx_hashes);
         self.seen_cache
             .update_state(&block_hash, PropagationState::Complete);
-        
-        self.consensus.submit_block_for_validation(block_hash, reconstructed, peer)?;
+
+        self.consensus
+            .submit_block_for_validation(block_hash, reconstructed, peer)?;
 
         Ok(())
     }
@@ -452,11 +454,9 @@ where
         // This prevents attackers from flooding Consensus with invalid blocks
         let (proposer_pubkey, signature) = extract_block_signature(&block_data)?;
 
-        let sig_valid = self.sig_verifier.verify_block_signature(
-            &block_hash,
-            &proposer_pubkey,
-            &signature,
-        )?;
+        let sig_valid =
+            self.sig_verifier
+                .verify_block_signature(&block_hash, &proposer_pubkey, &signature)?;
 
         if !sig_valid {
             // Silent drop per Architecture.md - IP spoofing defense
@@ -515,19 +515,19 @@ fn serialize_compact_block(compact: &crate::domain::CompactBlock) -> Vec<u8> {
     // [signature: 64 bytes] (optional, zeros if not present)
     let count = compact.short_txids.len() as u16;
     let mut data = Vec::with_capacity(32 + 8 + 2 + compact.short_txids.len() * 6 + 33 + 64);
-    
+
     data.extend_from_slice(&compact.header_hash);
     data.extend_from_slice(&compact.nonce.to_le_bytes());
     data.extend_from_slice(&count.to_le_bytes());
-    
+
     for short_id in &compact.short_txids {
         data.extend_from_slice(short_id);
     }
-    
+
     // Add placeholder pubkey and signature for compatibility with parse
     data.extend_from_slice(&[0u8; 33]); // proposer_pubkey placeholder
     data.extend_from_slice(&[0u8; 64]); // signature placeholder
-    
+
     data
 }
 
@@ -618,17 +618,17 @@ fn parse_compact_block(data: &[u8]) -> Result<ParsedCompactBlock, PropagationErr
             actual: data.len(),
         });
     }
-    
+
     // Extract nonce (bytes 32-40)
     let mut nonce_bytes = [0u8; 8];
     nonce_bytes.copy_from_slice(&data[32..40]);
     let nonce = u64::from_le_bytes(nonce_bytes);
-    
+
     // Extract short_ids count (bytes 40-42)
     let mut count_bytes = [0u8; 2];
     count_bytes.copy_from_slice(&data[40..42]);
     let count = u16::from_le_bytes(count_bytes) as usize;
-    
+
     // Extract short_ids (6 bytes each)
     let mut short_ids = Vec::with_capacity(count);
     let mut offset = 42;
@@ -641,7 +641,7 @@ fn parse_compact_block(data: &[u8]) -> Result<ParsedCompactBlock, PropagationErr
         short_ids.push(short_id);
         offset += 6;
     }
-    
+
     // Proposer pubkey (33 bytes compressed) and signature (64 bytes) at end
     let proposer_pubkey = if offset + 33 <= data.len() {
         data[offset..offset + 33].to_vec()
@@ -649,13 +649,13 @@ fn parse_compact_block(data: &[u8]) -> Result<ParsedCompactBlock, PropagationErr
         vec![0u8; 33]
     };
     offset += 33;
-    
+
     let signature = if offset + 64 <= data.len() {
         data[offset..offset + 64].to_vec()
     } else {
         vec![0u8; 64]
     };
-    
+
     Ok((short_ids, nonce, proposer_pubkey, signature))
 }
 
@@ -873,7 +873,10 @@ mod tests {
         let result = extract_block_hash(&data);
         assert!(matches!(
             result,
-            Err(PropagationError::BlockDataTooShort { expected: 32, actual: 31 })
+            Err(PropagationError::BlockDataTooShort {
+                expected: 32,
+                actual: 31
+            })
         ));
     }
 
@@ -899,7 +902,10 @@ mod tests {
         let result = extract_block_signature(&data);
         assert!(matches!(
             result,
-            Err(PropagationError::BlockDataTooShort { expected: 145, actual: 100 })
+            Err(PropagationError::BlockDataTooShort {
+                expected: 145,
+                actual: 100
+            })
         ));
     }
 
@@ -909,7 +915,10 @@ mod tests {
         let result = parse_compact_block(&data);
         assert!(matches!(
             result,
-            Err(PropagationError::MalformedCompactBlock { expected: 48, actual: 30 })
+            Err(PropagationError::MalformedCompactBlock {
+                expected: 48,
+                actual: 30
+            })
         ));
     }
 
@@ -923,7 +932,8 @@ mod tests {
             [0xCD; 32], // parent_hash
             1701705600, // timestamp
             42,         // nonce
-        ).with_short_txids(vec![[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]]);
+        )
+        .with_short_txids(vec![[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]]);
 
         let serialized = serialize_compact_block(&compact);
 
