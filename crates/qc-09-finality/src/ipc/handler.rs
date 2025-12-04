@@ -219,6 +219,18 @@ mod tests {
         async fn get_slashable_offenses(&self) -> Vec<SlashableOffenseInfo> {
             Vec::new()
         }
+
+        async fn take_pending_slashing_events(
+            &self,
+        ) -> Vec<crate::events::outgoing::SlashableOffenseDetectedEvent> {
+            Vec::new()
+        }
+
+        async fn take_pending_inactivity_events(
+            &self,
+        ) -> Vec<crate::events::outgoing::InactivityLeakTriggeredEvent> {
+            Vec::new()
+        }
     }
 
     fn create_test_handler() -> FinalityIpcHandler<MockFinalityApi> {

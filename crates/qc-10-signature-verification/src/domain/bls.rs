@@ -130,6 +130,44 @@ pub fn aggregate_bls_signatures(
     })
 }
 
+/// Aggregate multiple BLS public keys into one.
+///
+/// This is useful when verifying an aggregate signature where all signers
+/// signed different messages (multi-message aggregation).
+///
+/// # Arguments
+/// * `public_keys` - The BLS public keys to aggregate
+///
+/// # Errors
+/// * `EmptyAggregation` if the input list is empty
+/// * `InvalidFormat` if any public key cannot be parsed
+pub fn aggregate_bls_public_keys(
+    public_keys: &[BlsPublicKey],
+) -> Result<BlsPublicKey, SignatureError> {
+    use blst::min_sig::AggregatePublicKey;
+
+    if public_keys.is_empty() {
+        return Err(SignatureError::EmptyAggregation);
+    }
+
+    // Parse all public keys
+    let pks: Result<Vec<PublicKey>, SignatureError> = public_keys
+        .iter()
+        .map(|pk| PublicKey::from_bytes(&pk.bytes).map_err(|_| SignatureError::InvalidFormat))
+        .collect();
+
+    let pks = pks?;
+    let pk_refs: Vec<&PublicKey> = pks.iter().collect();
+
+    // Aggregate public keys
+    let aggregate = AggregatePublicKey::aggregate(&pk_refs, true)
+        .map_err(|_| SignatureError::BlsPairingFailed)?;
+
+    Ok(BlsPublicKey {
+        bytes: aggregate.to_public_key().to_bytes(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,5 +240,35 @@ mod tests {
 
         let aggregate = aggregate_bls_signatures(&signatures).unwrap();
         assert!(verify_bls_aggregate(message, &aggregate, &public_keys));
+    }
+
+    #[test]
+    fn test_bls_aggregate_public_keys_empty_fails() {
+        let result = aggregate_bls_public_keys(&[]);
+        assert!(matches!(result, Err(SignatureError::EmptyAggregation)));
+    }
+
+    #[test]
+    fn test_bls_aggregate_public_keys() {
+        let mut public_keys = Vec::new();
+
+        for _ in 0..5 {
+            let (_, pk) = generate_keypair();
+            public_keys.push(pk);
+        }
+
+        let result = aggregate_bls_public_keys(&public_keys);
+        assert!(result.is_ok());
+
+        // Verify the aggregated key is 96 bytes
+        let agg_pk = result.unwrap();
+        assert_eq!(agg_pk.bytes.len(), 96);
+    }
+
+    #[test]
+    fn test_bls_aggregate_public_keys_single() {
+        let (_, pk) = generate_keypair();
+        let result = aggregate_bls_public_keys(&[pk.clone()]);
+        assert!(result.is_ok());
     }
 }

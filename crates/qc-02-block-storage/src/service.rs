@@ -647,9 +647,8 @@ mod tests {
             .on_state_root_computed(subsystem_ids::STATE_MANAGEMENT, block_hash, [0xBB; 32], now)
             .unwrap();
 
-        // Now it should be written!
-        // Note: The block_hash we computed may differ from the one the service uses
-        // because the service recomputes it. Let's check via height instead.
+        // INVARIANT-4: All 3 components arrived → atomic write completed
+        // Verify via height (service recomputes block_hash internally)
         assert!(service.block_exists_at_height(0));
     }
 
@@ -692,15 +691,16 @@ mod tests {
     }
 
     // =========================================================================
-    // TEST GROUP 2: Disk Space Safety (SPEC-02 Section 5.1)
+    // TEST GROUP 2: Disk Space Safety
+    // Reference: SPEC-02 Section 5.1 (INVARIANT-2 Tests)
     // =========================================================================
 
     #[test]
     fn test_write_succeeds_when_disk_at_5_percent() {
-        // Verify: INVARIANT-2 boundary - exactly 5% should succeed
+        // INVARIANT-2 boundary: exactly 5% passes threshold check
         let mut service = BlockStorageService::new(
             InMemoryKVStore::new(),
-            MockFileSystemAdapter::new(5), // Exactly at 5% threshold
+            MockFileSystemAdapter::new(5),
             DefaultChecksumProvider,
             SystemTimeSource,
             BincodeBlockSerializer,
@@ -714,29 +714,31 @@ mod tests {
     }
 
     // =========================================================================
-    // TEST GROUP 3: Data Integrity / Checksum (SPEC-02 Section 5.1)
+    // TEST GROUP 3: Data Integrity / Checksum
+    // Reference: SPEC-02 Section 5.1 (INVARIANT-3 Tests)
     // =========================================================================
 
     #[test]
     fn test_valid_checksum_passes_verification() {
-        // Verify: Happy path - valid checksum is accepted
+        // INVARIANT-3: Checksum computed at write, verified at read
         let mut service = make_test_service();
         let block = make_test_block(0, [0; 32]);
 
         let hash = service.write_block(block, [0xAA; 32], [0xBB; 32]).unwrap();
 
-        // Read should succeed without checksum error
+        // Checksum verification is automatic in read_block()
         let result = service.read_block(&hash);
         assert!(result.is_ok());
     }
 
     // =========================================================================
-    // TEST GROUP 4: Sequential Block Requirement (SPEC-02 Section 5.1)
+    // TEST GROUP 4: Sequential Block Requirement
+    // Reference: SPEC-02 Section 5.1 (INVARIANT-1 Tests)
     // =========================================================================
 
     #[test]
     fn test_genesis_block_has_no_parent_requirement() {
-        // Verify: INVARIANT-1 exception - genesis block can be written without parent
+        // INVARIANT-1 exception: Genesis block (height=0) has no parent
         let mut service = make_test_service();
         let genesis = make_test_block(0, [0; 32]);
 
@@ -802,17 +804,18 @@ mod tests {
     }
 
     // =========================================================================
-    // TEST GROUP 6: Access Control (SPEC-02 Section 5.1)
+    // TEST GROUP 6: Access Control
+    // Reference: SPEC-02 Section 5.1 / IPC-MATRIX.md (Sender Authorization)
     // =========================================================================
 
     #[test]
     fn test_merkle_root_rejects_wrong_sender() {
-        // Verify: MerkleRootComputed only from Transaction Indexing (3)
+        // IPC-MATRIX: MerkleRootComputed MUST come from TRANSACTION_INDEXING (3)
         let mut service = make_test_service();
         let block_hash = [0xAB; 32];
         let now = 1000;
 
-        // Try from Consensus (8) - should be rejected
+        // Sender CONSENSUS (8) violates IPC-MATRIX authorization
         let result =
             service.on_merkle_root_computed(subsystem_ids::CONSENSUS, block_hash, [0xAA; 32], now);
         assert!(matches!(
@@ -823,12 +826,12 @@ mod tests {
 
     #[test]
     fn test_state_root_rejects_wrong_sender() {
-        // Verify: StateRootComputed only from State Management (4)
+        // IPC-MATRIX: StateRootComputed MUST come from STATE_MANAGEMENT (4)
         let mut service = make_test_service();
         let block_hash = [0xAB; 32];
         let now = 1000;
 
-        // Try from Consensus (8) - should be rejected
+        // Sender CONSENSUS (8) violates IPC-MATRIX authorization
         let result =
             service.on_state_root_computed(subsystem_ids::CONSENSUS, block_hash, [0xBB; 32], now);
         assert!(matches!(
@@ -839,12 +842,12 @@ mod tests {
 
     #[test]
     fn test_block_validated_accepts_only_consensus() {
-        // Verify: BlockValidated only from Consensus (8)
+        // IPC-MATRIX: BlockValidated MUST come from CONSENSUS (8)
         let mut service = make_test_service();
         let block = make_test_block(0, [0; 32]);
         let now = 1000;
 
-        // Try from State Management (4) - should be rejected
+        // Sender STATE_MANAGEMENT (4) violates IPC-MATRIX authorization
         let result = service.on_block_validated(subsystem_ids::STATE_MANAGEMENT, block, now);
         assert!(matches!(
             result,
@@ -853,15 +856,15 @@ mod tests {
     }
 
     // =========================================================================
-    // TEST GROUP 7: Batch Read / Node Syncing (SPEC-02 Section 5.1)
+    // TEST GROUP 7: Batch Read / Node Syncing
+    // Reference: SPEC-02 Section 5.1 (read_block_range Tests)
     // =========================================================================
 
     #[test]
     fn test_read_block_range_returns_sequential_blocks() {
-        // Verify: Batch read returns blocks in order
+        // Batch read returns blocks in ascending height order
         let mut service = make_test_service();
 
-        // Write blocks 0-20
         let mut parent_hash = [0; 32];
         for height in 0..21 {
             let block = make_test_block(height, parent_hash);
@@ -879,17 +882,16 @@ mod tests {
 
     #[test]
     fn test_read_block_range_respects_limit_cap() {
-        // Verify: Limit is capped at 100
+        // API constraint: limit capped at 100 to prevent resource exhaustion
         let mut service = make_test_service();
 
-        // Write 150 blocks
         let mut parent_hash = [0; 32];
         for height in 0..150 {
             let block = make_test_block(height, parent_hash);
             parent_hash = service.write_block(block, [0; 32], [0; 32]).unwrap();
         }
 
-        // Request 500 blocks - should be capped at 100
+        // Request 500 → capped to 100
         let blocks = service.read_block_range(0, 500).unwrap();
 
         assert_eq!(blocks.len(), 100);
@@ -897,33 +899,29 @@ mod tests {
 
     #[test]
     fn test_read_block_range_returns_partial_if_chain_end() {
-        // Verify: Returns fewer blocks if chain ends
+        // Returns available blocks when chain is shorter than requested
         let mut service = make_test_service();
 
-        // Write only 10 blocks (0-9)
         let mut parent_hash = [0; 32];
         for height in 0..10 {
             let block = make_test_block(height, parent_hash);
             parent_hash = service.write_block(block, [0; 32], [0; 32]).unwrap();
         }
 
-        // Request 20 blocks starting at height 5
+        // Request 20 blocks starting at height 5 → returns 5 (heights 5-9)
         let blocks = service.read_block_range(5, 20).unwrap();
 
-        // Should only get blocks 5-9 (5 blocks)
         assert_eq!(blocks.len(), 5);
     }
 
     #[test]
     fn test_read_block_range_fails_on_invalid_start() {
-        // Verify: Error if start_height doesn't exist
+        // HeightNotFound error when start_height doesn't exist
         let mut service = make_test_service();
 
-        // Write only genesis
         let genesis = make_test_block(0, [0; 32]);
         service.write_block(genesis, [0; 32], [0; 32]).unwrap();
 
-        // Try to read starting at height 100
         let result = service.read_block_range(100, 10);
         assert!(matches!(result, Err(StorageError::HeightNotFound { .. })));
     }
@@ -934,13 +932,13 @@ mod tests {
 
     #[test]
     fn test_assembly_buffers_partial_components() {
-        // Verify: Buffering of incomplete assemblies
+        // Choreography: buffered until all 3 components arrive
         let mut service = make_test_service();
         let block = make_test_block(0, [0; 32]);
         let block_hash = service.compute_block_hash(&block);
         let now = 1000;
 
-        // Send only BlockValidated and MerkleRootComputed
+        // Only 2 of 3 components arrived
         service
             .on_block_validated(subsystem_ids::CONSENSUS, block, now)
             .unwrap();
@@ -953,19 +951,19 @@ mod tests {
             )
             .unwrap();
 
-        // Block should NOT be written yet
+        // Incomplete assembly: no write yet
         assert!(!service.block_exists_at_height(0));
     }
 
     #[test]
     fn test_assembly_works_state_first() {
-        // Verify: Order independence - state root arrives first
+        // Choreography: order-independent assembly
         let mut service = make_test_service();
         let block = make_test_block(0, [0; 32]);
         let block_hash = service.compute_block_hash(&block);
         let now = 1000;
 
-        // Send in reverse order: state, merkle, block
+        // Reverse order: StateRoot → MerkleRoot → BlockValidated
         service
             .on_state_root_computed(subsystem_ids::STATE_MANAGEMENT, block_hash, [0xBB; 32], now)
             .unwrap();
@@ -983,17 +981,18 @@ mod tests {
             .on_block_validated(subsystem_ids::CONSENSUS, block, now)
             .unwrap();
 
-        // Block should be written now
+        // All 3 arrived: atomic write completed
         assert!(service.block_exists_at_height(0));
     }
 
     // =========================================================================
-    // TEST GROUP 11: Transaction Data Retrieval V2.3 (SPEC-02 Section 5.1)
+    // TEST GROUP 11: Transaction Data Retrieval V2.3
+    // Reference: SPEC-02 Section 5.1 (Transaction Lookup Contract)
     // =========================================================================
 
     #[test]
     fn test_get_transaction_location_returns_not_found() {
-        // Verify: Transaction not found error
+        // TransactionNotFound error for unknown transaction hash
         let service = make_test_service();
         let unknown_tx_hash = [0xFF; 32];
 

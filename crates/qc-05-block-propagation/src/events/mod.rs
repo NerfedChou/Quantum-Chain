@@ -44,4 +44,10 @@ pub enum PropagationError {
 
     #[error("Internal error: {0}")]
     InternalError(String),
+
+    #[error("Malformed compact block: expected at least {expected} bytes, got {actual}")]
+    MalformedCompactBlock { expected: usize, actual: usize },
+
+    #[error("Block data too short: expected at least {expected} bytes, got {actual}")]
+    BlockDataTooShort { expected: usize, actual: usize },
 }

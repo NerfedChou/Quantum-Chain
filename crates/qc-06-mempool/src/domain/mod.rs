@@ -1,7 +1,20 @@
-//! Domain layer for Mempool subsystem.
+//! # Domain Layer - Mempool Subsystem
 //!
-//! This module contains all pure domain logic for transaction pool management,
-//! including the Two-Phase Commit protocol, priority queue, and eviction policies.
+//! Pure business logic implementing SPEC-06-MEMPOOL.md v2.3.
+//!
+//! ## Components
+//!
+//! - `entities`: Transaction state machine, MempoolTransaction, MempoolConfig
+//! - `pool`: TransactionPool with priority queue and Two-Phase Commit
+//! - `services`: Domain services (RBF calculation, nonce validation)
+//! - `value_objects`: PricedTransaction, ShortTxId, MempoolStatus
+//! - `errors`: MempoolError enumeration
+//!
+//! ## Data Types (IPC-MATRIX.md Compliance)
+//!
+//! - Address: `[u8; 20]` (20-byte account address)
+//! - Hash: `[u8; 32]` (32-byte transaction/block hash)
+//! - U256: Gas prices and values (from shared-types)
 
 pub mod entities;
 pub mod errors;

@@ -118,9 +118,11 @@ pub struct SystemTimeSource;
 
 impl TimeSource for SystemTimeSource {
     fn now(&self) -> u64 {
+        // SECURITY: System time failure is a critical error
+        // Returning 0 could bypass timestamp validation checks
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
+            .expect("CRITICAL: System clock is before UNIX epoch. Cannot proceed safely.")
             .as_secs()
     }
 

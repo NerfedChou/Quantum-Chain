@@ -1,22 +1,22 @@
-//! Security boundaries and authorization for IPC messages.
+//! # IPC Security - Authorization Rules
 //!
-//! Implements the authorization rules defined in IPC-MATRIX.md for Subsystem 6.
+//! Implements authorization per IPC-MATRIX.md v2.3 for Subsystem 6.
 //!
-//! # Migration Note (2024-12)
+//! ## Security Architecture
 //!
-//! HMAC validation, nonce caching, and timestamp validation have been migrated
-//! to the centralized `shared-types::security` module. This file now only
-//! contains authorization rules and subsystem ID constants.
+//! HMAC validation, nonce caching, and timestamp validation use the
+//! centralized `shared-types::security` module. This file contains
+//! only authorization rules and subsystem ID constants.
 //!
-//! # Authorization Rules
+//! ## Authorization Matrix
 //!
 //! | Message Type | Authorized Sender(s) |
 //! |--------------|---------------------|
-//! | `AddTransactionRequest` | Subsystem 10 ONLY |
-//! | `GetTransactionsRequest` | Subsystem 8 ONLY |
-//! | `RemoveTransactionsRequest` | Subsystem 8 ONLY |
-//! | `BlockStorageConfirmation` | Subsystem 2 ONLY |
-//! | `BlockRejectedNotification` | Subsystems 2, 8 |
+//! | AddTransactionRequest | Subsystem 10 ONLY |
+//! | GetTransactionsRequest | Subsystem 8 ONLY |
+//! | RemoveTransactionsRequest | Subsystem 8 ONLY |
+//! | BlockStorageConfirmation | Subsystem 2 ONLY |
+//! | BlockRejectedNotification | Subsystems 2, 8 |
 
 use crate::domain::MempoolError;
 

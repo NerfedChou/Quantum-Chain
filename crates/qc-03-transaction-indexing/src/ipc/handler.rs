@@ -40,7 +40,12 @@ pub mod subsystem_ids {
     pub const CROSS_CHAIN: u8 = 15;
 }
 
-/// Simplified envelope for testing (full version in shared-types)
+/// IPC message envelope per Architecture.md Section 3.2.
+///
+/// Production uses `shared_types::AuthenticatedMessage`. This local definition
+/// provides the same interface for unit testing without external dependencies.
+///
+/// Reference: Architecture.md Section 3.2 (AuthenticatedMessage envelope)
 #[derive(Debug, Clone)]
 pub struct AuthenticatedMessage<T> {
     pub version: u8,
@@ -288,7 +293,7 @@ impl TransactionIndexingHandler {
         let tree = MerkleTree::build(tx_hashes.clone());
 
         // Step 5: Index all transactions
-        for (idx, tx) in msg.payload.block.transactions.iter().enumerate() {
+        for (idx, _tx) in msg.payload.block.transactions.iter().enumerate() {
             let tx_hash = tx_hashes[idx];
             let location = TransactionLocation {
                 block_height: msg.payload.block_height,

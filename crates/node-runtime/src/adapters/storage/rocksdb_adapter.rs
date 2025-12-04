@@ -128,7 +128,7 @@ impl RocksDbStore {
 
         // Open database
         let db = DB::open_cf_descriptors(&opts, &config.path, cf_descriptors)
-            .map_err(|e| KVStoreError::Internal(format!("Failed to open RocksDB: {}", e)))?;
+            .map_err(|e| KVStoreError::IOError { message: format!("Failed to open RocksDB: {}", e) })?;
 
         Ok(Self {
             db: Arc::new(RwLock::new(db)),
@@ -155,7 +155,7 @@ impl KeyValueStore for RocksDbStore {
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, KVStoreError> {
         let db = self.db.read();
         db.get(key)
-            .map_err(|e| KVStoreError::Internal(format!("RocksDB get failed: {}", e)))
+            .map_err(|e| KVStoreError::IOError { message: format!("RocksDB get failed: {}", e) })
     }
 
     fn put(&mut self, key: &[u8], value: &[u8]) -> Result<(), KVStoreError> {
@@ -164,13 +164,13 @@ impl KeyValueStore for RocksDbStore {
         write_opts.set_sync(self.config.sync_writes);
         
         db.put_opt(key, value, &write_opts)
-            .map_err(|e| KVStoreError::Internal(format!("RocksDB put failed: {}", e)))
+            .map_err(|e| KVStoreError::IOError { message: format!("RocksDB put failed: {}", e) })
     }
 
     fn delete(&mut self, key: &[u8]) -> Result<(), KVStoreError> {
         let db = self.db.write();
         db.delete(key)
-            .map_err(|e| KVStoreError::Internal(format!("RocksDB delete failed: {}", e)))
+            .map_err(|e| KVStoreError::IOError { message: format!("RocksDB delete failed: {}", e) })
     }
 
     fn atomic_batch_write(&mut self, operations: Vec<BatchOperation>) -> Result<(), KVStoreError> {
@@ -192,14 +192,14 @@ impl KeyValueStore for RocksDbStore {
         write_opts.set_sync(self.config.sync_writes);
 
         db.write_opt(batch, &write_opts)
-            .map_err(|e| KVStoreError::Internal(format!("RocksDB batch write failed: {}", e)))
+            .map_err(|e| KVStoreError::IOError { message: format!("RocksDB batch write failed: {}", e) })
     }
 
     fn exists(&self, key: &[u8]) -> Result<bool, KVStoreError> {
         let db = self.db.read();
         db.get_pinned(key)
             .map(|v| v.is_some())
-            .map_err(|e| KVStoreError::Internal(format!("RocksDB exists check failed: {}", e)))
+            .map_err(|e| KVStoreError::IOError { message: format!("RocksDB exists check failed: {}", e) })
     }
 
     fn prefix_scan(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, KVStoreError> {
@@ -217,7 +217,7 @@ impl KeyValueStore for RocksDbStore {
                     results.push((key.to_vec(), value.to_vec()));
                 }
                 Err(e) => {
-                    return Err(KVStoreError::Internal(format!("RocksDB scan failed: {}", e)));
+                    return Err(KVStoreError::IOError { message: format!("RocksDB scan failed: {}", e) });
                 }
             }
         }
@@ -248,13 +248,13 @@ impl FileSystemAdapter for ProductionFileSystemAdapter {
         
         // Get available and total space
         let available = available_space(path)
-            .map_err(|e| FSError::IoError(e.to_string()))?;
+            .map_err(|e| FSError::IOError { message: e.to_string() })?;
         
         let total = fs2::total_space(path)
-            .map_err(|e| FSError::IoError(e.to_string()))?;
+            .map_err(|e| FSError::IOError { message: e.to_string() })?;
         
         if total == 0 {
-            return Err(FSError::IoError("Unable to determine disk space".to_string()));
+            return Err(FSError::IOError { message: "Unable to determine disk space".to_string() });
         }
         
         let percent = ((available as f64 / total as f64) * 100.0) as u8;
@@ -267,7 +267,7 @@ impl FileSystemAdapter for ProductionFileSystemAdapter {
         
         let path = Path::new(&self.data_dir);
         available_space(path)
-            .map_err(|e| FSError::IoError(e.to_string()))
+            .map_err(|e| FSError::IOError { message: e.to_string() })
     }
 
     fn total_disk_space_bytes(&self) -> Result<u64, FSError> {
@@ -276,7 +276,7 @@ impl FileSystemAdapter for ProductionFileSystemAdapter {
         
         let path = Path::new(&self.data_dir);
         total_space(path)
-            .map_err(|e| FSError::IoError(e.to_string()))
+            .map_err(|e| FSError::IOError { message: e.to_string() })
     }
 }
 

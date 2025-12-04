@@ -90,7 +90,9 @@ pub mod ports;
 pub mod service;
 
 // Re-export public API
-pub use domain::bls::{aggregate_bls_signatures, verify_bls, verify_bls_aggregate};
+pub use domain::bls::{
+    aggregate_bls_public_keys, aggregate_bls_signatures, verify_bls, verify_bls_aggregate,
+};
 pub use domain::ecdsa::{address_from_pubkey, keccak256, EcdsaVerifier};
 pub use domain::entities::{
     Address, BatchVerificationRequest, BatchVerificationResult, BlsPublicKey, BlsSignature,

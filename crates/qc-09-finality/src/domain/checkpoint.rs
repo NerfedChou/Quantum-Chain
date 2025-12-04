@@ -101,12 +101,24 @@ impl Checkpoint {
     /// Check if justification threshold is met
     ///
     /// INVARIANT-2: 2/3 = 67% threshold
+    /// 
+    /// SECURITY: Uses checked arithmetic to prevent overflow attacks.
+    /// If total_stake is extremely large, we use saturating arithmetic
+    /// to prevent incorrect threshold calculations.
     pub fn check_justification_threshold(&self) -> bool {
         if self.total_stake == 0 {
             return false;
         }
         // 2/3 + 1 for strict majority
-        let required = (self.total_stake * 2) / 3 + 1;
+        // Use checked arithmetic to prevent overflow when total_stake > u128::MAX / 2
+        let required = self.total_stake
+            .checked_mul(2)
+            .map(|v| v / 3 + 1)
+            .unwrap_or_else(|| {
+                // Overflow case: total_stake is huge, use saturating division
+                // (total_stake / 3) * 2 + 1 avoids overflow
+                (self.total_stake / 3).saturating_mul(2).saturating_add(1)
+            });
         self.attested_stake >= required
     }
 

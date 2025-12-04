@@ -694,12 +694,12 @@ mod tests {
         };
         assert!(handler.handle_block_validated(valid_msg).is_ok());
 
-        // Test 3: MerkleRootComputed from wrong sender is rejected
+        // Test 3: MerkleRootComputed from wrong sender is rejected (IPC-MATRIX violation)
         let wrong_merkle_msg = AuthenticatedMessage {
             version: 1,
             correlation_id: [3; 16],
             reply_to: None,
-            sender_id: subsystem_ids::CONSENSUS, // Wrong - should be TRANSACTION_INDEXING
+            sender_id: subsystem_ids::CONSENSUS, // INVALID: Must be TRANSACTION_INDEXING (3)
             recipient_id: subsystem_ids::BLOCK_STORAGE,
             timestamp: ts,
             nonce: 102,
@@ -713,12 +713,12 @@ mod tests {
             .handle_merkle_root_computed(wrong_merkle_msg)
             .is_err());
 
-        // Test 4: StateRootComputed from wrong sender is rejected
+        // Test 4: StateRootComputed from wrong sender is rejected (IPC-MATRIX violation)
         let wrong_state_msg = AuthenticatedMessage {
             version: 1,
             correlation_id: [4; 16],
             reply_to: None,
-            sender_id: subsystem_ids::CONSENSUS, // Wrong - should be STATE_MANAGEMENT
+            sender_id: subsystem_ids::CONSENSUS, // INVALID: Must be STATE_MANAGEMENT (4)
             recipient_id: subsystem_ids::BLOCK_STORAGE,
             timestamp: ts,
             nonce: 103,

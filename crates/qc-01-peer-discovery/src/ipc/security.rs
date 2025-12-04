@@ -145,13 +145,15 @@ pub enum SecurityError {
 impl SecurityError {
     /// Convert from shared-types VerificationResult.
     ///
-    /// This bridges the centralized security module's result type to
-    /// the subsystem-specific error type.
+    /// Bridges the centralized `MessageVerifier` result type to subsystem-specific
+    /// error types. Callers must verify `!result.is_valid()` before calling.
+    ///
+    /// Reference: Architecture.md Section 3.5 (Centralized Security Module)
     pub fn from_verification_result(result: shared_types::envelope::VerificationResult) -> Self {
         use shared_types::envelope::VerificationResult;
         match result {
             VerificationResult::Valid => {
-                // This shouldn't happen - caller should check is_valid() first
+                // Precondition violated: caller must check is_valid() before conversion
                 panic!("Cannot convert Valid result to SecurityError")
             }
             VerificationResult::UnsupportedVersion {
@@ -318,10 +320,12 @@ impl AuthorizationRules {
         Ok(())
     }
 
-    /// Validate reply_to matches sender_id (Architecture.md Section 3.3.1).
+    /// Validate reply_to matches sender_id.
     ///
-    /// Prevents forwarding attacks where a compromised subsystem could
-    /// set reply_to to a victim subsystem.
+    /// Prevents forwarding attacks where a compromised subsystem sets reply_to
+    /// to a victim subsystem, causing responses to be sent to the wrong destination.
+    ///
+    /// Reference: Architecture.md Section 3.3.1 (Reply-To Validation)
     pub fn validate_reply_to(
         sender_id: u8,
         reply_to_subsystem: Option<u8>,
@@ -348,14 +352,15 @@ pub enum ValidationResult {
 }
 
 // =============================================================================
-// HMAC SIGNATURE VERIFICATION (Architecture.md Section 3.5)
+// HMAC SIGNATURE VERIFICATION
+// Reference: Architecture.md Section 3.5 (Cryptographic Authentication)
 // =============================================================================
 
 use std::collections::HashSet;
 use std::sync::Mutex;
 
-/// HMAC-SHA256 key for IPC message signing.
-/// In production, this would be loaded from secure configuration.
+/// 32-byte HMAC-SHA256 key for IPC message authentication.
+/// Loaded from `QC_HMAC_SECRET` environment variable in production.
 pub type HmacKey = [u8; 32];
 
 /// Time-bounded nonce cache for replay prevention.

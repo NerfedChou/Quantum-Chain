@@ -2,7 +2,7 @@
 
 use parking_lot::RwLock;
 use shared_types::Hash;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 use super::PeerId;
@@ -118,10 +118,14 @@ pub struct SeenBlockInfo {
 }
 
 /// LRU cache for seen blocks (deduplication).
+/// LRU cache for seen blocks (deduplication).
+/// 
+/// Uses VecDeque for O(1) eviction of oldest entries.
 pub struct SeenBlockCache {
     cache: RwLock<HashMap<Hash, SeenBlockInfo>>,
     max_size: usize,
-    insertion_order: RwLock<Vec<Hash>>,
+    /// Insertion order tracking using VecDeque for O(1) pop_front.
+    insertion_order: RwLock<VecDeque<Hash>>,
 }
 
 impl SeenBlockCache {
@@ -129,7 +133,7 @@ impl SeenBlockCache {
         Self {
             cache: RwLock::new(HashMap::with_capacity(max_size)),
             max_size,
-            insertion_order: RwLock::new(Vec::with_capacity(max_size)),
+            insertion_order: RwLock::new(VecDeque::with_capacity(max_size)),
         }
     }
 
@@ -143,11 +147,10 @@ impl SeenBlockCache {
         let mut cache = self.cache.write();
         let mut order = self.insertion_order.write();
 
-        // Evict oldest if at capacity
+        // Evict oldest if at capacity - O(1) with VecDeque
         if cache.len() >= self.max_size && !cache.contains_key(&hash) {
-            if let Some(oldest) = order.first().cloned() {
+            if let Some(oldest) = order.pop_front() {
                 cache.remove(&oldest);
-                order.remove(0);
             }
         }
 
@@ -157,7 +160,7 @@ impl SeenBlockCache {
                 first_peer: peer,
                 propagation_state: PropagationState::Announced,
             });
-            order.push(hash);
+            order.push_back(hash);
         }
     }
 

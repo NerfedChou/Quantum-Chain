@@ -11,7 +11,10 @@ use crate::domain::errors::{FSError, KVStoreError, SerializationError};
 
 /// Abstract interface for key-value database operations.
 ///
-/// Implementations: RocksDB, LevelDB, LMDB, in-memory (for testing).
+/// Production: `RocksDbStore` (node-runtime/adapters/storage/rocksdb_adapter.rs)
+/// Testing: `InMemoryKVStore` (below)
+///
+/// Reference: SPEC-02 Section 3.2 (Driven Ports)
 pub trait KeyValueStore: Send + Sync {
     /// Get a value by key.
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, KVStoreError>;
@@ -106,10 +109,14 @@ pub trait BlockSerializer: Send + Sync {
 }
 
 // =============================================================================
-// DEFAULT IMPLEMENTATIONS (for testing and simple use cases)
+// ADAPTER IMPLEMENTATIONS
+// Production: RocksDbStore in node-runtime/adapters/storage/rocksdb_adapter.rs
+// Testing: In-memory implementations below
 // =============================================================================
 
 /// Default checksum provider using crc32fast.
+///
+/// Implements CRC32C checksums for INVARIANT-3 (Data Integrity).
 #[derive(Default)]
 pub struct DefaultChecksumProvider;
 
@@ -132,7 +139,10 @@ impl TimeSource for SystemTimeSource {
     }
 }
 
-/// In-memory key-value store for testing.
+/// In-memory key-value store for unit tests.
+///
+/// Provides atomic batch writes via single-threaded HashMap.
+/// Production uses `RocksDbStore` with true atomic transactions.
 #[derive(Default)]
 pub struct InMemoryKVStore {
     data: std::collections::HashMap<Vec<u8>, Vec<u8>>,
@@ -189,16 +199,21 @@ impl KeyValueStore for InMemoryKVStore {
     }
 }
 
-/// Mock filesystem adapter for testing.
+/// Controllable filesystem adapter for unit tests.
+///
+/// Allows tests to simulate disk space conditions for INVARIANT-2 verification.
+/// Production uses `ProductionFileSystemAdapter` in node-runtime.
 pub struct MockFileSystemAdapter {
     available_percent: u8,
 }
 
 impl MockFileSystemAdapter {
+    /// Create adapter reporting `available_percent` disk space.
     pub fn new(available_percent: u8) -> Self {
         Self { available_percent }
     }
 
+    /// Update reported disk space for test scenarios.
     pub fn set_available_percent(&mut self, percent: u8) {
         self.available_percent = percent;
     }

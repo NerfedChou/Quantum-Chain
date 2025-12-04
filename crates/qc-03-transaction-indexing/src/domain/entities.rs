@@ -323,8 +323,13 @@ pub struct TransactionIndex {
 impl TransactionIndex {
     /// Create a new transaction index with the given configuration.
     pub fn new(config: IndexConfig) -> Self {
-        let cache_size =
-            NonZeroUsize::new(config.max_cached_trees).unwrap_or(NonZeroUsize::new(1000).unwrap());
+        // SAFETY: 1000 is non-zero, compile-time constant
+        const DEFAULT_CACHE_SIZE: NonZeroUsize = match NonZeroUsize::new(1000) {
+            Some(n) => n,
+            None => unreachable!(),
+        };
+        
+        let cache_size = NonZeroUsize::new(config.max_cached_trees).unwrap_or(DEFAULT_CACHE_SIZE);
 
         Self {
             locations: HashMap::new(),
@@ -441,7 +446,7 @@ mod tests {
         assert_eq!(tree.transaction_count(), 1);
         assert_eq!(tree.leaf_count(), 2);
 
-        // Root should be H(tx1 || SENTINEL)
+        // Root = H(tx1 || SENTINEL_HASH) per Merkle tree algorithm
         let expected_root = MerkleTree::hash_pair(&tx1, &SENTINEL_HASH);
         assert_eq!(tree.root(), expected_root);
     }
@@ -695,7 +700,7 @@ mod tests {
             index.cache_tree(block_hash, tree);
         }
 
-        // Only 3 should be cached
+        // INVARIANT-5: max_cached_trees enforced via LRU eviction
         assert_eq!(index.stats().cached_trees, 3);
     }
 
@@ -712,17 +717,16 @@ mod tests {
         let block_c = hash_from_byte(0x0C);
         let block_d = hash_from_byte(0x0D);
 
-        // Cache A, B, C
+        // Cache A, B, C (fills to max)
         index.cache_tree(block_a, MerkleTree::build(vec![hash_from_byte(1)]));
         index.cache_tree(block_b, MerkleTree::build(vec![hash_from_byte(2)]));
         index.cache_tree(block_c, MerkleTree::build(vec![hash_from_byte(3)]));
 
-        // Cache D - should evict A (LRU)
+        // Cache D → evicts A (least recently used)
         index.cache_tree(block_d, MerkleTree::build(vec![hash_from_byte(4)]));
 
-        // A should be evicted
+        // A evicted, B/C/D retained
         assert!(!index.has_tree(&block_a));
-        // B, C, D should still be cached
         assert!(index.has_tree(&block_b));
         assert!(index.has_tree(&block_c));
         assert!(index.has_tree(&block_d));

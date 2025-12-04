@@ -11,7 +11,7 @@
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
-use shared_bus::InMemoryEventBus;
+use shared_bus::{EventPublisher, InMemoryEventBus};
 use shared_types::Hash;
 use std::sync::Arc;
 
@@ -26,7 +26,6 @@ use qc_08_consensus::ports::{EventBus, MempoolGateway, SignatureVerifier, Valida
 /// Adapter implementing qc-08's EventBus trait.
 /// Publishes BlockValidated events to the container's shared event bus.
 pub struct ConsensusEventBusAdapter {
-    #[allow(dead_code)]
     event_bus: Arc<InMemoryEventBus>,
 }
 
@@ -41,14 +40,35 @@ impl EventBus for ConsensusEventBusAdapter {
     async fn publish_block_validated(
         &self,
         _block_hash: Hash,
-        _block_height: u64,
-        _block: ValidatedBlock,
+        block_height: u64,
+        block: ValidatedBlock,
         _consensus_proof: ValidationProof,
         _validated_at: u64,
     ) -> Result<(), String> {
-        // In production, this would publish to the event bus
-        // For now, we log and return success
-        tracing::info!("BlockValidated event published");
+        // Convert to shared_types ValidatedBlock for the event
+        let validated_block = shared_types::ValidatedBlock {
+            header: shared_types::BlockHeader {
+                version: block.header.version as u16,
+                height: block_height,
+                parent_hash: block.header.parent_hash,
+                merkle_root: block.header.transactions_root.unwrap_or([0u8; 32]),
+                state_root: block.header.state_root.unwrap_or([0u8; 32]),
+                timestamp: block.header.timestamp,
+                proposer: block.header.proposer,
+            },
+            transactions: vec![], // Transactions are passed separately in choreography
+            consensus_proof: shared_types::ConsensusProof::default(),
+        };
+        
+        // Publish to the shared event bus per V2.3 Choreography Pattern
+        let event = shared_bus::BlockchainEvent::BlockValidated(validated_block);
+        
+        let receivers = self.event_bus.publish(event).await;
+        tracing::info!(
+            "BlockValidated event published for block {} to {} receivers",
+            block_height,
+            receivers
+        );
         Ok(())
     }
 }

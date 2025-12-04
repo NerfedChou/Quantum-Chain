@@ -1,11 +1,19 @@
-//! Transaction priority queue and pool implementation.
+//! # Transaction Pool - Priority Queue and Two-Phase Commit
 //!
-//! Implements the transaction pool with:
-//! - Priority ordering by gas price
-//! - Nonce ordering per account
-//! - Two-Phase Commit state machine
-//! - Eviction policies
-//! - Replace-by-Fee support
+//! Implements the core mempool data structure per SPEC-06 Section 2.1.
+//!
+//! ## Data Structures
+//!
+//! - `by_hash`: O(1) lookup by transaction hash
+//! - `by_price`: O(log n) priority queue (BTreeSet)
+//! - `by_sender`: O(log n) nonce-ordered transactions per account
+//!
+//! ## Invariants Enforced
+//!
+//! - INVARIANT-1: No duplicate hashes (checked in `add()`)
+//! - INVARIANT-2: Nonce ordering per sender (BTreeMap keys)
+//! - INVARIANT-3: PENDING_INCLUSION excluded from proposals (`by_price` only has PENDING)
+//! - INVARIANT-5: Auto-rollback on timeout (`cleanup_timeouts()`)
 
 use super::entities::{
     Address, Hash, MempoolConfig, MempoolTransaction, Timestamp, TransactionState, U256,

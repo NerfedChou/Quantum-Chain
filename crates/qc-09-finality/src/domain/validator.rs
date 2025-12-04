@@ -3,9 +3,13 @@
 //! Reference: SPEC-09-FINALITY.md Section 2.1
 
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, Bytes};
 use std::collections::HashMap;
 
-/// Validator identifier (public key)
+/// BLS public key for signature verification (96 bytes for BLS12-381 G2)
+pub type BlsPublicKey = [u8; 96];
+
+/// Validator identifier (derived from public key, 32 bytes)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ValidatorId(pub [u8; 32]);
 
@@ -25,22 +29,42 @@ impl From<[u8; 32]> for ValidatorId {
     }
 }
 
-/// Validator with stake information
+/// Validator with stake and public key information
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Validator {
     pub id: ValidatorId,
     pub stake: u128,
     pub index: usize,
     pub active: bool,
+    /// BLS public key for signature verification
+    /// SECURITY: This is the actual cryptographic key used for attestation verification
+    #[serde_as(as = "Bytes")]
+    pub pubkey: BlsPublicKey,
 }
 
 impl Validator {
     pub fn new(id: ValidatorId, stake: u128, index: usize) -> Self {
+        // Default pubkey derived from ID (for backward compatibility)
+        let mut pubkey = [0u8; 96];
+        pubkey[..32].copy_from_slice(&id.0);
         Self {
             id,
             stake,
             index,
             active: true,
+            pubkey,
+        }
+    }
+
+    /// Create validator with explicit public key
+    pub fn with_pubkey(id: ValidatorId, stake: u128, index: usize, pubkey: BlsPublicKey) -> Self {
+        Self {
+            id,
+            stake,
+            index,
+            active: true,
+            pubkey,
         }
     }
 }
@@ -77,6 +101,15 @@ impl ValidatorSet {
         self.total_stake = self.total_stake.saturating_add(stake);
     }
 
+    /// Add a validator with explicit public key
+    pub fn add_validator_with_pubkey(&mut self, id: ValidatorId, stake: u128, pubkey: BlsPublicKey) {
+        let index = self.index_to_id.len();
+        let validator = Validator::with_pubkey(id, stake, index, pubkey);
+        self.validators.insert(id, validator);
+        self.index_to_id.push(id);
+        self.total_stake = self.total_stake.saturating_add(stake);
+    }
+
     /// Get validator by ID
     pub fn get(&self, id: &ValidatorId) -> Option<&Validator> {
         self.validators.get(id)
@@ -90,6 +123,11 @@ impl ValidatorSet {
     /// Get validator stake
     pub fn get_stake(&self, id: &ValidatorId) -> Option<u128> {
         self.validators.get(id).map(|v| v.stake)
+    }
+
+    /// Get validator public key
+    pub fn get_pubkey(&self, id: &ValidatorId) -> Option<&BlsPublicKey> {
+        self.validators.get(id).map(|v| &v.pubkey)
     }
 
     /// Check if validator is in set
@@ -125,8 +163,12 @@ impl ValidatorSet {
     /// Calculate required stake for justification (2/3 + 1)
     ///
     /// INVARIANT-2: 2/3 threshold
+    /// SECURITY: Uses checked arithmetic to prevent overflow
     pub fn required_stake(&self) -> u128 {
-        (self.total_stake * 2) / 3 + 1
+        self.total_stake
+            .checked_mul(2)
+            .map(|v| v / 3 + 1)
+            .unwrap_or_else(|| (self.total_stake / 3).saturating_mul(2).saturating_add(1))
     }
 }
 
@@ -174,5 +216,18 @@ mod tests {
 
         // 2/3 + 1 = 6667
         assert_eq!(set.required_stake(), 6667);
+    }
+
+    #[test]
+    fn test_validator_with_pubkey() {
+        let mut set = ValidatorSet::new(1);
+        let id = test_validator_id(1);
+        let pubkey = [42u8; 96];
+        
+        set.add_validator_with_pubkey(id, 100, pubkey);
+        
+        let retrieved_pubkey = set.get_pubkey(&id);
+        assert!(retrieved_pubkey.is_some());
+        assert_eq!(retrieved_pubkey.unwrap()[0], 42);
     }
 }

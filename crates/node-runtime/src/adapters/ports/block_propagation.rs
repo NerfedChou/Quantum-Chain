@@ -134,13 +134,25 @@ impl ConsensusGateway for BlockPropConsensusAdapter {
 
 /// Adapter implementing qc-05's MempoolGateway trait.
 /// Used for compact block reconstruction.
+/// 
+/// Note: This adapter will be wired into the BlockPropagationService
+/// during Phase 3 of implementation (IMPLEMENTATION-PLAN.md §5.5).
 pub struct BlockPropMempoolAdapter {
     mempool: Arc<RwLock<TransactionPool>>,
 }
 
 impl BlockPropMempoolAdapter {
+    /// Create a new mempool adapter for block propagation.
     pub fn new(mempool: Arc<RwLock<TransactionPool>>) -> Self {
         Self { mempool }
+    }
+
+    /// Get the underlying mempool for short-ID lookups.
+    /// 
+    /// Currently returns the pool reference for future use when
+    /// proper short-ID indexing is implemented in the mempool.
+    pub fn mempool(&self) -> &Arc<RwLock<TransactionPool>> {
+        &self.mempool
     }
 }
 

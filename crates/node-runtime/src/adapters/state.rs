@@ -83,14 +83,12 @@ impl StateAdapter {
 
         // Step 1: Apply transactions to trie
         {
-            let trie = self.trie.write();
+            let mut trie = self.trie.write();
             for tx in &transactions {
                 // Apply transaction effects to state
-                // In full implementation: deduct from sender, credit to recipient
-                // For now, we track the state root computation
-                if let Some(_to) = tx.to {
-                    // Transfer - update balances (simplified)
-                    debug!("[qc-04] Applying transfer: {} wei", tx.value);
+                let _ = trie.apply_balance_change(tx.from, -(tx.value as i128));
+                if let Some(to) = tx.to {
+                    let _ = trie.apply_balance_change(to, tx.value as i128);
                 }
             }
         }

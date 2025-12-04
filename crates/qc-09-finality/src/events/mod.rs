@@ -6,4 +6,7 @@ pub mod incoming;
 pub mod outgoing;
 
 pub use incoming::AttestationBatch;
-pub use outgoing::{FinalityAchievedEvent, MarkFinalizedPayload};
+pub use outgoing::{
+    FinalityAchievedEvent, InactivityLeakTriggeredEvent, MarkFinalizedPayload,
+    SlashableOffenseDetectedEvent, ValidatorInactivityPenaltyEvent,
+};

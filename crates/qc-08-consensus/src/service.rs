@@ -130,6 +130,16 @@ where
             });
         }
 
+        // Check extra_data size limit (prevent DoS via oversized blocks)
+        // Default limit: 32 bytes (Ethereum standard)
+        const MAX_EXTRA_DATA_SIZE: usize = 32;
+        if block.header.extra_data.len() > MAX_EXTRA_DATA_SIZE {
+            return Err(ConsensusError::ExtraDataTooLarge {
+                size: block.header.extra_data.len(),
+                limit: MAX_EXTRA_DATA_SIZE,
+            });
+        }
+
         Ok(())
     }
 
@@ -300,26 +310,46 @@ where
                 .ok_or(ConsensusError::UnknownValidator(attestation.validator))?;
 
             // ZERO-TRUST: Re-verify signature (even if pre-validated)
-            // Use the actual signature from the attestation, NOT a placeholder
-            let sig_bytes: [u8; 96] = if attestation.signature.len() >= 96 {
-                // BLS signature (96 bytes)
-                let mut sig = [0u8; 96];
-                sig.copy_from_slice(&attestation.signature[..96]);
-                sig
+            // Handle BLS and ECDSA signatures separately - no invalid padding
+            let valid = if attestation.is_bls() {
+                // BLS signature (96 bytes) - use aggregate BLS verification
+                let sig_bytes: [u8; 96] = attestation
+                    .signature
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| {
+                        ConsensusError::InvalidSignatureFormat(attestation.validator)
+                    })?;
+
+                self.sig_verifier
+                    .verify_aggregate_bls(&signing_message, &sig_bytes, &[*pubkey])
+            } else if attestation.signature.len() == 65 {
+                // ECDSA signature (65 bytes) - use ECDSA verification
+                let sig_bytes: [u8; 65] = attestation
+                    .signature
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| {
+                        ConsensusError::InvalidSignatureFormat(attestation.validator)
+                    })?;
+
+                // Convert BLS pubkey to ECDSA pubkey format for verification
+                // In production, validators should have separate ECDSA keys
+                let ecdsa_pubkey: [u8; 33] = {
+                    let mut pk = [0u8; 33];
+                    pk[0] = 0x02; // compressed prefix
+                    pk[1..].copy_from_slice(&pubkey[..32]);
+                    pk
+                };
+
+                self.sig_verifier
+                    .verify_ecdsa(&signing_message, &sig_bytes, &ecdsa_pubkey)
             } else {
-                // ECDSA signature (65 bytes) - convert to BLS-compatible format
-                // This is for backwards compatibility; real BLS would use 96-byte sigs
-                let mut sig = [0u8; 96];
-                sig[..attestation.signature.len()].copy_from_slice(&attestation.signature);
-                sig
+                // Invalid signature length - reject immediately
+                return Err(ConsensusError::InvalidSignatureFormat(attestation.validator));
             };
 
-            let valid =
-                self.sig_verifier
-                    .verify_aggregate_bls(&signing_message, &sig_bytes, &[*pubkey]);
-
             // SECURITY: Always enforce signature verification
-            // The only exception is if the verifier is a mock that returns true
             if !valid {
                 return Err(ConsensusError::SignatureVerificationFailed(
                     attestation.validator,
@@ -348,7 +378,7 @@ where
     async fn validate_pbft_proof(
         &self,
         proof: &PBFTProof,
-        block_hash: &Hash,
+        _block_hash: &Hash, // Block hash is verified via prepare/commit messages
     ) -> ConsensusResult<()> {
         let current_view = *self.current_view.read();
 
@@ -392,22 +422,71 @@ where
         }
 
         // ZERO-TRUST: Verify prepare signatures
-        let _prepare_msg =
-            prepare_signing_message(proof.view, proof.prepares[0].sequence, block_hash);
+        // SECURITY: Each prepare message MUST be independently verified
         for prepare in &proof.prepares {
             if !validator_set.contains(&prepare.validator) {
                 return Err(ConsensusError::UnknownValidator(prepare.validator));
             }
-            // In production, verify signature here
+
+            // Get validator's public key
+            let pubkey = validator_set
+                .get_pubkey(&prepare.validator)
+                .ok_or(ConsensusError::UnknownValidator(prepare.validator))?;
+
+            // Reconstruct the message that was signed
+            let prepare_msg =
+                prepare_signing_message(prepare.view, prepare.sequence, &prepare.block_hash);
+
+            // ZERO-TRUST: Verify ECDSA signature independently
+            // Convert 48-byte BLS pubkey to 33-byte compressed ECDSA for verification
+            // In production, validators would have separate ECDSA keys for PBFT
+            let ecdsa_pubkey: [u8; 33] = {
+                let mut pk = [0u8; 33];
+                pk[0] = 0x02; // compressed prefix
+                pk[1..].copy_from_slice(&pubkey[..32]);
+                pk
+            };
+
+            if !self
+                .sig_verifier
+                .verify_ecdsa(&prepare_msg, &prepare.signature, &ecdsa_pubkey)
+            {
+                return Err(ConsensusError::SignatureVerificationFailed(
+                    prepare.validator,
+                ));
+            }
         }
 
         // ZERO-TRUST: Verify commit signatures
-        let _commit_msg = commit_signing_message(proof.view, proof.commits[0].sequence, block_hash);
+        // SECURITY: Each commit message MUST be independently verified
         for commit in &proof.commits {
             if !validator_set.contains(&commit.validator) {
                 return Err(ConsensusError::UnknownValidator(commit.validator));
             }
-            // In production, verify signature here
+
+            // Get validator's public key
+            let pubkey = validator_set
+                .get_pubkey(&commit.validator)
+                .ok_or(ConsensusError::UnknownValidator(commit.validator))?;
+
+            // Reconstruct the message that was signed
+            let commit_msg =
+                commit_signing_message(commit.view, commit.sequence, &commit.block_hash);
+
+            // ZERO-TRUST: Verify ECDSA signature independently
+            let ecdsa_pubkey: [u8; 33] = {
+                let mut pk = [0u8; 33];
+                pk[0] = 0x02;
+                pk[1..].copy_from_slice(&pubkey[..32]);
+                pk
+            };
+
+            if !self
+                .sig_verifier
+                .verify_ecdsa(&commit_msg, &commit.signature, &ecdsa_pubkey)
+            {
+                return Err(ConsensusError::SignatureVerificationFailed(commit.validator));
+            }
         }
 
         Ok(())
@@ -416,37 +495,60 @@ where
     /// Full block validation
     async fn validate_block_internal(&self, block: Block) -> ConsensusResult<ValidatedBlock> {
         let block_hash = block.hash();
+        let start_time = std::time::Instant::now();
 
         // Check if already validated
         {
             let chain = self.chain_state.read();
             if chain.has_block(&block_hash) {
+                crate::metrics::record_block_rejected("already_validated");
                 return Err(ConsensusError::AlreadyValidated(block_hash));
             }
         }
 
         // 1. Validate structure
-        self.validate_structure(&block)?;
+        if let Err(e) = self.validate_structure(&block) {
+            crate::metrics::record_block_rejected("invalid_structure");
+            return Err(e);
+        }
 
         // 2. Validate parent linkage (INVARIANT-1)
-        self.validate_parent(&block.header)?;
+        if let Err(e) = self.validate_parent(&block.header) {
+            crate::metrics::record_block_rejected("unknown_parent");
+            return Err(e);
+        }
 
         // 3. Validate height sequence (INVARIANT-4)
-        self.validate_height(&block.header)?;
+        if let Err(e) = self.validate_height(&block.header) {
+            crate::metrics::record_block_rejected("invalid_height");
+            return Err(e);
+        }
 
         // 4. Validate timestamp (INVARIANT-5)
-        self.validate_timestamp(&block.header)?;
+        if let Err(e) = self.validate_timestamp(&block.header) {
+            crate::metrics::record_block_rejected("invalid_timestamp");
+            return Err(e);
+        }
 
         // 5. Validate proposer is in validator set
-        self.validate_proposer(&block.header, &block.proof).await?;
+        if let Err(e) = self.validate_proposer(&block.header, &block.proof).await {
+            crate::metrics::record_block_rejected("invalid_proposer");
+            return Err(e);
+        }
 
         // 6. Validate consensus proof with ZERO-TRUST signature verification
         match &block.proof {
             ValidationProof::PoS(pos_proof) => {
-                self.validate_pos_proof(pos_proof, &block_hash).await?;
+                if let Err(e) = self.validate_pos_proof(pos_proof, &block_hash).await {
+                    crate::metrics::record_block_rejected("invalid_pos_proof");
+                    return Err(e);
+                }
             }
             ValidationProof::PBFT(pbft_proof) => {
-                self.validate_pbft_proof(pbft_proof, &block_hash).await?;
+                if let Err(e) = self.validate_pbft_proof(pbft_proof, &block_hash).await {
+                    crate::metrics::record_block_rejected("invalid_pbft_proof");
+                    return Err(e);
+                }
             }
         }
 
@@ -463,7 +565,7 @@ where
             validation_proof: block.proof.clone(),
         };
 
-        // 8. Publish to Event Bus (Choreography - non-blocking)
+        // 9. Publish to Event Bus (Choreography - non-blocking)
         let now = self.time_source.now();
         self.event_bus
             .publish_block_validated(
@@ -475,6 +577,11 @@ where
             )
             .await
             .map_err(ConsensusError::EventBusError)?;
+
+        // Record success metrics
+        let elapsed = start_time.elapsed().as_secs_f64();
+        crate::metrics::record_block_validated();
+        crate::metrics::record_validation_latency(elapsed);
 
         Ok(validated)
     }
@@ -528,19 +635,32 @@ where
             extra_data: vec![],
         };
 
-        // Create proof (placeholder - would collect attestations)
+        // NOTE: This returns a PROPOSAL block without attestations/votes.
+        // The block MUST be broadcast to validators who will:
+        // 1. Validate the proposal
+        // 2. Sign attestations (PoS) or prepare/commit messages (PBFT)
+        // 3. Return signatures to the proposer
+        // 4. Proposer aggregates signatures into the final proof
+        //
+        // The returned block is NOT valid for submission to validate_block()
+        // until it has collected sufficient attestations (2/3 for PoS, 2f+1 for PBFT).
+        //
+        // This is by design per the consensus protocol:
+        // - Proposer creates block → broadcasts proposal
+        // - Validators attest → proposer collects
+        // - Proposer finalizes block with proof → broadcasts validated block
         let current_view = *self.current_view.read();
         let current_epoch = self.validator_provider.current_epoch().await;
 
         let proof = match self.config.algorithm {
             ConsensusAlgorithm::ProofOfStake => ValidationProof::PoS(PoSProof {
-                attestations: vec![],
+                attestations: vec![], // Filled by attestation collection phase
                 epoch: current_epoch,
                 slot: 0,
             }),
             ConsensusAlgorithm::PBFT => ValidationProof::PBFT(PBFTProof {
-                prepares: vec![],
-                commits: vec![],
+                prepares: vec![], // Filled by PBFT prepare phase
+                commits: vec![],  // Filled by PBFT commit phase
                 view: current_view,
                 epoch: current_epoch,
             }),
@@ -833,5 +953,382 @@ mod tests {
 
         let result = service.validate_block(block, None).await;
         assert!(matches!(result, Err(ConsensusError::InvalidHeight { .. })));
+    }
+
+    // =========================================================================
+    // PHASE 1: CRITICAL PRODUCTION TESTS
+    // =========================================================================
+
+    /// Signature verifier that always fails - for testing rejection paths
+    struct FailingSigVerifier;
+
+    impl SignatureVerifier for FailingSigVerifier {
+        fn verify_ecdsa(&self, _msg: &[u8], _sig: &[u8; 65], _pk: &[u8; 33]) -> bool {
+            false // Always fail
+        }
+
+        fn verify_aggregate_bls(&self, _msg: &[u8], _sig: &[u8; 96], _pks: &[[u8; 48]]) -> bool {
+            false // Always fail
+        }
+
+        fn recover_signer(&self, _msg: &[u8], _sig: &[u8; 65]) -> Option<[u8; 20]> {
+            None // Always fail
+        }
+    }
+
+    /// Time source that returns a fixed timestamp - for testing timestamp validation
+    struct FixedTimeSource {
+        timestamp: u64,
+    }
+
+    impl FixedTimeSource {
+        fn new(timestamp: u64) -> Self {
+            Self { timestamp }
+        }
+    }
+
+    impl TimeSource for FixedTimeSource {
+        fn now(&self) -> u64 {
+            self.timestamp
+        }
+
+        fn current_epoch(&self, genesis_time: u64, epoch_length_secs: u64) -> u64 {
+            if self.timestamp < genesis_time {
+                return 0;
+            }
+            (self.timestamp - genesis_time) / epoch_length_secs
+        }
+    }
+
+    // Import PBFT types for tests
+    use crate::domain::{PrepareMessage, CommitMessage, PBFTProof};
+
+    /// Helper to create a valid PBFT block
+    fn create_pbft_block(parent: &BlockHeader, prepare_count: usize, commit_count: usize) -> Block {
+        let mut proposer = [0u8; 32];
+        proposer[0] = 0;
+
+        let header = BlockHeader {
+            version: 1,
+            block_height: parent.block_height + 1,
+            parent_hash: parent.hash(),
+            timestamp: parent.timestamp + 12,
+            proposer,
+            transactions_root: None,
+            state_root: None,
+            receipts_root: [0u8; 32],
+            gas_limit: 30_000_000,
+            gas_used: 0,
+            extra_data: vec![],
+        };
+
+        let block_hash = header.hash();
+
+        // Create prepare messages
+        let prepares: Vec<PrepareMessage> = (0..prepare_count)
+            .map(|i| {
+                let mut validator = [0u8; 32];
+                validator[0] = i as u8;
+                PrepareMessage {
+                    view: 0,
+                    sequence: 1,
+                    block_hash,
+                    validator,
+                    signature: [0u8; 65],
+                }
+            })
+            .collect();
+
+        // Create commit messages
+        let commits: Vec<CommitMessage> = (0..commit_count)
+            .map(|i| {
+                let mut validator = [0u8; 32];
+                validator[0] = i as u8;
+                CommitMessage {
+                    view: 0,
+                    sequence: 1,
+                    block_hash,
+                    validator,
+                    signature: [0u8; 65],
+                }
+            })
+            .collect();
+
+        Block {
+            header,
+            transactions: vec![],
+            proof: ValidationProof::PBFT(PBFTProof {
+                prepares,
+                commits,
+                view: 0,
+                epoch: 1,
+            }),
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 1: PBFT with valid 2f+1 prepares and commits
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_validate_pbft_proof_success() {
+        let genesis = create_genesis();
+        
+        // 4 validators: f=1, need 2f+1=3 votes
+        let service = ConsensusService::with_genesis(
+            Arc::new(MockEventBus::new()),
+            Arc::new(MockMempool),
+            Arc::new(MockSigVerifier), // Always returns true
+            Arc::new(MockValidatorProvider::new(4)),
+            ConsensusConfig {
+                algorithm: ConsensusAlgorithm::PBFT,
+                byzantine_threshold: 1, // f=1
+                ..ConsensusConfig::default()
+            },
+            genesis.clone(),
+        );
+
+        // Create block with 3 prepares and 3 commits (2f+1 = 3)
+        let block = create_pbft_block(&genesis, 3, 3);
+        let result = service.validate_block(block, None).await;
+
+        assert!(result.is_ok(), "PBFT validation should succeed with 2f+1 votes");
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 2: PBFT fails with insufficient prepares
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_validate_pbft_proof_insufficient_prepares() {
+        let genesis = create_genesis();
+        
+        // 4 validators: f=1, need 2f+1=3 votes
+        let service = ConsensusService::with_genesis(
+            Arc::new(MockEventBus::new()),
+            Arc::new(MockMempool),
+            Arc::new(MockSigVerifier),
+            Arc::new(MockValidatorProvider::new(4)),
+            ConsensusConfig {
+                algorithm: ConsensusAlgorithm::PBFT,
+                byzantine_threshold: 1,
+                ..ConsensusConfig::default()
+            },
+            genesis.clone(),
+        );
+
+        // Only 2 prepares (need 3)
+        let block = create_pbft_block(&genesis, 2, 3);
+        let result = service.validate_block(block, None).await;
+
+        assert!(
+            matches!(result, Err(ConsensusError::InsufficientAttestations { .. })),
+            "PBFT should fail with insufficient prepares"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 3: PBFT fails with insufficient commits
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_validate_pbft_proof_insufficient_commits() {
+        let genesis = create_genesis();
+        
+        let service = ConsensusService::with_genesis(
+            Arc::new(MockEventBus::new()),
+            Arc::new(MockMempool),
+            Arc::new(MockSigVerifier),
+            Arc::new(MockValidatorProvider::new(4)),
+            ConsensusConfig {
+                algorithm: ConsensusAlgorithm::PBFT,
+                byzantine_threshold: 1,
+                ..ConsensusConfig::default()
+            },
+            genesis.clone(),
+        );
+
+        // 3 prepares but only 2 commits (need 3)
+        let block = create_pbft_block(&genesis, 3, 2);
+        let result = service.validate_block(block, None).await;
+
+        assert!(
+            matches!(result, Err(ConsensusError::InsufficientAttestations { .. })),
+            "PBFT should fail with insufficient commits"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 4: PoS signature verification failure
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_validate_pos_signature_invalid() {
+        let genesis = create_genesis();
+        
+        // Use FailingSigVerifier - all signatures will fail
+        let service = ConsensusService::with_genesis(
+            Arc::new(MockEventBus::new()),
+            Arc::new(MockMempool),
+            Arc::new(FailingSigVerifier),
+            Arc::new(MockValidatorProvider::new(3)),
+            ConsensusConfig::default(),
+            genesis.clone(),
+        );
+
+        let block = create_valid_block(&genesis, 2);
+        let result = service.validate_block(block, None).await;
+
+        assert!(
+            matches!(result, Err(ConsensusError::SignatureVerificationFailed(_))),
+            "Should reject block when signature verification fails"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 5: PBFT signature verification failure
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_validate_pbft_signature_invalid() {
+        let genesis = create_genesis();
+        
+        // Use FailingSigVerifier
+        let service = ConsensusService::with_genesis(
+            Arc::new(MockEventBus::new()),
+            Arc::new(MockMempool),
+            Arc::new(FailingSigVerifier),
+            Arc::new(MockValidatorProvider::new(4)),
+            ConsensusConfig {
+                algorithm: ConsensusAlgorithm::PBFT,
+                byzantine_threshold: 1,
+                ..ConsensusConfig::default()
+            },
+            genesis.clone(),
+        );
+
+        let block = create_pbft_block(&genesis, 3, 3);
+        let result = service.validate_block(block, None).await;
+
+        assert!(
+            matches!(result, Err(ConsensusError::SignatureVerificationFailed(_))),
+            "PBFT should reject block when signature verification fails"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 6: Block with future timestamp rejected
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_validate_block_future_timestamp() {
+        let genesis = create_genesis();
+        
+        // Create service with fixed time source at timestamp 2000
+        let service = ConsensusService::with_genesis(
+            Arc::new(MockEventBus::new()),
+            Arc::new(MockMempool),
+            Arc::new(MockSigVerifier),
+            Arc::new(MockValidatorProvider::new(3)),
+            ConsensusConfig {
+                max_timestamp_drift_secs: 60, // Allow 60s drift
+                ..ConsensusConfig::default()
+            },
+            genesis.clone(),
+        ).with_time_source(Box::new(FixedTimeSource::new(2000)));
+
+        // Create block with timestamp far in the future (2000 + 120 > 2000 + 60)
+        let mut block = create_valid_block(&genesis, 2);
+        block.header.timestamp = 2200; // 200 seconds in future, drift is 60
+
+        let result = service.validate_block(block, None).await;
+
+        assert!(
+            matches!(result, Err(ConsensusError::FutureTimestamp { .. })),
+            "Should reject block with timestamp too far in the future"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 7: Duplicate attestations rejected
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_validate_block_duplicate_attestations() {
+        let genesis = create_genesis();
+        
+        let service = ConsensusService::with_genesis(
+            Arc::new(MockEventBus::new()),
+            Arc::new(MockMempool),
+            Arc::new(MockSigVerifier),
+            Arc::new(MockValidatorProvider::new(3)),
+            ConsensusConfig::default(),
+            genesis.clone(),
+        );
+
+        // Create block with duplicate attestation from same validator
+        let mut block = create_valid_block(&genesis, 2);
+        
+        // Modify to have duplicate validator
+        if let ValidationProof::PoS(ref mut proof) = block.proof {
+            // Make both attestations from validator 0
+            proof.attestations[1].validator = proof.attestations[0].validator;
+        }
+
+        let result = service.validate_block(block, None).await;
+
+        assert!(
+            matches!(result, Err(ConsensusError::DuplicateVote(_))),
+            "Should reject block with duplicate attestations from same validator"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 8: Extra data too large rejected
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_validate_block_extra_data_too_large() {
+        let genesis = create_genesis();
+        
+        let service = ConsensusService::with_genesis(
+            Arc::new(MockEventBus::new()),
+            Arc::new(MockMempool),
+            Arc::new(MockSigVerifier),
+            Arc::new(MockValidatorProvider::new(3)),
+            ConsensusConfig::default(),
+            genesis.clone(),
+        );
+
+        // Create block with oversized extra_data (limit is 32 bytes)
+        let mut block = create_valid_block(&genesis, 2);
+        block.header.extra_data = vec![0u8; 100]; // 100 bytes > 32 byte limit
+
+        let result = service.validate_block(block, None).await;
+
+        assert!(
+            matches!(result, Err(ConsensusError::ExtraDataTooLarge { .. })),
+            "Should reject block with extra_data exceeding limit"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 9: Event bus publish is called on success
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_validate_block_publishes_event() {
+        let genesis = create_genesis();
+        let event_bus = Arc::new(MockEventBus::new());
+        
+        let service = ConsensusService::with_genesis(
+            Arc::clone(&event_bus),
+            Arc::new(MockMempool),
+            Arc::new(MockSigVerifier),
+            Arc::new(MockValidatorProvider::new(3)),
+            ConsensusConfig::default(),
+            genesis.clone(),
+        );
+
+        let block = create_valid_block(&genesis, 2);
+        let result = service.validate_block(block, None).await;
+
+        assert!(result.is_ok());
+        assert_eq!(
+            event_bus.published_count.load(Ordering::SeqCst),
+            1,
+            "Should publish exactly one BlockValidated event"
+        );
     }
 }

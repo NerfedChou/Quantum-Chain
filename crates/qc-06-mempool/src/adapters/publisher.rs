@@ -1,6 +1,12 @@
-//! Event publisher adapter for the Mempool subsystem.
+//! # Event Publisher - Outbound Event Bus Adapter
 //!
-//! Publishes events to the shared bus for inter-subsystem communication.
+//! Publishes mempool events to the shared event bus.
+//!
+//! ## Topics
+//!
+//! - `mempool.propose_batch` - Transaction batch proposals to Consensus
+//! - `state.balance_check` - Balance verification requests to State Management
+//! - `mempool.status` - Periodic status updates
 
 use crate::domain::Hash;
 use crate::ipc::payloads::MempoolStatusPayload;

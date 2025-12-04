@@ -374,18 +374,18 @@ mod tests {
 
         assert_eq!(buffer.len(), 10);
 
-        // Enforce limit
+        // Enforce limit - INVARIANT-8: purges oldest first
         let purged = buffer.enforce_max_pending();
         assert_eq!(purged.len(), 5);
         assert_eq!(buffer.len(), 5);
 
-        // Oldest 5 should be gone
+        // Oldest entries (0-4) purged
         for i in 0..5 {
             let block_hash = [i as u8; 32];
             assert!(buffer.get(&block_hash).is_none());
         }
 
-        // Newest 5 should remain
+        // Newest entries (5-9) retained
         for i in 5..10 {
             let block_hash = [i as u8; 32];
             assert!(buffer.get(&block_hash).is_some());

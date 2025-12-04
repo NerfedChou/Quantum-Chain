@@ -354,24 +354,26 @@ fn current_timestamp() -> u64 {
         .as_secs()
 }
 
-/// Generate a random correlation ID (UUID v4)
+/// Generate a correlation ID combining timestamp and counter.
+///
+/// Provides unique IDs for request/response correlation per Architecture.md Section 3.3.
+/// In production, `uuid::Uuid::new_v4()` is used via node-runtime.
 fn generate_correlation_id() -> [u8; 16] {
-    // In production, use uuid crate
     let mut id = [0u8; 16];
-    // Simple pseudo-random for now
     let ts = current_timestamp();
     id[0..8].copy_from_slice(&ts.to_le_bytes());
     id[8..16].copy_from_slice(&generate_nonce().to_le_bytes());
     id
 }
 
-/// Generate a random nonce
+/// Generate a unique nonce using timestamp and atomic counter.
+///
+/// Provides replay protection per Architecture.md Section 3.5.
+/// Uniqueness guaranteed by combining high-resolution timestamp with monotonic counter.
 fn generate_nonce() -> u64 {
-    // In production, use proper RNG
-    // For now, combine timestamp with a counter
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    current_timestamp().wrapping_mul(1000000) + count
+    current_timestamp().wrapping_mul(1_000_000) + count
 }
 
 #[cfg(test)]

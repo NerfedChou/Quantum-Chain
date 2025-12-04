@@ -9,7 +9,8 @@
 //! - **Malleability Prevention (EIP-2)**: S must be STRICTLY LESS THAN SECP256K1_HALF_ORDER
 //! - **Scalar Range Validation**: R and S must be in [1, n-1]
 //! - **R Point Validation**: R must be a valid x-coordinate on the secp256k1 curve
-//! - Uses k256 crate for constant-time operations
+//! - **Constant-Time Operations**: Uses `subtle` crate for side-channel resistance
+//! - Uses k256 crate for cryptographic operations
 
 use super::entities::{
     Address, BatchVerificationResult, EcdsaSignature, VerificationRequest, VerificationResult,
@@ -20,6 +21,7 @@ use k256::elliptic_curve::sec1::FromEncodedPoint;
 use k256::{AffinePoint, EncodedPoint};
 use sha3::{Digest, Keccak256};
 use shared_types::Hash;
+use subtle::{Choice, ConstantTimeEq};
 
 /// secp256k1 curve order n
 /// n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
@@ -176,15 +178,27 @@ pub fn recover_address(
     message_hash: &Hash,
     signature: &EcdsaSignature,
 ) -> Result<Address, SignatureError> {
+    use zeroize::Zeroize;
+
     // Parse recovery ID
     let recovery_id = parse_recovery_id(signature.v)?;
 
     // Construct k256 signature from r and s
+    // Note: sig_bytes will be zeroized on drop for defense-in-depth
     let mut sig_bytes = [0u8; 64];
     sig_bytes[..32].copy_from_slice(&signature.r);
     sig_bytes[32..].copy_from_slice(&signature.s);
 
-    let sig = Signature::from_slice(&sig_bytes).map_err(|_| SignatureError::InvalidFormat)?;
+    let sig = match Signature::from_slice(&sig_bytes) {
+        Ok(s) => {
+            sig_bytes.zeroize(); // Clear intermediate buffer
+            s
+        }
+        Err(_) => {
+            sig_bytes.zeroize();
+            return Err(SignatureError::InvalidFormat);
+        }
+    };
 
     // Recover the verifying key (public key)
     let recovered_key = VerifyingKey::recover_from_prehash(message_hash, &sig, recovery_id)
@@ -271,17 +285,35 @@ pub fn address_from_pubkey(public_key: &VerifyingKey) -> Address {
 ///
 /// Reference: SPEC-10 Section 2.2, Invariant 3
 /// Per EIP-2: S must be STRICTLY LESS THAN half_order (not equal)
+///
+/// ## Security: Constant-Time Implementation
+///
+/// This function uses constant-time comparison to prevent timing side-channel attacks.
+/// The comparison runs in fixed time regardless of input values, preventing attackers
+/// from inferring information about the signature based on execution timing.
 fn is_low_s(s: &[u8; 32]) -> bool {
-    // Compare s < SECP256K1_HALF_ORDER (big-endian comparison, strict inequality)
+    // Constant-time comparison: s < SECP256K1_HALF_ORDER (strict inequality)
+    // We compute both "less than" and "greater than" without early returns
+    let mut less = Choice::from(0u8);
+    let mut greater = Choice::from(0u8);
+
     for i in 0..32 {
-        if s[i] < SECP256K1_HALF_ORDER[i] {
-            return true;
-        }
-        if s[i] > SECP256K1_HALF_ORDER[i] {
-            return false;
-        }
+        let s_byte = s[i];
+        let h_byte = SECP256K1_HALF_ORDER[i];
+
+        // Only update if we haven't already determined the result
+        // less = less OR (NOT greater AND s[i] < h[i])
+        // greater = greater OR (NOT less AND s[i] > h[i])
+        let not_decided = !(less | greater);
+        let byte_less = Choice::from((s_byte < h_byte) as u8);
+        let byte_greater = Choice::from((s_byte > h_byte) as u8);
+
+        less |= not_decided & byte_less;
+        greater |= not_decided & byte_greater;
     }
-    false // s == half_order is NOT acceptable (strict inequality)
+
+    // Return true only if s < half_order (strict inequality)
+    less.into()
 }
 
 /// Check if a scalar value is in valid range [1, n-1] for ECDSA.
@@ -289,23 +321,37 @@ fn is_low_s(s: &[u8; 32]) -> bool {
 /// Per SEC1 standard, R and S components must be:
 /// - Greater than zero (not all zeros)
 /// - Less than the curve order n
+///
+/// ## Security: Constant-Time Implementation
+///
+/// Uses constant-time operations to prevent timing side-channel attacks.
 fn is_valid_scalar(scalar: &[u8; 32]) -> bool {
-    // Check if scalar is zero (all bytes are 0)
-    let is_zero = scalar.iter().all(|&b| b == 0);
-    if is_zero {
-        return false;
+    // Constant-time check for zero
+    let mut is_zero = Choice::from(1u8);
+    for &byte in scalar {
+        is_zero &= byte.ct_eq(&0u8);
     }
 
-    // Check if scalar >= curve order (big-endian comparison)
+    // Constant-time check for scalar < curve order
+    let mut less = Choice::from(0u8);
+    let mut greater = Choice::from(0u8);
+
     for i in 0..32 {
-        if scalar[i] < SECP256K1_ORDER[i] {
-            return true; // scalar < order, valid
-        }
-        if scalar[i] > SECP256K1_ORDER[i] {
-            return false; // scalar > order, invalid
-        }
+        let s_byte = scalar[i];
+        let n_byte = SECP256K1_ORDER[i];
+
+        let not_decided = !(less | greater);
+        let byte_less = Choice::from((s_byte < n_byte) as u8);
+        let byte_greater = Choice::from((s_byte > n_byte) as u8);
+
+        less |= not_decided & byte_less;
+        greater |= not_decided & byte_greater;
     }
-    false // scalar == order, invalid
+
+    // Valid if: NOT zero AND less than order
+    let not_zero = !is_zero;
+    let valid = not_zero & less;
+    valid.into()
 }
 
 /// Validate that R is a valid x-coordinate on the secp256k1 curve.

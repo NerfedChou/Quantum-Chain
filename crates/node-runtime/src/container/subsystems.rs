@@ -35,13 +35,30 @@ use qc_01_peer_discovery::PeerDiscoveryService;
 use qc_02_block_storage::{
     AssemblyConfig, BlockAssemblyBuffer, BlockStorageService,
     ports::outbound::{
-        BincodeBlockSerializer, DefaultChecksumProvider, InMemoryKVStore, MockFileSystemAdapter,
+        BincodeBlockSerializer, DefaultChecksumProvider,
         SystemTimeSource as StorageTimeSource,
     },
 };
+#[cfg(not(feature = "rocksdb"))]
+use qc_02_block_storage::ports::outbound::{InMemoryKVStore, MockFileSystemAdapter};
+
 use qc_03_transaction_indexing::{IndexConfig, TransactionIndex};
 use qc_04_state_management::PatriciaMerkleTrie;
 use qc_06_mempool::TransactionPool;
+
+// Consensus service and adapters
+use qc_08_consensus::{ConsensusConfig, ConsensusService};
+use crate::adapters::ports::consensus::{
+    ConsensusEventBusAdapter, ConsensusMempoolAdapter, 
+    ConsensusSignatureAdapter, ConsensusValidatorSetAdapter,
+};
+
+// Finality service and adapters
+use qc_09_finality::service::{FinalityConfig, FinalityService};
+use crate::adapters::ports::finality::{
+    ConcreteFinalityBlockStorageAdapter, FinalityAttestationAdapter, 
+    FinalityValidatorSetAdapter,
+};
 
 // RocksDB imports (when feature is enabled)
 #[cfg(feature = "rocksdb")]
@@ -68,6 +85,22 @@ pub type ConcreteBlockStorageService = BlockStorageService<
     DefaultChecksumProvider,
     StorageTimeSource,
     BincodeBlockSerializer,
+>;
+
+/// Concrete type for Consensus Service with all adapters wired.
+pub type ConcreteConsensusService = ConsensusService<
+    ConsensusEventBusAdapter,
+    ConsensusMempoolAdapter,
+    ConsensusSignatureAdapter,
+    ConsensusValidatorSetAdapter,
+>;
+
+/// Concrete type for Finality Service with all adapters wired (in-memory backends).
+#[cfg(not(feature = "rocksdb"))]
+pub type ConcreteFinalityService = FinalityService<
+    ConcreteFinalityBlockStorageAdapter,
+    FinalityAttestationAdapter,
+    FinalityValidatorSetAdapter,
 >;
 
 /// Central container holding all subsystem instances.
@@ -111,6 +144,13 @@ pub struct SubsystemContainer {
     pub state_trie: Arc<RwLock<PatriciaMerkleTrie>>,
 
     // =========================================================================
+    // LEVEL 3: Depends on Level 0-2
+    // =========================================================================
+    /// Consensus (Subsystem 8)
+    /// Block validation with PoS/PBFT.
+    pub consensus: Arc<ConcreteConsensusService>,
+
+    // =========================================================================
     // LEVEL 4: Depends on Level 0-3
     // =========================================================================
     /// Block Storage (Subsystem 2)
@@ -119,6 +159,11 @@ pub struct SubsystemContainer {
 
     /// Block Assembly Buffer (for choreography)
     pub assembly_buffer: Arc<RwLock<BlockAssemblyBuffer>>,
+
+    /// Finality (Subsystem 9)
+    /// Casper FFG finalization gadget.
+    #[cfg(not(feature = "rocksdb"))]
+    pub finality: Arc<ConcreteFinalityService>,
 
     // =========================================================================
     // SHARED INFRASTRUCTURE
@@ -190,9 +235,20 @@ impl SubsystemContainer {
         info!("  [4] State Management initialized");
 
         // =====================================================================
-        // PHASE 5: Level 4 - Block Storage (Stateful Assembler)
+        // PHASE 5: Level 3 - Consensus
         // =====================================================================
-        info!("Phase 5: Initializing Block Storage (Stateful Assembler)");
+        info!("Phase 5: Initializing Level 3 subsystems");
+
+        let consensus = Self::init_consensus(
+            Arc::clone(&event_bus),
+            Arc::clone(&mempool),
+        );
+        info!("  [8] Consensus initialized (PoS/PBFT)");
+
+        // =====================================================================
+        // PHASE 6: Level 4 - Block Storage & Finality
+        // =====================================================================
+        info!("Phase 6: Initializing Level 4 subsystems");
 
         let (block_storage, assembly_buffer) = Self::init_block_storage(&config);
         info!(
@@ -200,9 +256,14 @@ impl SubsystemContainer {
             config.storage.assembly_timeout_secs, config.storage.max_pending_assemblies
         );
 
-        info!("All core subsystems initialized successfully");
+        #[cfg(not(feature = "rocksdb"))]
+        let finality = Self::init_finality(Arc::clone(&block_storage));
+        #[cfg(not(feature = "rocksdb"))]
+        info!("  [9] Finality initialized (Casper FFG)");
+
+        info!("All subsystems initialized successfully");
         info!(
-            "Choreography ready: Consensus→TxIndexing→StateManagement→BlockStorage"
+            "Choreography ready: Consensus→TxIndexing→StateManagement→BlockStorage→Finality"
         );
 
         Self {
@@ -210,8 +271,11 @@ impl SubsystemContainer {
             mempool,
             transaction_index,
             state_trie,
+            consensus,
             block_storage,
             assembly_buffer,
+            #[cfg(not(feature = "rocksdb"))]
+            finality,
             event_bus,
             nonce_cache,
             config,
@@ -338,7 +402,7 @@ impl SubsystemContainer {
             };
             let kv_store = RocksDbStore::open(rocks_config)
                 .expect("Failed to open RocksDB");
-            let fs_adapter = ProductionFileSystemAdapter::new(&config.storage.data_dir);
+            let fs_adapter = ProductionFileSystemAdapter::new(config.storage.data_dir.to_string_lossy().to_string());
             
             BlockStorageService::new(
                 kv_store,
@@ -369,6 +433,50 @@ impl SubsystemContainer {
         (Arc::new(RwLock::new(service)), assembly_buffer)
     }
 
+    /// Initialize Consensus service with all port adapters.
+    fn init_consensus(
+        event_bus: Arc<InMemoryEventBus>,
+        mempool: Arc<RwLock<TransactionPool>>,
+    ) -> Arc<ConcreteConsensusService> {
+        // Create port adapters
+        let event_bus_adapter = Arc::new(ConsensusEventBusAdapter::new(event_bus));
+        let mempool_adapter = Arc::new(ConsensusMempoolAdapter::new(mempool));
+        let sig_adapter = Arc::new(ConsensusSignatureAdapter::new());
+        let validator_adapter = Arc::new(ConsensusValidatorSetAdapter::new());
+
+        // Create consensus service with default config
+        let consensus_config = ConsensusConfig::default();
+
+        Arc::new(ConsensusService::new(
+            event_bus_adapter,
+            mempool_adapter,
+            sig_adapter,
+            validator_adapter,
+            consensus_config,
+        ))
+    }
+
+    /// Initialize Finality service with all port adapters.
+    #[cfg(not(feature = "rocksdb"))]
+    fn init_finality(
+        block_storage: Arc<RwLock<ConcreteBlockStorageService>>,
+    ) -> Arc<ConcreteFinalityService> {
+        // Create port adapters
+        let storage_adapter = Arc::new(ConcreteFinalityBlockStorageAdapter::new(block_storage));
+        let attestation_adapter = Arc::new(FinalityAttestationAdapter::new());
+        let validator_adapter = Arc::new(FinalityValidatorSetAdapter::new());
+
+        // Create finality service with default config
+        let finality_config = FinalityConfig::default();
+
+        Arc::new(FinalityService::new(
+            finality_config,
+            storage_adapter,
+            attestation_adapter,
+            validator_adapter,
+        ))
+    }
+
     // =========================================================================
     // ACCESSOR METHODS
     // =========================================================================
@@ -396,6 +504,17 @@ impl SubsystemContainer {
     /// Get state trie for account state operations.
     pub fn state_trie(&self) -> Arc<RwLock<PatriciaMerkleTrie>> {
         Arc::clone(&self.state_trie)
+    }
+
+    /// Get consensus service for block validation.
+    pub fn consensus(&self) -> Arc<ConcreteConsensusService> {
+        Arc::clone(&self.consensus)
+    }
+
+    /// Get finality service for Casper FFG operations.
+    #[cfg(not(feature = "rocksdb"))]
+    pub fn finality(&self) -> Arc<ConcreteFinalityService> {
+        Arc::clone(&self.finality)
     }
 }
 
@@ -428,6 +547,21 @@ mod tests {
         let trie = container.state_trie();
         // Just verify we can read the root hash (value depends on empty trie implementation)
         let _root = trie.read().root_hash();
+    }
+
+    #[test]
+    fn test_consensus_initialized() {
+        let container = SubsystemContainer::new_for_testing();
+        // Verify consensus is accessible
+        let _consensus = container.consensus();
+    }
+
+    #[cfg(not(feature = "rocksdb"))]
+    #[test]
+    fn test_finality_initialized() {
+        let container = SubsystemContainer::new_for_testing();
+        // Verify finality is accessible
+        let _finality = container.finality();
     }
 
     #[test]

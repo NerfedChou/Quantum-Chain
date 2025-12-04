@@ -81,6 +81,12 @@ pub enum ConsensusError {
 
     #[error("Proposer did not attest: {0:?}")]
     ProposerDidNotAttest(ValidatorId),
+
+    #[error("Invalid signature format for validator: {0:?}")]
+    InvalidSignatureFormat(ValidatorId),
+
+    #[error("Extra data too large: {size} bytes > {limit} bytes")]
+    ExtraDataTooLarge { size: usize, limit: usize },
 }
 
 /// Result type for consensus operations

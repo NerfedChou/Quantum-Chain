@@ -56,6 +56,7 @@ pub mod adapters;
 pub mod domain;
 pub mod events;
 pub mod ipc;
+pub mod metrics;
 pub mod ports;
 pub mod service;
 

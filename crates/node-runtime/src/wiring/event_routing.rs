@@ -202,8 +202,7 @@ impl std::error::Error for AuthorizationError {}
 pub struct EventRouter {
     /// Broadcast channel for choreography events.
     sender: broadcast::Sender<ChoreographyEvent>,
-    /// Channel capacity.
-    #[allow(dead_code)]
+    /// Channel capacity for diagnostics.
     capacity: usize,
 }
 
@@ -217,6 +216,13 @@ impl EventRouter {
     /// Subscribe to choreography events.
     pub fn subscribe(&self) -> broadcast::Receiver<ChoreographyEvent> {
         self.sender.subscribe()
+    }
+
+    /// Get the channel capacity.
+    /// 
+    /// Useful for diagnostics and monitoring.
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 
     /// Publish an event (with authorization check).

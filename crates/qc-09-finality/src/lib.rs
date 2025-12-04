@@ -9,6 +9,8 @@
 //! - **2/3 Threshold**: Supermajority stake required for justification
 //! - **Circuit Breaker**: Livelock prevention with manual intervention
 //! - **Zero-Trust**: Independent signature re-verification
+//! - **Slashing Detection**: Double vote and surround vote detection
+//! - **Inactivity Leak**: Gradual stake reduction when finality stalls
 //!
 //! ## Architecture
 //!
@@ -18,6 +20,10 @@
 //! Consensus (8) ──AttestationBatch──→ Finality (9)
 //!                                         │
 //!                                         ├── MarkFinalizedRequest ──→ Block Storage (2)
+//!                                         │
+//!                                         ├── SlashableOffenseDetectedEvent ──→ Enforcement
+//!                                         │
+//!                                         ├── InactivityLeakTriggeredEvent ──→ Enforcement
 //!                                         │
 //!                                         └── FinalityProof ──→ Cross-Chain (15)
 //! ```
@@ -61,6 +67,11 @@
 //! // Process attestations
 //! let result = service.process_attestations(attestations).await?;
 //!
+//! // Check for slashing events
+//! for event in result.slashing_events {
+//!     // Forward to enforcement subsystem
+//! }
+//!
 //! // Check if block is finalized
 //! let is_final = service.is_finalized(block_hash).await;
 //! ```
@@ -69,6 +80,7 @@ pub mod domain;
 pub mod error;
 pub mod events;
 pub mod ipc;
+pub mod metrics;
 pub mod ports;
 pub mod service;
 
@@ -78,7 +90,10 @@ pub use domain::{
     CircuitBreaker, FinalityEvent, FinalityState, ValidatorId, ValidatorSet,
 };
 pub use error::{FinalityError, FinalityResult};
-pub use events::{AttestationBatch, FinalityAchievedEvent, MarkFinalizedPayload};
+pub use events::{
+    AttestationBatch, FinalityAchievedEvent, InactivityLeakTriggeredEvent, MarkFinalizedPayload,
+    SlashableOffenseDetectedEvent,
+};
 pub use ipc::FinalityIpcHandler;
 pub use ports::inbound::{AttestationResult, FinalityApi};
 pub use ports::outbound::{

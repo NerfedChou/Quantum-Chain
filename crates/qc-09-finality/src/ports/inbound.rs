@@ -4,6 +4,7 @@
 
 use crate::domain::{Attestation, Checkpoint, FinalityState, ValidatorId};
 use crate::error::FinalityResult;
+use crate::events::outgoing::{InactivityLeakTriggeredEvent, SlashableOffenseDetectedEvent};
 use async_trait::async_trait;
 use shared_types::Hash;
 
@@ -18,6 +19,10 @@ pub struct AttestationResult {
     pub new_justified: Option<Checkpoint>,
     /// Newly finalized checkpoint (if any)
     pub new_finalized: Option<Checkpoint>,
+    /// Pending slashing events generated during processing
+    pub slashing_events: Vec<SlashableOffenseDetectedEvent>,
+    /// Pending inactivity leak events generated during processing
+    pub inactivity_events: Vec<InactivityLeakTriggeredEvent>,
 }
 
 impl AttestationResult {
@@ -27,6 +32,8 @@ impl AttestationResult {
             rejected: 0,
             new_justified: None,
             new_finalized: None,
+            slashing_events: Vec::new(),
+            inactivity_events: Vec::new(),
         }
     }
 }
@@ -62,7 +69,8 @@ pub trait FinalityApi: Send + Sync {
     /// * `attestations` - Batch of attestations to process
     ///
     /// # Returns
-    /// * Result indicating accepted/rejected counts and any state changes
+    /// * Result indicating accepted/rejected counts, state changes, and any
+    ///   slashing/inactivity events that should be forwarded to enforcement
     async fn process_attestations(
         &self,
         attestations: Vec<Attestation>,
@@ -98,6 +106,12 @@ pub trait FinalityApi: Send + Sync {
     /// Check if inactivity leak is active
     async fn is_inactivity_leak_active(&self) -> bool;
 
-    /// Get detected slashable offenses
+    /// Get detected slashable offenses (historical)
     async fn get_slashable_offenses(&self) -> Vec<SlashableOffenseInfo>;
+
+    /// Get pending slashing events (for enforcement subsystem)
+    async fn take_pending_slashing_events(&self) -> Vec<SlashableOffenseDetectedEvent>;
+
+    /// Get pending inactivity leak events (for enforcement subsystem)
+    async fn take_pending_inactivity_events(&self) -> Vec<InactivityLeakTriggeredEvent>;
 }

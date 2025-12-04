@@ -1,21 +1,21 @@
-//! IPC message handler for the Mempool subsystem.
+//! # IPC Message Handler - Two-Phase Commit Coordinator
 //!
-//! Processes incoming IPC messages with security validation.
+//! Processes incoming IPC messages with security validation per IPC-MATRIX.md v2.3.
 //!
-//! # Security Architecture
+//! ## Security Validation Order
 //!
-//! This handler uses the **centralized security module** from `shared-types`
-//! as mandated by Architecture.md v2.2. This ensures:
+//! 1. Sender authorization (per-message type)
+//! 2. Timestamp bounds (±30s from now)
+//! 3. HMAC signature verification
+//! 4. Nonce uniqueness (replay prevention)
 //!
-//! - Single source of truth for IPC security
-//! - Consistent HMAC validation across all subsystems
-//! - Unified nonce/replay prevention
+//! ## Two-Phase Commit Flow
 //!
-//! ## Migration Note (2024-12)
-//!
-//! This handler was migrated from local security functions to use
-//! `shared_types::security`. The local `security.rs` is kept only for
-//! `AuthorizationRules` and `subsystem_id` constants.
+//! ```text
+//! Consensus → GetTransactionsRequest → [propose] → PENDING_INCLUSION
+//! Storage → BlockStorageConfirmation → [confirm] → DELETED
+//! Storage/Consensus → BlockRejectedNotification → [rollback] → PENDING
+//! ```
 
 use crate::domain::{Hash, MempoolError, MempoolTransaction, TransactionPool};
 use crate::ipc::payloads::*;

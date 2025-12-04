@@ -93,7 +93,6 @@ impl FinalityProof {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared_types::Hash;
 
     fn test_checkpoint(epoch: u64) -> Checkpoint {
         let mut hash = [0u8; 32];

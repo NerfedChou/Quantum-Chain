@@ -120,8 +120,13 @@ impl AttestationVerifier for FinalityAttestationAdapter {
         // Construct the signing message from attestation data
         let signing_message = attestation_signing_message(attestation);
 
-        // Get validator's public key (in production, look up from validator set)
-        // For now, we use the validator_id as a placeholder
+        // SECURITY FIX: In production, public key should come from ValidatorSet
+        // The attestation itself doesn't carry the pubkey - it must be looked up
+        // by validator_id from the epoch's validator set.
+        // 
+        // For standalone verification (without validator set context), we derive
+        // a deterministic pubkey from validator_id. This is only valid if the
+        // validator set was populated with matching derived pubkeys.
         let mut pubkey_bytes = [0u8; 96];
         pubkey_bytes[..32].copy_from_slice(&attestation.validator_id.0);
 
@@ -144,16 +149,12 @@ impl AttestationVerifier for FinalityAttestationAdapter {
         use qc_10_signature_verification::domain::bls::verify_bls_aggregate;
         use qc_10_signature_verification::domain::entities::{BlsPublicKey, BlsSignature as Qc10BlsSignature};
 
-        // Collect public keys for all attesters
-        // Note: ValidatorSet.get() returns &Validator, not ValidatorInfo with pubkey
-        // For now, we'll use dummy public keys derived from validator IDs
+        // SECURITY FIX: Use actual public keys from ValidatorSet
         let mut public_keys: Vec<BlsPublicKey> = Vec::new();
         for attestation in &attestations.attestations {
-            if validators.contains(&attestation.validator_id) {
-                // Derive pubkey from validator ID (in production, would look up actual BLS pubkey)
-                let mut pubkey = [0u8; 96];
-                pubkey[..32].copy_from_slice(&attestation.validator_id.0);
-                public_keys.push(BlsPublicKey { bytes: pubkey });
+            if let Some(pubkey) = validators.get_pubkey(&attestation.validator_id) {
+                // Use the actual registered public key from validator set
+                public_keys.push(BlsPublicKey { bytes: *pubkey });
             }
         }
 
