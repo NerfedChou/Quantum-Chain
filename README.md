@@ -5,7 +5,7 @@
 [![Rust](https://img.shields.io/badge/rust-stable%20(1.85%2B)-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
 [![Architecture](https://img.shields.io/badge/architecture-v2.3-green.svg)](Documentation/Architecture.md)
-[![Tests](https://img.shields.io/badge/tests-651%20passing-brightgreen.svg)](#test-coverage)
+[![Tests](https://img.shields.io/badge/tests-731%20passing-brightgreen.svg)](#test-coverage)
 [![CI](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/rust.yml/badge.svg)](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/rust.yml)
 
 ---
@@ -49,7 +49,7 @@ RULE #4: Consensus-critical signatures are re-verified independently
 | Core Subsystems (1-6, 8-10) | ✅ Production Ready | 432 |
 | Integration Tests | ✅ All Passing | 219 |
 | Node Runtime Wiring | ✅ Complete | 34 |
-| **Total** | **✅ Ready** | **651** |
+| **Total** | **✅ Ready** | **731** |
 
 ---
 
@@ -162,7 +162,7 @@ The system uses **event-driven choreography** for block processing:
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                    TEST RESULTS: 651 PASSING                   │
+│                    TEST RESULTS: 731 PASSING                   │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
 │  Core Subsystems (Unit Tests)                                  │
@@ -179,10 +179,13 @@ The system uses **event-driven choreography** for block processing:
 │  Integration Tests                                             │
 │  └── integration-tests .................. 219 tests ✅        │
 │                                                                │
-│  Node Runtime                                                  │
-│  └── node-runtime ....................... 34 tests ✅         │
+│  Infrastructure & Doc Tests                                    │
+│  ├── node-runtime ....................... 34 tests ✅         │
+│  ├── shared-types ....................... 26 tests ✅         │
+│  ├── shared-bus ......................... 10 tests ✅         │
+│  └── doc-tests .......................... 10 tests ✅         │
 │                                                                │
-│  TOTAL: 651 tests passing                                      │
+│  TOTAL: 731 tests passing                                      │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -191,9 +194,9 @@ The system uses **event-driven choreography** for block processing:
 
 | Category | Coverage | Description |
 |----------|----------|-------------|
-| **Unit Tests** | 432 | Domain logic, ports, services |
+| **Unit Tests** | 472 | Domain logic, ports, services |
 | **Integration Tests** | 219 | Cross-subsystem flows, exploit scenarios |
-| **Runtime Tests** | 34 | Wiring, event routing, authorization |
+| **Infrastructure Tests** | 40 | Wiring, event routing, shared components |
 | **Invariant Tests** | ✅ | Determinism, no false positives, no malleability |
 | **Security Tests** | ✅ | IPC auth, replay prevention, rate limiting |
 
@@ -408,4 +411,4 @@ This project is licensed under the [Unlicense](LICENSE).
 
 **Version:** 0.3.0 | **Architecture:** V2.3 | **Last Updated:** 2025-12-04
 
-**Status:** ✅ Production Ready (651 tests passing)
+**Status:** ✅ Production Ready (731 tests passing)
