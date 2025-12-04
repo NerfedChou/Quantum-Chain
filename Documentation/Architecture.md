@@ -78,7 +78,9 @@ crates/
 ├── light-client/            # Subsystem 13 (optional)
 ├── sharding/                # Subsystem 14 (optional)
 ├── cross-chain/             # Subsystem 15 (optional)
-└── shared-bus/              # Event communication layer
+├── api-gateway/             # Subsystem 16 (external API)
+├── shared-bus/              # Event communication layer
+└── quantum-telemetry/       # LGTM observability integration
 ```
 
 #### Ubiquitous Language
@@ -928,13 +930,19 @@ With garbage collection every 10s:
 | 14 | Sharding | Horizontal Scaling | Split state across shards |
 | 15 | Cross-Chain | Interoperability | Atomic swaps via HTLC |
 
-### 4.3 Infrastructure Crates
+### 4.3 External Interface Subsystems
+
+| ID | Name | Bounded Context | Primary Responsibility |
+|----|------|----------------|----------------------|
+| 16 | API Gateway | External API | JSON-RPC/WebSocket/REST interface for wallets and dApps |
+
+### 4.4 Infrastructure Crates
 
 ```
 crates/
 ├── shared-bus/          # Event bus for inter-subsystem communication
 ├── shared-types/        # Common types (Hash, Address, Signature)
-├── crypto/              # Cryptographic primitives (wrapper around libsecp256k1)
+├── quantum-telemetry/   # LGTM observability (Loki, Grafana, Tempo, Mimir)
 └── node-runtime/        # Application binary that wires everything together
 ```
 

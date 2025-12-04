@@ -333,7 +333,7 @@ mod tests {
         let time_source = ControllableTimeSource::new(1000);
         let time_ref = std::sync::Arc::new(time_source);
         let time_clone = std::sync::Arc::clone(&time_ref);
-        
+
         /// Wrapper to share ControllableTimeSource across service and test via Arc.
         struct SharedTimeSource(std::sync::Arc<ControllableTimeSource>);
         impl TimeSource for SharedTimeSource {
@@ -341,12 +341,9 @@ mod tests {
                 self.0.now()
             }
         }
-        
-        let mut service = PeerDiscoveryService::new(
-            local_id, 
-            config, 
-            Box::new(SharedTimeSource(time_clone))
-        );
+
+        let mut service =
+            PeerDiscoveryService::new(local_id, config, Box::new(SharedTimeSource(time_clone)));
 
         let peer_id = make_node_id(1);
 

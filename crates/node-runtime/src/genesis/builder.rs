@@ -164,18 +164,14 @@ pub struct ValidatorInfo {
 
 /// Empty Merkle tree root (Keccak256 of empty bytes).
 pub const EMPTY_MERKLE_ROOT: [u8; 32] = [
-    0x56, 0xe8, 0x1f, 0x17, 0x1b, 0xcc, 0x55, 0xa6,
-    0xff, 0x83, 0x45, 0xe6, 0x92, 0xc0, 0xf8, 0x6e,
-    0x5b, 0x48, 0xe0, 0x1b, 0x99, 0x6c, 0xad, 0xc0,
-    0x01, 0x62, 0x2f, 0xb5, 0xe3, 0x63, 0xb4, 0x21,
+    0x56, 0xe8, 0x1f, 0x17, 0x1b, 0xcc, 0x55, 0xa6, 0xff, 0x83, 0x45, 0xe6, 0x92, 0xc0, 0xf8, 0x6e,
+    0x5b, 0x48, 0xe0, 0x1b, 0x99, 0x6c, 0xad, 0xc0, 0x01, 0x62, 0x2f, 0xb5, 0xe3, 0x63, 0xb4, 0x21,
 ];
 
 /// Empty Patricia trie root (Keccak256 of RLP-encoded empty string).
 pub const EMPTY_STATE_ROOT: [u8; 32] = [
-    0x56, 0xe8, 0x1f, 0x17, 0x1b, 0xcc, 0x55, 0xa6,
-    0xff, 0x83, 0x45, 0xe6, 0x92, 0xc0, 0xf8, 0x6e,
-    0x5b, 0x48, 0xe0, 0x1b, 0x99, 0x6c, 0xad, 0xc0,
-    0x01, 0x62, 0x2f, 0xb5, 0xe3, 0x63, 0xb4, 0x21,
+    0x56, 0xe8, 0x1f, 0x17, 0x1b, 0xcc, 0x55, 0xa6, 0xff, 0x83, 0x45, 0xe6, 0x92, 0xc0, 0xf8, 0x6e,
+    0x5b, 0x48, 0xe0, 0x1b, 0x99, 0x6c, 0xad, 0xc0, 0x01, 0x62, 0x2f, 0xb5, 0xe3, 0x63, 0xb4, 0x21,
 ];
 
 /// Builder for creating genesis blocks.
@@ -263,12 +259,12 @@ fn compute_genesis_state_root(validators: &[ValidatorInfo]) -> [u8; 32] {
     // Simplified: hash all validator data together
     // In production: build actual Patricia Merkle Trie
     let mut hasher = Keccak256::new();
-    
+
     for validator in validators {
         hasher.update(validator.address);
         hasher.update(validator.stake.to_be_bytes());
     }
-    
+
     let result = hasher.finalize();
     let mut root = [0u8; 32];
     root.copy_from_slice(&result);
@@ -278,7 +274,7 @@ fn compute_genesis_state_root(validators: &[ValidatorInfo]) -> [u8; 32] {
 /// Compute genesis block hash.
 fn compute_genesis_hash(header: &GenesisHeader) -> [u8; 32] {
     let mut hasher = Keccak256::new();
-    
+
     // Hash all header fields deterministically
     hasher.update(header.height.to_be_bytes());
     hasher.update(header.parent_hash);
@@ -288,7 +284,7 @@ fn compute_genesis_hash(header: &GenesisHeader) -> [u8; 32] {
     hasher.update(header.chain_id.to_be_bytes());
     hasher.update(header.protocol_version.to_be_bytes());
     hasher.update(&header.extra_data);
-    
+
     let result = hasher.finalize();
     let mut hash = [0u8; 32];
     hash.copy_from_slice(&result);
@@ -329,7 +325,7 @@ mod tests {
             timestamp: Some(1700000000), // Fixed timestamp
             ..Default::default()
         };
-        
+
         let genesis1 = GenesisBuilder::new(config.clone()).build().unwrap();
         let genesis2 = GenesisBuilder::new(config).build().unwrap();
 
@@ -341,7 +337,7 @@ mod tests {
         let mut config = GenesisConfig::default();
         config.initial_validators = vec![[0u8; 33]];
         // No matching stakes
-        
+
         let result = config.validate();
         assert!(result.is_err());
     }
@@ -350,7 +346,7 @@ mod tests {
     fn test_extra_data_limit() {
         let mut config = GenesisConfig::default();
         config.extra_data = vec![0u8; 33]; // Too long
-        
+
         let result = config.validate();
         assert!(result.is_err());
     }

@@ -108,9 +108,8 @@ pub mod service;
 
 // Re-export primary types for convenience
 pub use domain::{
-    BlockAnnouncement, CompactBlock, PeerId, PeerPropagationState, PrefilledTx,
-    PropagationConfig, PropagationMetrics, PropagationState, PropagationStats,
-    SeenBlockCache, ShortTxId,
+    BlockAnnouncement, CompactBlock, PeerId, PeerPropagationState, PrefilledTx, PropagationConfig,
+    PropagationMetrics, PropagationState, PropagationStats, SeenBlockCache, ShortTxId,
 };
 pub use events::PropagationError;
 pub use ports::inbound::{BlockPropagationApi, BlockReceiver};

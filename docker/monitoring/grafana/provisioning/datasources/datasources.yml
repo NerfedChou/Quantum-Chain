@@ -1,9 +1,70 @@
+# ==============================================================================
+# Grafana Datasources for Quantum-Chain LGTM Stack
+# ==============================================================================
+# L - Loki (Logs)
+# G - Grafana (this file configures it)
+# T - Tempo (Traces)
+# M - Mimir/Prometheus (Metrics)
+# ==============================================================================
+
 apiVersion: 1
 
 datasources:
+  # ==========================================================================
+  # METRICS: Prometheus
+  # ==========================================================================
   - name: Prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090
     isDefault: true
     editable: false
+    jsonData:
+      httpMethod: POST
+      exemplarTraceIdDestinations:
+        - name: traceID
+          datasourceUid: tempo
+
+  # ==========================================================================
+  # LOGS: Loki
+  # ==========================================================================
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      derivedFields:
+        # Link logs to traces via trace_id field
+        - datasourceUid: tempo
+          matcherRegex: '"trace_id":"([a-f0-9]+)"'
+          name: TraceID
+          url: '$${__value.raw}'
+
+  # ==========================================================================
+  # TRACES: Tempo
+  # ==========================================================================
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    uid: tempo
+    editable: false
+    jsonData:
+      httpMethod: GET
+      tracesToLogs:
+        datasourceUid: loki
+        tags: ['subsystem', 'block_height']
+        mappedTags: [{ key: 'service.name', value: 'subsystem' }]
+        mapTagNamesEnabled: true
+        filterByTraceID: true
+      tracesToMetrics:
+        datasourceUid: prometheus
+        tags: [{ key: 'service.name', value: 'subsystem' }]
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
+      lokiSearch:
+        datasourceUid: loki
+

@@ -1,0 +1,74 @@
+# ==============================================================================
+# Tempo Configuration for Quantum-Chain
+# ==============================================================================
+# Distributed tracing for tracking requests across all 15 subsystems.
+# Critical for debugging choreography patterns (BlockValidated -> Storage).
+#
+# Trace a transaction:
+#   1. Enters via RPC
+#   2. Signature Verification (10)
+#   3. Mempool (6)
+#   4. Consensus (8) - BlockValidated event
+#   5. Parallel: TxIndexing (3) + StateManagement (4)
+#   6. Block Storage (2) - Assembly
+#   7. Finality (9)
+#
+# Query in Grafana using TraceQL:
+#   { resource.service.name = "qc-08-consensus" }
+#   { span.subsystem = "finality" && duration > 100ms }
+# ==============================================================================
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+  log_level: info
+
+# Distributor receives spans from applications
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+# Ingester writes traces to storage
+ingester:
+  max_block_duration: 5m
+
+# Compactor handles trace lifecycle
+compactor:
+  compaction:
+    block_retention: 168h  # 7 days retention
+
+# Storage configuration
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+# Query configuration for Grafana
+querier:
+  frontend_worker:
+    frontend_address: ""
+
+# Metrics generator (optional - creates metrics from traces)
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+
+# Overrides for per-tenant configuration
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics]

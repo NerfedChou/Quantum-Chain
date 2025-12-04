@@ -16,7 +16,9 @@ use shared_types::Hash;
 use std::sync::Arc;
 
 use qc_06_mempool::TransactionPool;
-use qc_08_consensus::domain::{SignedTransaction, ValidatedBlock, ValidationProof, ValidatorInfo, ValidatorSet};
+use qc_08_consensus::domain::{
+    SignedTransaction, ValidatedBlock, ValidationProof, ValidatorInfo, ValidatorSet,
+};
 use qc_08_consensus::ports::{EventBus, MempoolGateway, SignatureVerifier, ValidatorSetProvider};
 
 // =============================================================================
@@ -59,10 +61,10 @@ impl EventBus for ConsensusEventBusAdapter {
             transactions: vec![], // Transactions are passed separately in choreography
             consensus_proof: shared_types::ConsensusProof::default(),
         };
-        
+
         // Publish to the shared event bus per V2.3 Choreography Pattern
         let event = shared_bus::BlockchainEvent::BlockValidated(validated_block);
-        
+
         let receivers = self.event_bus.publish(event).await;
         tracing::info!(
             "BlockValidated event published for block {} to {} receivers",
@@ -165,8 +167,8 @@ impl Default for ConsensusSignatureAdapter {
 
 impl SignatureVerifier for ConsensusSignatureAdapter {
     fn verify_ecdsa(&self, message: &[u8], signature: &[u8; 65], _public_key: &[u8; 33]) -> bool {
-        use qc_10_signature_verification::domain::entities::EcdsaSignature;
         use qc_10_signature_verification::domain::ecdsa::verify_ecdsa;
+        use qc_10_signature_verification::domain::entities::EcdsaSignature;
 
         // Extract r, s, v from signature
         let mut r = [0u8; 32];
@@ -196,7 +198,12 @@ impl SignatureVerifier for ConsensusSignatureAdapter {
         result.valid
     }
 
-    fn verify_aggregate_bls(&self, message: &[u8], signature: &[u8; 96], public_keys: &[[u8; 48]]) -> bool {
+    fn verify_aggregate_bls(
+        &self,
+        message: &[u8],
+        signature: &[u8; 96],
+        public_keys: &[[u8; 48]],
+    ) -> bool {
         use qc_10_signature_verification::domain::bls::verify_bls_aggregate;
         use qc_10_signature_verification::domain::entities::{BlsPublicKey, BlsSignature};
 
@@ -219,8 +226,8 @@ impl SignatureVerifier for ConsensusSignatureAdapter {
     }
 
     fn recover_signer(&self, message: &[u8], signature: &[u8; 65]) -> Option<[u8; 20]> {
-        use qc_10_signature_verification::domain::entities::EcdsaSignature;
         use qc_10_signature_verification::domain::ecdsa::recover_address;
+        use qc_10_signature_verification::domain::entities::EcdsaSignature;
 
         let mut r = [0u8; 32];
         let mut s = [0u8; 32];
@@ -306,7 +313,11 @@ impl ValidatorSetProvider for ConsensusValidatorSetAdapter {
         Ok(ValidatorSet::new(epoch, self.validators.clone()))
     }
 
-    async fn get_total_stake_at_epoch(&self, _epoch: u64, _state_root: Hash) -> Result<u128, String> {
+    async fn get_total_stake_at_epoch(
+        &self,
+        _epoch: u64,
+        _state_root: Hash,
+    ) -> Result<u128, String> {
         let total: u128 = self.validators.iter().map(|v| v.stake).sum();
         Ok(total)
     }

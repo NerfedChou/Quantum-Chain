@@ -40,7 +40,7 @@ fn aggregate_bls_signatures(attestations: &[Attestation]) -> BlsSignature {
     // In production: Use BLS aggregate signature algorithm
     // For now: XOR all signatures together (preserves some cryptographic properties)
     let mut aggregated = vec![0u8; 96]; // BLS signature size
-    
+
     for attestation in attestations {
         let sig_bytes = &attestation.signature.0;
         for (i, byte) in sig_bytes.iter().enumerate() {
@@ -178,7 +178,7 @@ impl FinalityServiceState {
 
         // Remove old checkpoints
         self.checkpoints.retain(|epoch, _| *epoch >= min_keep_epoch);
-        
+
         // Also prune attestations for removed checkpoints
         self.attestations.retain(|id, _| id.epoch >= min_keep_epoch);
     }
@@ -249,23 +249,22 @@ where
         }
 
         // 2. Zero-trust: Re-verify signature
-        if self.config.always_reverify_signatures
-            && !self.verifier.verify_attestation(attestation) {
-                return Err(FinalityError::InvalidSignature {
-                    validator_id: validator_id.0,
-                });
-            }
+        if self.config.always_reverify_signatures && !self.verifier.verify_attestation(attestation)
+        {
+            return Err(FinalityError::InvalidSignature {
+                validator_id: validator_id.0,
+            });
+        }
 
         // 3. Check for slashable conditions (double vote, surround vote)
         self.check_slashable_conditions(attestation, validator_id)?;
 
         // 4. Get stake weight
-        let stake =
-            validators
-                .get_stake(validator_id)
-                .ok_or(FinalityError::UnknownValidator {
-                    validator_id: validator_id.0,
-                })?;
+        let stake = validators
+            .get_stake(validator_id)
+            .ok_or(FinalityError::UnknownValidator {
+                validator_id: validator_id.0,
+            })?;
 
         Ok(Some(stake))
     }
@@ -295,7 +294,7 @@ where
         validator_id: &ValidatorId,
     ) -> Result<(), FinalityError> {
         let mut state = self.state.write();
-        
+
         // First, check if there's a conflict and clone the conflicting attestation if found
         let conflict = state
             .attestation_history
@@ -306,19 +305,14 @@ where
                     .find(|prev| attestation.conflicts_with(prev))
                     .cloned()
             });
-        
+
         // Now handle the conflict with mutable access
         if let Some(conflicting) = conflict {
             let current_epoch = attestation.target_checkpoint.epoch;
-            self.record_slashable_offense(
-                &mut state,
-                attestation,
-                &conflicting,
-                current_epoch,
-            );
+            self.record_slashable_offense(&mut state, attestation, &conflicting, current_epoch);
             return Err(FinalityError::ConflictingAttestation);
         }
-        
+
         Ok(())
     }
 
@@ -413,7 +407,7 @@ where
     }
 
     /// Send MarkFinalizedRequest to Block Storage
-    /// 
+    ///
     /// Constructs a proper FinalityProof with:
     /// - Source and target checkpoints
     /// - Aggregated signatures from attestations
@@ -421,7 +415,7 @@ where
     async fn notify_finalization(&self, checkpoint: &Checkpoint) -> FinalityResult<()> {
         let (source, aggregated_sigs, participation_bitmap) = {
             let state = self.state.read();
-            
+
             // Get the source checkpoint (previous justified)
             let source_epoch = checkpoint.epoch.saturating_sub(1);
             let source = state

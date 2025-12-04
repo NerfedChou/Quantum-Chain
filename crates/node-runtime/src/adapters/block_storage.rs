@@ -191,13 +191,17 @@ impl BlockStorageAdapter {
                 // Publish BlockStored event (safe unwrap - we just checked is_complete)
                 let merkle_root = match assembly.merkle_root {
                     Some(r) => r,
-                    None => return Err(BlockStorageError::WriteFailed("Missing merkle_root".into())),
+                    None => {
+                        return Err(BlockStorageError::WriteFailed("Missing merkle_root".into()))
+                    }
                 };
                 let state_root = match assembly.state_root {
                     Some(r) => r,
-                    None => return Err(BlockStorageError::WriteFailed("Missing state_root".into())),
+                    None => {
+                        return Err(BlockStorageError::WriteFailed("Missing state_root".into()))
+                    }
                 };
-                
+
                 let event = ChoreographyEvent::BlockStored {
                     block_hash,
                     block_height: assembly.block_height,

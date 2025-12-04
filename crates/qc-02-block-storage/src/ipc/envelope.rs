@@ -270,8 +270,8 @@ impl EnvelopeValidator {
         }
 
         // Compute HMAC over envelope fields (excluding signature itself)
-        use sha2::Sha256;
         use hmac::{Hmac, Mac};
+        use sha2::Sha256;
         type HmacSha256 = Hmac<Sha256>;
 
         let mut mac = match HmacSha256::new_from_slice(&self.shared_secret) {

@@ -1,0 +1,88 @@
+# ==============================================================================
+# Loki Configuration for Quantum-Chain
+# ==============================================================================
+# Aggregates logs from all 15 subsystems with structured JSON format.
+# Query logs in Grafana using LogQL.
+#
+# Example queries:
+#   {subsystem="consensus"} |= "BlockValidated"
+#   {level="ERROR"} | json | line_format "{{.msg}}"
+#   rate({subsystem=~"consensus|finality"}[5m])
+# ==============================================================================
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: info
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 100
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+ingester:
+  wal:
+    enabled: true
+    dir: /loki/wal
+  lifecycler:
+    ring:
+      kvstore:
+        store: inmemory
+      replication_factor: 1
+
+limits_config:
+  # Retention: 7 days for development, increase for production
+  retention_period: 168h
+  # Allow large log lines (block data can be verbose)
+  max_line_size: 256kb
+  # Ingestion limits
+  ingestion_rate_mb: 10
+  ingestion_burst_size_mb: 20
+  # Query limits
+  max_entries_limit_per_query: 5000
+
+# Compactor for retention enforcement
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  delete_request_store: filesystem
+
+# Enable ruler for alerting (optional)
+ruler:
+  alertmanager_url: ""
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+  rule_path: /loki/rules-temp
+  ring:
+    kvstore:
+      store: inmemory

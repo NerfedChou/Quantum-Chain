@@ -24,13 +24,12 @@ pub mod rocksdb_adapter;
 
 #[cfg(feature = "rocksdb")]
 pub use rocksdb_adapter::{
-    RocksDbStore, RocksDbConfig, ProductionFileSystemAdapter,
-    RocksDbTrieDatabase, RocksDbSnapshotStorage,
-    CF_BLOCKS, CF_STATE, CF_TX_INDEX, CF_METADATA, COLUMN_FAMILIES,
+    ProductionFileSystemAdapter, RocksDbConfig, RocksDbSnapshotStorage, RocksDbStore,
+    RocksDbTrieDatabase, CF_BLOCKS, CF_METADATA, CF_STATE, CF_TX_INDEX, COLUMN_FAMILIES,
 };
 
 // Re-export in-memory adapters for testing
 pub use qc_02_block_storage::ports::outbound::{
-    InMemoryKVStore, MockFileSystemAdapter, DefaultChecksumProvider, SystemTimeSource,
-    BincodeBlockSerializer,
+    BincodeBlockSerializer, DefaultChecksumProvider, InMemoryKVStore, MockFileSystemAdapter,
+    SystemTimeSource,
 };

@@ -24,27 +24,18 @@ impl Default for InMemoryTrieDb {
 
 impl TrieDatabase for InMemoryTrieDb {
     fn get_node(&self, hash: &Hash) -> Result<Option<Vec<u8>>, StateError> {
-        let nodes = self
-            .nodes
-            .read()
-            .map_err(|_| StateError::LockPoisoned)?;
+        let nodes = self.nodes.read().map_err(|_| StateError::LockPoisoned)?;
         Ok(nodes.get(hash).cloned())
     }
 
     fn put_node(&self, hash: Hash, data: Vec<u8>) -> Result<(), StateError> {
-        let mut nodes = self
-            .nodes
-            .write()
-            .map_err(|_| StateError::LockPoisoned)?;
+        let mut nodes = self.nodes.write().map_err(|_| StateError::LockPoisoned)?;
         nodes.insert(hash, data);
         Ok(())
     }
 
     fn batch_put(&self, batch: Vec<(Hash, Vec<u8>)>) -> Result<(), StateError> {
-        let mut nodes = self
-            .nodes
-            .write()
-            .map_err(|_| StateError::LockPoisoned)?;
+        let mut nodes = self.nodes.write().map_err(|_| StateError::LockPoisoned)?;
         for (hash, data) in batch {
             nodes.insert(hash, data);
         }
@@ -52,10 +43,7 @@ impl TrieDatabase for InMemoryTrieDb {
     }
 
     fn delete_node(&self, hash: &Hash) -> Result<(), StateError> {
-        let mut nodes = self
-            .nodes
-            .write()
-            .map_err(|_| StateError::LockPoisoned)?;
+        let mut nodes = self.nodes.write().map_err(|_| StateError::LockPoisoned)?;
         nodes.remove(hash);
         Ok(())
     }

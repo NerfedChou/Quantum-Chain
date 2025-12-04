@@ -313,11 +313,8 @@ where
             // Handle BLS and ECDSA signatures separately - no invalid padding
             let valid = if attestation.is_bls() {
                 // BLS signature (96 bytes) - use aggregate BLS verification
-                let sig_bytes: [u8; 96] = attestation
-                    .signature
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| {
+                let sig_bytes: [u8; 96] =
+                    attestation.signature.as_slice().try_into().map_err(|_| {
                         ConsensusError::InvalidSignatureFormat(attestation.validator)
                     })?;
 
@@ -325,11 +322,8 @@ where
                     .verify_aggregate_bls(&signing_message, &sig_bytes, &[*pubkey])
             } else if attestation.signature.len() == 65 {
                 // ECDSA signature (65 bytes) - use ECDSA verification
-                let sig_bytes: [u8; 65] = attestation
-                    .signature
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| {
+                let sig_bytes: [u8; 65] =
+                    attestation.signature.as_slice().try_into().map_err(|_| {
                         ConsensusError::InvalidSignatureFormat(attestation.validator)
                     })?;
 
@@ -346,7 +340,9 @@ where
                     .verify_ecdsa(&signing_message, &sig_bytes, &ecdsa_pubkey)
             } else {
                 // Invalid signature length - reject immediately
-                return Err(ConsensusError::InvalidSignatureFormat(attestation.validator));
+                return Err(ConsensusError::InvalidSignatureFormat(
+                    attestation.validator,
+                ));
             };
 
             // SECURITY: Always enforce signature verification
@@ -485,7 +481,9 @@ where
                 .sig_verifier
                 .verify_ecdsa(&commit_msg, &commit.signature, &ecdsa_pubkey)
             {
-                return Err(ConsensusError::SignatureVerificationFailed(commit.validator));
+                return Err(ConsensusError::SignatureVerificationFailed(
+                    commit.validator,
+                ));
             }
         }
 
@@ -689,7 +687,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{Attestation, ValidatorInfo, ValidatorSet, SignedTransaction};
+    use crate::domain::{Attestation, SignedTransaction, ValidatorInfo, ValidatorSet};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     // Mock implementations for testing
@@ -1001,7 +999,7 @@ mod tests {
     }
 
     // Import PBFT types for tests
-    use crate::domain::{PrepareMessage, CommitMessage, PBFTProof};
+    use crate::domain::{CommitMessage, PBFTProof, PrepareMessage};
 
     /// Helper to create a valid PBFT block
     fn create_pbft_block(parent: &BlockHeader, prepare_count: usize, commit_count: usize) -> Block {
@@ -1072,7 +1070,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_pbft_proof_success() {
         let genesis = create_genesis();
-        
+
         // 4 validators: f=1, need 2f+1=3 votes
         let service = ConsensusService::with_genesis(
             Arc::new(MockEventBus::new()),
@@ -1091,7 +1089,10 @@ mod tests {
         let block = create_pbft_block(&genesis, 3, 3);
         let result = service.validate_block(block, None).await;
 
-        assert!(result.is_ok(), "PBFT validation should succeed with 2f+1 votes");
+        assert!(
+            result.is_ok(),
+            "PBFT validation should succeed with 2f+1 votes"
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -1100,7 +1101,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_pbft_proof_insufficient_prepares() {
         let genesis = create_genesis();
-        
+
         // 4 validators: f=1, need 2f+1=3 votes
         let service = ConsensusService::with_genesis(
             Arc::new(MockEventBus::new()),
@@ -1131,7 +1132,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_pbft_proof_insufficient_commits() {
         let genesis = create_genesis();
-        
+
         let service = ConsensusService::with_genesis(
             Arc::new(MockEventBus::new()),
             Arc::new(MockMempool),
@@ -1161,7 +1162,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_pos_signature_invalid() {
         let genesis = create_genesis();
-        
+
         // Use FailingSigVerifier - all signatures will fail
         let service = ConsensusService::with_genesis(
             Arc::new(MockEventBus::new()),
@@ -1187,7 +1188,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_pbft_signature_invalid() {
         let genesis = create_genesis();
-        
+
         // Use FailingSigVerifier
         let service = ConsensusService::with_genesis(
             Arc::new(MockEventBus::new()),
@@ -1217,7 +1218,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_block_future_timestamp() {
         let genesis = create_genesis();
-        
+
         // Create service with fixed time source at timestamp 2000
         let service = ConsensusService::with_genesis(
             Arc::new(MockEventBus::new()),
@@ -1229,7 +1230,8 @@ mod tests {
                 ..ConsensusConfig::default()
             },
             genesis.clone(),
-        ).with_time_source(Box::new(FixedTimeSource::new(2000)));
+        )
+        .with_time_source(Box::new(FixedTimeSource::new(2000)));
 
         // Create block with timestamp far in the future (2000 + 120 > 2000 + 60)
         let mut block = create_valid_block(&genesis, 2);
@@ -1249,7 +1251,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_block_duplicate_attestations() {
         let genesis = create_genesis();
-        
+
         let service = ConsensusService::with_genesis(
             Arc::new(MockEventBus::new()),
             Arc::new(MockMempool),
@@ -1261,7 +1263,7 @@ mod tests {
 
         // Create block with duplicate attestation from same validator
         let mut block = create_valid_block(&genesis, 2);
-        
+
         // Modify to have duplicate validator
         if let ValidationProof::PoS(ref mut proof) = block.proof {
             // Make both attestations from validator 0
@@ -1282,7 +1284,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_block_extra_data_too_large() {
         let genesis = create_genesis();
-        
+
         let service = ConsensusService::with_genesis(
             Arc::new(MockEventBus::new()),
             Arc::new(MockMempool),
@@ -1311,7 +1313,7 @@ mod tests {
     async fn test_validate_block_publishes_event() {
         let genesis = create_genesis();
         let event_bus = Arc::new(MockEventBus::new());
-        
+
         let service = ConsensusService::with_genesis(
             Arc::clone(&event_bus),
             Arc::new(MockMempool),

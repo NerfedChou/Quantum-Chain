@@ -12,11 +12,11 @@ use async_trait::async_trait;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
-use qc_02_block_storage::BlockStorageService;
 use qc_02_block_storage::ports::outbound::{
     BincodeBlockSerializer, ChecksumProvider, DefaultChecksumProvider, FileSystemAdapter,
     InMemoryKVStore, KeyValueStore, MockFileSystemAdapter, SystemTimeSource, TimeSource,
 };
+use qc_02_block_storage::BlockStorageService;
 use qc_09_finality::domain::{AggregatedAttestations, Attestation, ValidatorId, ValidatorSet};
 use qc_09_finality::error::{FinalityError, FinalityResult};
 use qc_09_finality::ports::outbound::{
@@ -115,7 +115,9 @@ impl Default for FinalityAttestationAdapter {
 impl AttestationVerifier for FinalityAttestationAdapter {
     fn verify_attestation(&self, attestation: &Attestation) -> bool {
         use qc_10_signature_verification::domain::bls::verify_bls;
-        use qc_10_signature_verification::domain::entities::{BlsPublicKey, BlsSignature as Qc10BlsSignature};
+        use qc_10_signature_verification::domain::entities::{
+            BlsPublicKey, BlsSignature as Qc10BlsSignature,
+        };
 
         // Construct the signing message from attestation data
         let signing_message = attestation_signing_message(attestation);
@@ -123,7 +125,7 @@ impl AttestationVerifier for FinalityAttestationAdapter {
         // SECURITY FIX: In production, public key should come from ValidatorSet
         // The attestation itself doesn't carry the pubkey - it must be looked up
         // by validator_id from the epoch's validator set.
-        // 
+        //
         // For standalone verification (without validator set context), we derive
         // a deterministic pubkey from validator_id. This is only valid if the
         // validator set was populated with matching derived pubkeys.
@@ -136,7 +138,9 @@ impl AttestationVerifier for FinalityAttestationAdapter {
         sig_bytes[..sig_len].copy_from_slice(&attestation.signature.0[..sig_len]);
 
         let bls_sig = Qc10BlsSignature { bytes: sig_bytes };
-        let bls_pk = BlsPublicKey { bytes: pubkey_bytes };
+        let bls_pk = BlsPublicKey {
+            bytes: pubkey_bytes,
+        };
 
         verify_bls(&signing_message, &bls_sig, &bls_pk)
     }
@@ -147,7 +151,9 @@ impl AttestationVerifier for FinalityAttestationAdapter {
         validators: &ValidatorSet,
     ) -> bool {
         use qc_10_signature_verification::domain::bls::verify_bls_aggregate;
-        use qc_10_signature_verification::domain::entities::{BlsPublicKey, BlsSignature as Qc10BlsSignature};
+        use qc_10_signature_verification::domain::entities::{
+            BlsPublicKey, BlsSignature as Qc10BlsSignature,
+        };
 
         // SECURITY FIX: Use actual public keys from ValidatorSet
         let mut public_keys: Vec<BlsPublicKey> = Vec::new();

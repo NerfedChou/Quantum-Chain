@@ -22,8 +22,7 @@ impl CheckpointId {
 ///
 /// Reference: SPEC-09-FINALITY.md Section 2.1
 /// State progression: Pending → Justified → Finalized
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub enum CheckpointState {
     /// Not yet justified - awaiting attestations
     #[default]
@@ -33,7 +32,6 @@ pub enum CheckpointState {
     /// Two consecutive justified checkpoints - economically final
     Finalized,
 }
-
 
 /// A finality checkpoint at an epoch boundary
 ///
@@ -101,7 +99,7 @@ impl Checkpoint {
     /// Check if justification threshold is met
     ///
     /// INVARIANT-2: 2/3 = 67% threshold
-    /// 
+    ///
     /// SECURITY: Uses checked arithmetic to prevent overflow attacks.
     /// If total_stake is extremely large, we use saturating arithmetic
     /// to prevent incorrect threshold calculations.
@@ -111,7 +109,8 @@ impl Checkpoint {
         }
         // 2/3 + 1 for strict majority
         // Use checked arithmetic to prevent overflow when total_stake > u128::MAX / 2
-        let required = self.total_stake
+        let required = self
+            .total_stake
             .checked_mul(2)
             .map(|v| v / 3 + 1)
             .unwrap_or_else(|| {

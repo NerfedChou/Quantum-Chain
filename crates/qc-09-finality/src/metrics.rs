@@ -25,8 +25,8 @@ use lazy_static::lazy_static;
 
 #[cfg(feature = "metrics")]
 use prometheus::{
-    register_counter, register_counter_vec, register_gauge, register_int_counter,
-    Counter, CounterVec, Gauge, IntCounter,
+    register_counter, register_counter_vec, register_gauge, register_int_counter, Counter,
+    CounterVec, Gauge, IntCounter,
 };
 
 #[cfg(feature = "metrics")]

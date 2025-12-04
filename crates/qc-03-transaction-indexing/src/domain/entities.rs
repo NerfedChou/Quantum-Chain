@@ -328,7 +328,7 @@ impl TransactionIndex {
             Some(n) => n,
             None => unreachable!(),
         };
-        
+
         let cache_size = NonZeroUsize::new(config.max_cached_trees).unwrap_or(DEFAULT_CACHE_SIZE);
 
         Self {

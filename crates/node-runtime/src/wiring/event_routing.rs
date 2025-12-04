@@ -219,7 +219,7 @@ impl EventRouter {
     }
 
     /// Get the channel capacity.
-    /// 
+    ///
     /// Useful for diagnostics and monitoring.
     pub fn capacity(&self) -> usize {
         self.capacity

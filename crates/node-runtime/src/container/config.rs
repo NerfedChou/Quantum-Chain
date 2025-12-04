@@ -10,8 +10,7 @@
 use std::path::PathBuf;
 
 /// Complete node configuration.
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct NodeConfig {
     /// Network configuration.
     pub network: NetworkConfig,
@@ -25,6 +24,8 @@ pub struct NodeConfig {
     pub mempool: MempoolConfig,
     /// Finality configuration.
     pub finality: FinalityConfig,
+    /// API Gateway configuration.
+    pub api_gateway: ApiGatewayConfig,
 }
 
 impl NodeConfig {
@@ -64,7 +65,6 @@ impl std::fmt::Display for ConfigError {
 }
 
 impl std::error::Error for ConfigError {}
-
 
 /// Network configuration.
 #[derive(Debug, Clone)]
@@ -210,6 +210,42 @@ impl Default for FinalityConfig {
             justification_threshold: 67,
             max_epochs_without_finality: 4,
             max_sync_failures: 3,
+        }
+    }
+}
+
+/// API Gateway configuration.
+#[derive(Debug, Clone)]
+pub struct ApiGatewayConfig {
+    /// Enable the API Gateway.
+    pub enabled: bool,
+    /// HTTP/JSON-RPC port.
+    pub http_port: u16,
+    /// WebSocket port.
+    pub ws_port: u16,
+    /// Admin API port (localhost only by default).
+    pub admin_port: u16,
+    /// Optional API key for protected endpoints.
+    pub api_key: Option<String>,
+    /// Rate limit (requests per second per IP).
+    pub rate_limit_per_second: u32,
+    /// Maximum batch size.
+    pub max_batch_size: usize,
+    /// Chain ID for eth_chainId responses.
+    pub chain_id: u64,
+}
+
+impl Default for ApiGatewayConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            http_port: 8545,
+            ws_port: 8546,
+            admin_port: 8080,
+            api_key: None,
+            rate_limit_per_second: 100,
+            max_batch_size: 100,
+            chain_id: 1,
         }
     }
 }

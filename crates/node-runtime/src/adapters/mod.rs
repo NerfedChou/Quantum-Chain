@@ -26,6 +26,7 @@
 //! └─────────────────────────────────────────────────────────────────────┘
 //! ```
 
+pub mod api_gateway;
 pub mod block_storage;
 pub mod consensus;
 pub mod event_bus;
@@ -37,6 +38,7 @@ pub mod state;
 pub mod storage;
 pub mod transaction_indexing;
 
+pub use api_gateway::*;
 pub use block_storage::*;
 pub use consensus::*;
 pub use event_bus::*;

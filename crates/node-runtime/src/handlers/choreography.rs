@@ -21,7 +21,7 @@ use shared_types::SubsystemId;
 use crate::adapters::BlockStorageAdapter;
 use crate::wiring::ChoreographyEvent;
 
-use crate::adapters::{TransactionIndexingAdapter, StateAdapter};
+use crate::adapters::{StateAdapter, TransactionIndexingAdapter};
 
 /// Handler for Transaction Indexing choreography events.
 pub struct TxIndexingHandler {
@@ -64,7 +64,7 @@ impl TxIndexingHandler {
                     // Use the adapter to compute Merkle root with actual domain logic
                     // In production, transaction hashes would come from the block
                     let transaction_hashes: Vec<[u8; 32]> = vec![]; // Would be extracted from block
-                    
+
                     if let Err(e) = self.adapter.process_block_validated(
                         block_hash,
                         block_height,
@@ -129,12 +129,11 @@ impl StateMgmtHandler {
                     // Use the adapter to compute state root with actual domain logic
                     // In production, transactions would come from the block
                     let transactions = vec![]; // Would be extracted from block
-                    
-                    if let Err(e) = self.adapter.process_block_validated(
-                        block_hash,
-                        block_height,
-                        transactions,
-                    ) {
+
+                    if let Err(e) =
+                        self.adapter
+                            .process_block_validated(block_hash, block_height, transactions)
+                    {
                         error!("[qc-04] Failed to process BlockValidated: {}", e);
                     }
                 }

@@ -1908,6 +1908,125 @@ enum CrossChainMessageType {
 | 13 (Light Clients) | 1, 3, 7, External | 1, 3, 7 | Merkle proof validation |
 | 14 (Sharding) | 8 | 4, 8 | Minimum validator count |
 | 15 (Cross-Chain) | 9, 11, External | 8, 11 | Finality proofs, timelock enforcement |
+| **16 (API Gateway)** | **External HTTP/WS, Event Bus** | **1, 2, 3, 4, 6, 8, 10, 11, Event Bus** | **Rate limiting, method whitelist, timeout protection** |
+
+---
+
+## SUBSYSTEM 16: API GATEWAY (NEW)
+
+**Purpose:** Single entry point for all external interactions with the node.
+External-facing HTTP/WebSocket server exposing JSON-RPC, REST, and subscription APIs.
+
+### I Am Allowed To Talk To:
+- **Subsystem 1 (Peer Discovery)** - Peer info queries, admin operations
+- **Subsystem 2 (Block Storage)** - Block queries (eth_getBlock*)
+- **Subsystem 3 (Transaction Indexing)** - Transaction/receipt queries, logs
+- **Subsystem 4 (State Management)** - State queries (eth_getBalance, eth_getCode)
+- **Subsystem 6 (Mempool)** - Transaction submission, status queries
+- **Subsystem 8 (Consensus)** - Admin: start/stop mining (protected)
+- **Subsystem 10 (Signature Verification)** - Transaction validation before mempool
+- **Subsystem 11 (Smart Contracts)** - eth_call, eth_estimateGas
+- **Event Bus** - Subscribe to events for WebSocket notifications
+
+### Who Is Allowed To Talk To Me:
+- **External HTTP/WS Clients** - All public JSON-RPC methods
+- **Localhost Admin Clients** - Protected and admin methods
+- **Event Bus** - Subscription notifications
+
+### Strict Message Types:
+
+**OUTGOING:**
+```rust
+/// Request to qc-06 Mempool for transaction submission
+struct SubmitTransactionRequest {
+    version: u16,
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    raw_transaction: Vec<u8>,  // RLP encoded signed transaction
+    signature: Signature,
+}
+
+/// Request to qc-04 State Management
+struct GetBalanceRequest {
+    version: u16,
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    address: [u8; 20],
+    block_number: Option<u64>,
+    signature: Signature,
+}
+
+/// Request to qc-02 Block Storage
+struct GetBlockRequest {
+    version: u16,
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    block_id: BlockId,
+    include_transactions: bool,
+    signature: Signature,
+}
+
+/// Request to qc-11 Smart Contracts
+struct ExecuteCallRequest {
+    version: u16,
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    from: Option<[u8; 20]>,
+    to: [u8; 20],
+    gas: Option<u64>,
+    value: Option<u256>,
+    data: Vec<u8>,
+    block_number: Option<u64>,
+    signature: Signature,
+}
+```
+
+**INCOMING:**
+```rust
+/// Response from internal subsystems
+struct SubsystemResponse<T> {
+    version: u16,
+    correlation_id: [u8; 16],
+    result: Option<T>,
+    error: Option<String>,
+    signature: Signature,
+}
+
+/// Event Bus subscription notification
+struct SubscriptionNotification {
+    version: u16,
+    subscription_id: u64,
+    event_type: EventType,
+    payload: Vec<u8>,
+    signature: Signature,
+}
+```
+
+### Security Boundaries:
+- ✅ Accept: HTTP/WS connections from any IP (public methods)
+- ✅ Accept: Admin methods from localhost only
+- ✅ Accept: Event notifications from Event Bus
+- ✅ Send: Authenticated IPC messages to internal subsystems
+- ❌ Reject: Requests exceeding rate limits
+- ❌ Reject: Requests exceeding size limits (1MB)
+- ❌ Reject: Batch requests >100 items
+- ❌ Reject: Disabled methods (configurable)
+- ❌ Reject: Protected methods without API key (non-localhost)
+- ❌ Reject: Admin methods from non-localhost
+
+### Method Tiers:
+
+| Tier | Access Level | Examples |
+|------|--------------|----------|
+| **Tier 1: Public** | No auth required | eth_getBalance, eth_sendRawTransaction, eth_call |
+| **Tier 2: Protected** | API key or localhost | admin_peers, txpool_status |
+| **Tier 3: Admin** | Localhost + auth | admin_addPeer, miner_start, debug_* |
+
+### Rate Limiting:
+- Public methods: 100 req/s per IP
+- Write operations: 10 req/s per IP
+- Heavy operations: 20 req/s per IP
+- Localhost: Higher limits (1000 req/s)
 
 ### Summary of Re-Alignments (System.md Compliance)
 

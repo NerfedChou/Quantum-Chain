@@ -1,0 +1,78 @@
+[package]
+name = "qc-16-api-gateway"
+version = "0.1.0"
+edition = "2021"
+authors = ["Quantum Chain Team"]
+description = "API Gateway - External interface for JSON-RPC, WebSocket, and REST APIs"
+license = "MIT"
+repository = "https://github.com/quantum-chain/quantum-chain"
+keywords = ["blockchain", "api", "jsonrpc", "gateway"]
+categories = ["web-programming"]
+
+[features]
+default = []
+metrics = ["prometheus"]
+full = ["metrics"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.41", features = ["full", "sync", "time", "macros"] }
+
+# Web framework
+axum = { version = "0.7", features = ["ws", "macros"] }
+tower = { version = "0.5", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "timeout", "limit", "trace"] }
+
+# JSON-RPC
+jsonrpsee = { version = "0.24", features = ["server", "macros"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Ethereum types
+primitive-types = { version = "0.12", features = ["serde", "rlp"] }
+rlp = "0.5"
+ethereum-types = "0.14"
+
+# Crypto
+sha3 = "0.10"
+secp256k1 = { version = "0.29", features = ["recovery"] }
+subtle = "2.5"  # Constant-time operations for timing attack prevention
+
+# Utilities
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1.11", features = ["v7", "serde"] }
+dashmap = "6.1"
+parking_lot = "0.12"
+bytes = "1.8"
+hex = "0.4"
+futures = "0.3"
+async-trait = "0.1"
+pin-project-lite = "0.2"
+
+# Rate limiting
+governor = "0.6"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Metrics (optional)
+prometheus = { version = "0.13", optional = true }
+
+# OpenTelemetry
+opentelemetry = "0.24"
+opentelemetry-otlp = "0.17"
+tracing-opentelemetry = "0.25"
+
+# Workspace dependencies
+shared-types = { path = "../shared-types" }
+shared-bus = { path = "../shared-bus" }
+
+[dev-dependencies]
+tokio-test = "0.4"
+reqwest = { version = "0.12", features = ["json"] }
+tempfile = "3.14"
+proptest = "1.5"

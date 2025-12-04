@@ -28,7 +28,7 @@ use shared_types::{Hash, Transaction};
 ///
 /// This service implements `SignatureVerificationApi` and delegates
 /// cryptographic operations to the domain layer.
-/// 
+///
 /// The mempool gateway is used for the async `verify_and_submit` flow
 /// per SPEC-10 Section 4.1 (AddTransactionRequest to Mempool).
 pub struct SignatureVerificationService<M: MempoolGateway> {
@@ -50,19 +50,16 @@ impl<M: MempoolGateway> SignatureVerificationService<M> {
     ///
     /// This is the async entry point that combines verification with
     /// submission to the mempool subsystem.
-    pub async fn verify_and_submit(
-        &self,
-        transaction: Transaction,
-    ) -> Result<(), SignatureError> {
+    pub async fn verify_and_submit(&self, transaction: Transaction) -> Result<(), SignatureError> {
         // First verify the transaction
         let verified = self.verify_transaction(transaction)?;
-        
+
         // Then submit to mempool
         self.mempool
             .submit_verified_transaction(verified)
             .await
             .map_err(|e| SignatureError::SubmissionFailed(e.to_string()))?;
-        
+
         Ok(())
     }
 }
