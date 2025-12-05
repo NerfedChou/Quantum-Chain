@@ -10,8 +10,8 @@ pub mod responses;
 pub mod validation;
 
 pub use bus_adapter::{
-    BlockQuery, EventBusReceiver, EventBusSender, MempoolQuery, NetworkQuery, QueryRouter,
-    StateQuery, TxIndexQuery,
+    BlockQuery, EventBusReceiver, EventBusSender, MempoolQuery, PeerDiscoveryQuery, QueryRouter,
+    ResponseRouter, StateQuery, TxIndexQuery,
 };
 pub use handler::{IpcError, IpcHandler, IpcReceiver, IpcSender, ResponseListener};
 pub use requests::{IpcRequest, RequestPayload, SubmitTransactionRequest};

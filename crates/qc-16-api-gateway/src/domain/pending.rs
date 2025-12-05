@@ -211,6 +211,29 @@ impl PendingRequestStore {
             false
         }
     }
+
+    /// Get metrics for IPC handler (admin panel support)
+    pub fn get_metrics(&self) -> crate::ipc::handler::IpcHandlerMetrics {
+        use crate::ipc::handler::IpcHandlerMetrics;
+        
+        let stats = self.stats();
+        let total_sent = stats.total_registered.load(Ordering::Relaxed);
+        let total_received = stats.total_completed.load(Ordering::Relaxed);
+        let total_timeouts = stats.total_timeouts.load(Ordering::Relaxed);
+        let total_errors = stats.total_cancelled.load(Ordering::Relaxed);
+
+        IpcHandlerMetrics {
+            total_sent,
+            total_received,
+            total_errors,
+            total_timeouts,
+            requests_per_sec: 0.0, // Would need time-windowed tracking
+            errors_per_sec: 0.0,
+            p50_latency_ms: 0,     // Would need latency histogram
+            p99_latency_ms: 0,
+            by_subsystem: std::collections::HashMap::new(),
+        }
+    }
 }
 
 /// Background task to clean up expired requests

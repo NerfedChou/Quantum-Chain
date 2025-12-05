@@ -396,7 +396,7 @@ pub static METHOD_REGISTRY: LazyLock<HashMap<&'static str, MethodInfo>> = LazyLo
             MethodCategory::Eth,
             5,
             false,
-            Some("qc-07-network"),
+            Some("node-runtime"),
             "Returns sync status",
         ),
         // --- Web3 ---
@@ -434,7 +434,7 @@ pub static METHOD_REGISTRY: LazyLock<HashMap<&'static str, MethodInfo>> = LazyLo
             MethodCategory::Net,
             5,
             false,
-            Some("qc-07-network"),
+            Some("qc-01-peer-discovery"),
             "Returns true if listening",
         ),
         MethodInfo::new(
@@ -443,7 +443,7 @@ pub static METHOD_REGISTRY: LazyLock<HashMap<&'static str, MethodInfo>> = LazyLo
             MethodCategory::Net,
             5,
             false,
-            Some("qc-07-network"),
+            Some("qc-01-peer-discovery"),
             "Returns peer count",
         ),
         // ═══════════════════════════════════════════════════════════════════════
@@ -494,7 +494,7 @@ pub static METHOD_REGISTRY: LazyLock<HashMap<&'static str, MethodInfo>> = LazyLo
             MethodCategory::Admin,
             5,
             false,
-            Some("qc-07-network"),
+            Some("qc-01-peer-discovery"),
             "Returns node info",
         ),
         MethodInfo::new(
@@ -503,7 +503,7 @@ pub static METHOD_REGISTRY: LazyLock<HashMap<&'static str, MethodInfo>> = LazyLo
             MethodCategory::Admin,
             5,
             false,
-            Some("qc-07-network"),
+            Some("qc-01-peer-discovery"),
             "Returns connected peers",
         ),
         MethodInfo::new(
@@ -526,7 +526,7 @@ pub static METHOD_REGISTRY: LazyLock<HashMap<&'static str, MethodInfo>> = LazyLo
             MethodCategory::Admin,
             10,
             true,
-            Some("qc-07-network"),
+            Some("qc-01-peer-discovery"),
             "Adds a peer",
         ),
         MethodInfo::new(
@@ -535,7 +535,7 @@ pub static METHOD_REGISTRY: LazyLock<HashMap<&'static str, MethodInfo>> = LazyLo
             MethodCategory::Admin,
             10,
             true,
-            Some("qc-07-network"),
+            Some("qc-01-peer-discovery"),
             "Removes a peer",
         ),
         MethodInfo::new(
@@ -544,7 +544,7 @@ pub static METHOD_REGISTRY: LazyLock<HashMap<&'static str, MethodInfo>> = LazyLo
             MethodCategory::Admin,
             10,
             true,
-            Some("qc-07-network"),
+            Some("qc-01-peer-discovery"),
             "Adds trusted peer",
         ),
         MethodInfo::new(
@@ -553,7 +553,7 @@ pub static METHOD_REGISTRY: LazyLock<HashMap<&'static str, MethodInfo>> = LazyLo
             MethodCategory::Admin,
             10,
             true,
-            Some("qc-07-network"),
+            Some("qc-01-peer-discovery"),
             "Removes trusted peer",
         ),
         // --- Debug ---

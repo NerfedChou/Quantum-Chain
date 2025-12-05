@@ -1,0 +1,40 @@
+[package]
+name = "qc-tui"
+version = "0.1.0"
+edition = "2021"
+description = "Terminal User Interface for Quantum-Chain node monitoring"
+authors = ["Quantum-Chain Contributors"]
+license = "Unlicense"
+
+[[bin]]
+name = "qc-tui"
+path = "src/main.rs"
+
+[dependencies]
+# TUI framework
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client for JSON-RPC
+reqwest = { version = "0.12", features = ["json"] }
+
+# WebSocket client for subscriptions
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = "0.3"
+
+# JSON serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CLI argument parsing
+clap = { version = "4", features = ["derive"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+[dev-dependencies]
+tokio-test = "0.4"

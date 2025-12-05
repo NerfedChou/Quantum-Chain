@@ -1830,6 +1830,7 @@ dependencies = [
  "quantum-telemetry",
  "rand 0.8.5",
  "rocksdb",
+ "serde_json",
  "sha3",
  "shared-bus",
  "shared-types",
@@ -2271,7 +2272,10 @@ checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 name = "qc-01-peer-discovery"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "hmac",
+ "serde",
+ "serde_json",
  "sha2",
  "shared-types",
  "uuid",
@@ -2284,8 +2288,10 @@ dependencies = [
  "bincode",
  "chrono",
  "crc32fast",
+ "hex",
  "hmac",
  "serde",
+ "serde_json",
  "sha2",
  "shared-types",
  "tokio",
@@ -3137,6 +3143,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "serde",
+ "serde_json",
  "shared-types",
  "thiserror",
  "tokio",

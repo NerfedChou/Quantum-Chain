@@ -7,6 +7,10 @@
 
 [workspace]
 resolver = "2"
+exclude = [
+    "tools/qc-tui",    # External client tool with independent dependencies
+    "tools/qc-admin",  # Admin control panel with independent dependencies
+]
 members = [
     "crates/node-runtime", "crates/qc-01-peer-discovery", "crates/qc-02-block-storage", "crates/qc-03-transaction-indexing", "crates/qc-04-state-management", "crates/qc-05-block-propagation", "crates/qc-06-mempool", "crates/qc-07-bloom-filters", "crates/qc-08-consensus", "crates/qc-09-finality", "crates/qc-10-signature-verification", "crates/qc-11-smart-contracts", "crates/qc-12-transaction-ordering", "crates/qc-13-light-client-sync", "crates/qc-14-sharding", "crates/qc-15-cross-chain",
     "crates/qc-16-api-gateway",

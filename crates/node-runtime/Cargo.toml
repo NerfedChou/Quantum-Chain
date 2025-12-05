@@ -16,6 +16,10 @@ license.workspace = true
 name = "node-runtime"
 path = "src/main.rs"
 
+[lib]
+name = "node_runtime"
+path = "src/lib.rs"
+
 [features]
 default = []
 # Enable RocksDB for production storage (requires librocksdb-dev)
@@ -64,3 +68,4 @@ rand = "0.8"
 
 # Encoding
 hex = "0.4"
+serde_json.workspace = true

@@ -77,7 +77,7 @@ use tracing::{error, info, warn};
 use crate::adapters::BlockStorageAdapter;
 use crate::container::{NodeConfig, SubsystemContainer};
 use crate::genesis::{GenesisBuilder, GenesisConfig};
-use crate::handlers::{BlockStorageHandler, FinalityHandler, StateMgmtHandler, TxIndexingHandler};
+use crate::handlers::{ApiQueryHandler, BlockStorageHandler, FinalityHandler, StateMgmtHandler, TxIndexingHandler};
 use crate::wiring::ChoreographyCoordinator;
 use qc_02_block_storage::BlockStorageApi;
 use qc_16_api_gateway::{ApiGatewayService, GatewayConfig};
@@ -90,6 +90,7 @@ pub struct NodeRuntime {
     /// Choreography coordinator for event routing.
     choreography: ChoreographyCoordinator,
     /// API Gateway service (optional).
+    #[allow(dead_code)]
     api_gateway: Option<ApiGatewayService>,
     /// Shutdown signal sender.
     shutdown_tx: tokio::sync::watch::Sender<bool>,
@@ -200,6 +201,24 @@ impl NodeRuntime {
             self.container.config.storage.data_dir.clone(),
         )
         .context("Failed to create API Gateway service")?;
+
+        // Get pending store before moving gateway
+        let pending_store = gateway.pending_store();
+
+        // Start EventBusIpcReceiver to complete pending requests from ApiQueryResponse events
+        let receiver = crate::adapters::EventBusIpcReceiver::new(
+            &self.container.event_bus,
+            pending_store,
+        );
+        let mut receiver_shutdown = self.shutdown_rx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = receiver.run() => {}
+                _ = receiver_shutdown.changed() => {
+                    info!("[EventBusIpcReceiver] Shutdown signal received");
+                }
+            }
+        });
 
         // Spawn gateway in background task
         let mut shutdown_rx = self.shutdown_rx.clone();
@@ -361,6 +380,18 @@ impl NodeRuntime {
                 _ = finality_handler.run(finality_router) => {}
                 _ = finality_shutdown.changed() => {
                     info!("[qc-09] Shutdown signal received");
+                }
+            }
+        });
+
+        // Start API Query handler (bridges qc-16 to subsystems)
+        let api_query_handler = ApiQueryHandler::new(Arc::clone(&container));
+        let mut api_shutdown = self.shutdown_rx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = api_query_handler.run() => {}
+                _ = api_shutdown.changed() => {
+                    info!("[ApiQueryHandler] Shutdown signal received");
                 }
             }
         });

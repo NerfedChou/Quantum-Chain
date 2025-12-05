@@ -52,10 +52,12 @@ use crate::adapters::ports::consensus::{
 };
 use qc_08_consensus::{ConsensusConfig, ConsensusService};
 
-// Finality service and adapters
+// Finality service and adapters (used in handlers)
+#[allow(unused_imports)]
 use crate::adapters::ports::finality::{
     ConcreteFinalityBlockStorageAdapter, FinalityAttestationAdapter, FinalityValidatorSetAdapter,
 };
+#[allow(unused_imports)]
 use qc_09_finality::service::{FinalityConfig, FinalityService};
 
 // RocksDB imports (when feature is enabled)

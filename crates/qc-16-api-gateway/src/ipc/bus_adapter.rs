@@ -10,7 +10,7 @@ use crate::ipc::requests::{IpcRequest, RequestPayload};
 use crate::ipc::responses::IpcResponse;
 use async_trait::async_trait;
 use futures::StreamExt;
-use shared_bus::{BlockchainEvent, EventFilter, InMemoryEventBus};
+use shared_bus::{BlockchainEvent, EventFilter, EventPublisher, InMemoryEventBus};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, warn};
@@ -42,24 +42,84 @@ impl EventBusSender {
 #[async_trait]
 impl IpcSender for EventBusSender {
     async fn send(&self, request: IpcRequest) -> Result<(), IpcError> {
-        // For production, we need a query protocol over the event bus.
-        // The current shared-bus is designed for choreography (fire-and-forget events),
-        // not request-response patterns.
-        //
-        // For now, we implement option 3: wrap the request in a query event.
+        // Convert the internal request to an Event Bus ApiQuery event
+        let method = payload_to_method(&request.payload);
+        let params = payload_to_params(&request.payload);
 
         debug!(
             correlation_id = %request.correlation_id,
             target = %request.target,
-            method = ?std::mem::discriminant(&request.payload),
-            "Sending IPC request via event bus"
+            method = %method,
+            "Publishing ApiQuery to event bus"
         );
 
-        // In a full implementation, we'd publish a QueryRequest event
-        // and the target subsystem would respond with a QueryResponse event.
+        // Create the ApiQuery event per shared-bus event protocol
+        let event = BlockchainEvent::ApiQuery {
+            correlation_id: request.correlation_id.to_string(),
+            target: request.target.clone(),
+            method: method.to_string(),
+            params,
+        };
+
+        // Publish to the event bus - the ApiQueryHandler in node-runtime
+        // will receive this and dispatch to the appropriate subsystem
+        let receivers = self.bus.publish(event).await;
+
+        if receivers == 0 {
+            warn!(
+                correlation_id = %request.correlation_id,
+                target = %request.target,
+                "No subscribers for ApiQuery (ApiQueryHandler may not be running)"
+            );
+        } else {
+            debug!(
+                correlation_id = %request.correlation_id,
+                receivers = receivers,
+                "ApiQuery delivered to {} subscriber(s)",
+                receivers
+            );
+        }
 
         Ok(())
     }
+}
+
+/// Convert RequestPayload to method name for event bus
+fn payload_to_method(payload: &RequestPayload) -> &'static str {
+    match payload {
+        RequestPayload::GetBalance(_) => "get_balance",
+        RequestPayload::GetCode(_) => "get_code",
+        RequestPayload::GetStorageAt(_) => "get_storage_at",
+        RequestPayload::GetTransactionCount(_) => "get_transaction_count",
+        RequestPayload::GetBlockByHash(_) => "get_block_by_hash",
+        RequestPayload::GetBlockByNumber(_) => "get_block_by_number",
+        RequestPayload::GetBlockNumber(_) => "get_block_number",
+        RequestPayload::GetFeeHistory(_) => "get_fee_history",
+        RequestPayload::GetTransactionByHash(_) => "get_transaction_by_hash",
+        RequestPayload::GetTransactionReceipt(_) => "get_transaction_receipt",
+        RequestPayload::GetLogs(_) => "get_logs",
+        RequestPayload::GetBlockReceipts(_) => "get_block_receipts",
+        RequestPayload::Call(_) => "call",
+        RequestPayload::EstimateGas(_) => "estimate_gas",
+        RequestPayload::SubmitTransaction(_) => "submit_transaction",
+        RequestPayload::GetGasPrice(_) => "get_gas_price",
+        RequestPayload::GetMaxPriorityFeePerGas(_) => "get_max_priority_fee_per_gas",
+        RequestPayload::GetTxPoolStatus(_) => "get_txpool_status",
+        RequestPayload::GetTxPoolContent(_) => "get_txpool_content",
+        RequestPayload::GetPeers(_) => "get_peers",
+        RequestPayload::GetNodeInfo(_) => "get_node_info",
+        RequestPayload::GetSyncStatus(_) => "get_sync_status",
+        RequestPayload::AddPeer(_) => "add_peer",
+        RequestPayload::RemovePeer(_) => "remove_peer",
+        RequestPayload::Ping => "ping",
+        RequestPayload::GetSubsystemMetrics(_) => "get_subsystem_metrics",
+    }
+}
+
+/// Convert RequestPayload to JSON params for event bus
+fn payload_to_params(payload: &RequestPayload) -> serde_json::Value {
+    // Serialize the payload data, handling errors gracefully
+    serde_json::to_value(payload).unwrap_or_else(|_| serde_json::Value::Object(Default::default()))
 }
 
 /// Event bus receiver that listens for response events.
@@ -87,11 +147,10 @@ impl IpcReceiver for EventBusReceiver {
 
 /// Response router that routes blockchain events to pending requests.
 ///
-/// Subscribes to relevant event topics and matches events to pending
-/// correlation IDs.
+/// Subscribes to ApiGateway topic and converts ApiQueryResponse events
+/// to IpcResponse messages for the pending request store.
 pub struct ResponseRouter {
     /// Event bus subscription
-    #[allow(dead_code)]
     bus: Arc<InMemoryEventBus>,
     /// Channel to send responses to the receiver
     response_tx: mpsc::Sender<IpcResponse>,
@@ -103,17 +162,26 @@ impl ResponseRouter {
         Self { bus, response_tx }
     }
 
-    /// Start listening for events and routing responses.
-    #[allow(dead_code)]
+    /// Start listening for ApiQueryResponse events and routing them.
+    ///
+    /// This should be spawned as a background task.
     pub async fn run(self) {
-        // Subscribe to relevant events
-        let filter = EventFilter::all();
+        use tracing::info;
+
+        info!("[ResponseRouter] Started listening for ApiQueryResponse events");
+
+        // Subscribe to ApiGateway topic to receive ApiQueryResponse events
+        let filter = EventFilter::topics(vec![shared_bus::EventTopic::ApiGateway]);
         let mut stream = self.bus.event_stream(filter);
 
         loop {
             match stream.next().await {
                 Some(event) => {
                     if let Some(response) = self.event_to_response(&event) {
+                        debug!(
+                            correlation_id = %response.correlation_id,
+                            "Routing ApiQueryResponse to pending request"
+                        );
                         if self.response_tx.send(response).await.is_err() {
                             warn!("Response channel closed, stopping router");
                             break;
@@ -122,6 +190,7 @@ impl ResponseRouter {
                 }
                 None => {
                     // Stream ended
+                    warn!("[ResponseRouter] Event stream ended, shutting down");
                     break;
                 }
             }
@@ -129,10 +198,42 @@ impl ResponseRouter {
     }
 
     /// Convert a blockchain event to an IPC response if applicable.
-    fn event_to_response(&self, _event: &BlockchainEvent) -> Option<IpcResponse> {
-        // Most blockchain events are not direct responses to API queries.
-        // This would need a more sophisticated query protocol.
-        None
+    fn event_to_response(&self, event: &BlockchainEvent) -> Option<IpcResponse> {
+        use crate::ipc::responses::{ErrorData, ResponsePayload, SuccessData};
+
+        match event {
+            BlockchainEvent::ApiQueryResponse {
+                correlation_id,
+                source,
+                result,
+            } => {
+                // Parse correlation ID, or generate new one if parsing fails
+                let correlation = CorrelationId::parse(correlation_id)
+                    .unwrap_or_else(|_| {
+                        warn!(
+                            correlation_id = %correlation_id,
+                            "Failed to parse correlation ID from response"
+                        );
+                        CorrelationId::new()
+                    });
+
+                let payload = match result {
+                    Ok(data) => ResponsePayload::Success(SuccessData::Json(data.clone())),
+                    Err(e) => ResponsePayload::Error(ErrorData {
+                        code: e.code,
+                        message: e.message.clone(),
+                        data: None,
+                    }),
+                };
+
+                Some(IpcResponse {
+                    correlation_id: correlation,
+                    source: *source,
+                    payload,
+                })
+            }
+            _ => None, // Ignore non-response events
+        }
     }
 }
 
@@ -153,8 +254,8 @@ pub struct QueryRouter {
     pub tx_index_tx: Option<mpsc::Sender<TxIndexQuery>>,
     /// Mempool queries (qc-06)
     pub mempool_tx: Option<mpsc::Sender<MempoolQuery>>,
-    /// Network queries (qc-07)
-    pub network_tx: Option<mpsc::Sender<NetworkQuery>>,
+    /// Peer discovery queries (qc-01)
+    pub peer_discovery_tx: Option<mpsc::Sender<PeerDiscoveryQuery>>,
 }
 
 /// Query to state management subsystem
@@ -189,9 +290,9 @@ pub struct MempoolQuery {
     pub response_tx: mpsc::Sender<IpcResponse>,
 }
 
-/// Query to network subsystem
+/// Query to peer discovery subsystem (qc-01)
 #[derive(Debug)]
-pub struct NetworkQuery {
+pub struct PeerDiscoveryQuery {
     pub correlation_id: CorrelationId,
     pub payload: RequestPayload,
     pub response_tx: mpsc::Sender<IpcResponse>,
@@ -284,22 +385,27 @@ impl QueryRouter {
                 }
             }
 
-            // Network (qc-07)
+            // Peer Discovery (qc-01)
             RequestPayload::GetPeers(_)
             | RequestPayload::GetNodeInfo(_)
-            | RequestPayload::GetSyncStatus(_)
             | RequestPayload::AddPeer(_)
             | RequestPayload::RemovePeer(_) => {
-                if let Some(tx) = &self.network_tx {
-                    let query = NetworkQuery {
+                if let Some(tx) = &self.peer_discovery_tx {
+                    let query = PeerDiscoveryQuery {
                         correlation_id,
                         payload,
                         response_tx,
                     };
                     tx.send(query).await.map_err(|_| IpcError::ChannelClosed)?;
                 } else {
-                    return Err(IpcError::SubsystemUnavailable("qc-07-network".into()));
+                    return Err(IpcError::SubsystemUnavailable("qc-01-peer-discovery".into()));
                 }
+            }
+
+            // Sync status (node-runtime)
+            RequestPayload::GetSyncStatus(_) => {
+                // Sync status is handled by node-runtime, not a subsystem channel
+                return Err(IpcError::SubsystemUnavailable("node-runtime".into()));
             }
 
             // Contract execution (qc-11)
@@ -307,6 +413,25 @@ impl QueryRouter {
                 return Err(IpcError::SubsystemUnavailable(
                     "qc-11-smart-contracts".into(),
                 ));
+            }
+
+            // Ping - lightweight health check (returns immediately)
+            RequestPayload::Ping => {
+                // Ping doesn't need routing - just acknowledge receipt
+                let response = IpcResponse {
+                    correlation_id,
+                    source: 16, // API Gateway
+                    payload: crate::ipc::responses::ResponsePayload::Success(
+                        crate::ipc::responses::SuccessData::Bool(true),
+                    ),
+                };
+                response_tx.send(response).await.map_err(|_| IpcError::ChannelClosed)?;
+            }
+
+            // Admin metrics query - routed to admin handler
+            RequestPayload::GetSubsystemMetrics(_) => {
+                // Route to admin target via event bus
+                // The target is set to "admin" in the request
             }
         }
 

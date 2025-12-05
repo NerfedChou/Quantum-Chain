@@ -62,13 +62,25 @@ pub enum RequestPayload {
     GetTxPoolContent(GetTxPoolContentRequest),
 
     // ═══════════════════════════════════════════════════════════════════════
-    // NETWORK → qc-07-network
+    // PEER DISCOVERY → qc-01-peer-discovery
     // ═══════════════════════════════════════════════════════════════════════
     GetPeers(GetPeersRequest),
     GetNodeInfo(GetNodeInfoRequest),
-    GetSyncStatus(GetSyncStatusRequest),
     AddPeer(AddPeerRequest),
     RemovePeer(RemovePeerRequest),
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // NODE RUNTIME → node-runtime
+    // ═══════════════════════════════════════════════════════════════════════
+    GetSyncStatus(GetSyncStatusRequest),
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ADMIN/DEBUG → Health checks
+    // ═══════════════════════════════════════════════════════════════════════
+    /// Lightweight ping for health checks
+    Ping,
+    /// Get subsystem-specific metrics
+    GetSubsystemMetrics(GetSubsystemMetricsRequest),
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -256,6 +268,13 @@ pub struct RemovePeerRequest {
     pub enode_url: String,
 }
 
+/// Get subsystem metrics request (admin only)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetSubsystemMetricsRequest {
+    /// Subsystem ID (1-16)
+    pub subsystem_id: u8,
+}
+
 impl IpcRequest {
     /// Create a new IPC request
     pub fn new(target: impl Into<String>, payload: RequestPayload) -> Self {
@@ -277,5 +296,42 @@ impl IpcRequest {
             target: target.into(),
             payload,
         }
+    }
+
+    /// Get the method name for this request
+    pub fn method_name(&self) -> String {
+        match &self.payload {
+            RequestPayload::GetBalance(_) => "get_balance".to_string(),
+            RequestPayload::GetCode(_) => "get_code".to_string(),
+            RequestPayload::GetStorageAt(_) => "get_storage_at".to_string(),
+            RequestPayload::GetTransactionCount(_) => "get_transaction_count".to_string(),
+            RequestPayload::GetBlockByHash(_) => "get_block_by_hash".to_string(),
+            RequestPayload::GetBlockByNumber(_) => "get_block_by_number".to_string(),
+            RequestPayload::GetBlockNumber(_) => "get_block_number".to_string(),
+            RequestPayload::GetFeeHistory(_) => "get_fee_history".to_string(),
+            RequestPayload::GetTransactionByHash(_) => "get_transaction_by_hash".to_string(),
+            RequestPayload::GetTransactionReceipt(_) => "get_transaction_receipt".to_string(),
+            RequestPayload::GetLogs(_) => "get_logs".to_string(),
+            RequestPayload::GetBlockReceipts(_) => "get_block_receipts".to_string(),
+            RequestPayload::Call(_) => "call".to_string(),
+            RequestPayload::EstimateGas(_) => "estimate_gas".to_string(),
+            RequestPayload::SubmitTransaction(_) => "submit_transaction".to_string(),
+            RequestPayload::GetGasPrice(_) => "get_gas_price".to_string(),
+            RequestPayload::GetMaxPriorityFeePerGas(_) => "get_max_priority_fee".to_string(),
+            RequestPayload::GetTxPoolStatus(_) => "get_txpool_status".to_string(),
+            RequestPayload::GetTxPoolContent(_) => "get_txpool_content".to_string(),
+            RequestPayload::GetPeers(_) => "get_peers".to_string(),
+            RequestPayload::GetNodeInfo(_) => "get_node_info".to_string(),
+            RequestPayload::GetSyncStatus(_) => "get_sync_status".to_string(),
+            RequestPayload::AddPeer(_) => "add_peer".to_string(),
+            RequestPayload::RemovePeer(_) => "remove_peer".to_string(),
+            RequestPayload::Ping => "ping".to_string(),
+            RequestPayload::GetSubsystemMetrics(_) => "get_subsystem_metrics".to_string(),
+        }
+    }
+
+    /// Convert payload to JSON value
+    pub fn payload_as_json(&self) -> serde_json::Value {
+        serde_json::to_value(&self.payload).unwrap_or(serde_json::Value::Null)
     }
 }
