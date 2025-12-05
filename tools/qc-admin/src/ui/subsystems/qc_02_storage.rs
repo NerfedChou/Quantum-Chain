@@ -91,7 +91,7 @@ fn render_overview(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
                     Style::default().fg(Color::Green)
                 },
             ),
-            Span::raw("               Assembly Timeout  "),
+            Span::raw("             Assembly Timeout  "),
             Span::styled(
                 format!("{}s", assembly_timeout),
                 Style::default().fg(Color::DarkGray),
