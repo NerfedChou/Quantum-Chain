@@ -8,6 +8,10 @@ mod qc_01_peers;
 mod qc_02_storage;
 mod qc_03_indexing;
 mod qc_04_state;
+mod qc_05_propagation;
+mod qc_06_mempool;
+mod qc_08_consensus;
+mod qc_09_finality;
 
 use ratatui::{layout::Rect, Frame};
 
@@ -20,11 +24,11 @@ pub fn render(frame: &mut Frame, area: Rect, id: SubsystemId, info: &SubsystemIn
         SubsystemId::BlockStorage => qc_02_storage::render(frame, area, info, app),
         SubsystemId::TransactionIndexing => qc_03_indexing::render(frame, area, info),
         SubsystemId::StateManagement => qc_04_state::render(frame, area, info),
-        SubsystemId::BlockPropagation => not_implemented::render_placeholder(frame, area, id),
-        SubsystemId::Mempool => not_implemented::render_placeholder(frame, area, id),
+        SubsystemId::BlockPropagation => qc_05_propagation::render(frame, area, info),
+        SubsystemId::Mempool => qc_06_mempool::render(frame, area, info),
         SubsystemId::BloomFilters => not_implemented::render_not_implemented(frame, area, id),
-        SubsystemId::Consensus => not_implemented::render_placeholder(frame, area, id),
-        SubsystemId::Finality => not_implemented::render_placeholder(frame, area, id),
+        SubsystemId::Consensus => qc_08_consensus::render(frame, area, info),
+        SubsystemId::Finality => qc_09_finality::render(frame, area, info),
         SubsystemId::SignatureVerification => not_implemented::render_placeholder(frame, area, id),
         SubsystemId::SmartContracts => not_implemented::render_not_implemented(frame, area, id),
         SubsystemId::TransactionOrdering => not_implemented::render_not_implemented(frame, area, id),
