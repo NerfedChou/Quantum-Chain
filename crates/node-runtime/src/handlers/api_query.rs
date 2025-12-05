@@ -673,10 +673,22 @@ impl ApiQueryHandler {
             }
             // qc-10: Signature Verification
             10 => {
+                // Return detailed metrics matching the panel expectations
+                // In production, these would come from SignatureVerificationService metrics
                 Ok(serde_json::json!({
-                    "verifications_total": 0, // Would track in metrics
+                    "ecdsa_verifications": 0,
+                    "bls_verifications": 0,
+                    "batch_verifications": 0,
+                    "cache_hit_rate": 0.0,
+                    "cache_size": 10000,
+                    "malleability_rejections": 0,
+                    "rate_limit_hits": 0,
+                    "avg_latency_us": 0.0,
+                    "rate_qc01": 0, // Current rate for qc-01 (limit: 100/sec)
+                    "rate_qc05": 0, // Current rate for qc-05 (limit: 1000/sec)
+                    "rate_qc06": 0, // Current rate for qc-06 (limit: 1000/sec)
                     "batch_verify_enabled": true,
-                    "cache_size": 10000
+                    "eip2_enforced": true
                 }))
             }
             // qc-16: API Gateway (self)

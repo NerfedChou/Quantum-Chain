@@ -12,6 +12,7 @@ mod qc_05_propagation;
 mod qc_06_mempool;
 mod qc_08_consensus;
 mod qc_09_finality;
+mod qc_10_signature;
 
 use ratatui::{layout::Rect, Frame};
 
@@ -29,7 +30,7 @@ pub fn render(frame: &mut Frame, area: Rect, id: SubsystemId, info: &SubsystemIn
         SubsystemId::BloomFilters => not_implemented::render_not_implemented(frame, area, id),
         SubsystemId::Consensus => qc_08_consensus::render(frame, area, info),
         SubsystemId::Finality => qc_09_finality::render(frame, area, info),
-        SubsystemId::SignatureVerification => not_implemented::render_placeholder(frame, area, id),
+        SubsystemId::SignatureVerification => qc_10_signature::render(frame, area, info),
         SubsystemId::SmartContracts => not_implemented::render_not_implemented(frame, area, id),
         SubsystemId::TransactionOrdering => not_implemented::render_not_implemented(frame, area, id),
         SubsystemId::LightClientSync => not_implemented::render_not_implemented(frame, area, id),
