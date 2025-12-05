@@ -550,19 +550,35 @@ impl ApiQueryHandler {
             }
             // qc-03: Transaction Indexing
             3 => {
+                // Get stats from transaction indexing service
+                // For now, derive from block storage height
                 let storage = self.container.block_storage.read();
                 let height = storage.get_latest_height().unwrap_or(0);
+                
                 Ok(serde_json::json!({
-                    "merkle_trees": height,
-                    "proofs_generated": 0 // Would track this in metrics
+                    "total_indexed": height, // Each block has transactions indexed
+                    "cached_trees": 0, // Would come from TransactionIndex.stats()
+                    "max_cached_trees": 1000,
+                    "proofs_generated": 0, // Would track in metrics
+                    "proofs_verified": 0,
+                    "last_merkle_root": null
                 }))
             }
             // qc-04: State Management
             4 => {
+                // Get stats from state management service
+                // For now, return placeholder structure matching panel expectations
                 Ok(serde_json::json!({
-                    "accounts": 0, // Would need state trie stats
-                    "contracts": 0,
-                    "trie_depth": 0
+                    "total_accounts": 0, // Would come from trie.account_count()
+                    "total_contracts": 0, // Accounts with non-empty code_hash
+                    "current_state_root": null, // hex encoded current root
+                    "cache_size_mb": 512,
+                    "proofs_generated": 0,
+                    "snapshots_count": 0,
+                    "pruning_depth": 1000,
+                    "trie_depth": 0, // Current max depth in trie
+                    "trie_nodes": 0, // Total nodes in trie
+                    "storage_slots": 0 // Total storage slots across all contracts
                 }))
             }
             // qc-05: Block Propagation

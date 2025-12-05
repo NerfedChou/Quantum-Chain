@@ -6,6 +6,8 @@
 mod not_implemented;
 mod qc_01_peers;
 mod qc_02_storage;
+mod qc_03_indexing;
+mod qc_04_state;
 
 use ratatui::{layout::Rect, Frame};
 
@@ -16,8 +18,8 @@ pub fn render(frame: &mut Frame, area: Rect, id: SubsystemId, info: &SubsystemIn
     match id {
         SubsystemId::PeerDiscovery => qc_01_peers::render(frame, area, info, app),
         SubsystemId::BlockStorage => qc_02_storage::render(frame, area, info, app),
-        SubsystemId::TransactionIndexing => not_implemented::render_placeholder(frame, area, id),
-        SubsystemId::StateManagement => not_implemented::render_placeholder(frame, area, id),
+        SubsystemId::TransactionIndexing => qc_03_indexing::render(frame, area, info),
+        SubsystemId::StateManagement => qc_04_state::render(frame, area, info),
         SubsystemId::BlockPropagation => not_implemented::render_placeholder(frame, area, id),
         SubsystemId::Mempool => not_implemented::render_placeholder(frame, area, id),
         SubsystemId::BloomFilters => not_implemented::render_not_implemented(frame, area, id),
