@@ -551,17 +551,43 @@ impl ApiQueryHandler {
             // qc-03: Transaction Indexing
             3 => {
                 // Get stats from transaction indexing service
-                // For now, derive from block storage height
                 let storage = self.container.block_storage.read();
                 let height = storage.get_latest_height().unwrap_or(0);
+                let chain_tip = height; // Current chain height
+                
+                // Get transaction index metrics
+                let tx_index = self.container.transaction_index.read();
+                let stats = tx_index.stats();
+                
+                // Calculate sync metrics
+                let indexed_height = stats.last_indexed_height;
+                let head_lag = chain_tip.saturating_sub(indexed_height);
+                
+                // Build block_tx_counts for traffic pattern (last 15 blocks)
+                let mut block_tx_counts = Vec::new();
+                let start_block = indexed_height.saturating_sub(14);
+                for block_num in start_block..=indexed_height {
+                    if let Some(count) = tx_index.get_tx_count_for_block(block_num) {
+                        block_tx_counts.push(serde_json::json!({
+                            "block": block_num,
+                            "tx_count": count
+                        }));
+                    }
+                }
                 
                 Ok(serde_json::json!({
-                    "total_indexed": height, // Each block has transactions indexed
-                    "cached_trees": 0, // Would come from TransactionIndex.stats()
-                    "max_cached_trees": 1000,
-                    "proofs_generated": 0, // Would track in metrics
-                    "proofs_verified": 0,
-                    "last_merkle_root": null
+                    "total_indexed": stats.total_indexed_txs,
+                    "cached_trees": stats.cached_trees,
+                    "max_cached_trees": stats.max_cached_trees,
+                    "proofs_generated": stats.proofs_generated,
+                    "proofs_verified": stats.proofs_verified,
+                    "last_block_height": indexed_height,
+                    "avg_tree_depth": stats.avg_tree_depth,
+                    "head_lag": head_lag,
+                    "sync_speed": stats.blocks_per_second,
+                    "e2e_latency_ms": stats.e2e_latency_ms,
+                    "block_tx_counts": block_tx_counts,
+                    "last_merkle_root": stats.last_merkle_root.map(|r| hex::encode(r))
                 }))
             }
             // qc-04: State Management

@@ -297,20 +297,98 @@ fn set_demo_data(app: &mut App) {
     // Set last refresh
     app.last_refresh = Some(chrono::Utc::now());
 
-    // Update implemented subsystems to Running
+    // Update implemented subsystems to Running with demo metrics
     for id in SubsystemId::ALL {
         if id.is_implemented() {
-            let metrics = if id == SubsystemId::PeerDiscovery {
-                Some(serde_json::json!({
+            let metrics = match id {
+                SubsystemId::PeerDiscovery => Some(serde_json::json!({
                     "total_peers": 47,
                     "buckets_used": 12,
                     "banned_count": 3,
                     "pending_verification_count": 5,
                     "max_pending_peers": 1024,
                     "oldest_peer_age_seconds": 9252
-                }))
-            } else {
-                None
+                })),
+                SubsystemId::BlockStorage => Some(serde_json::json!({
+                    "total_blocks": 1_847_293,
+                    "db_size_bytes": 8_589_934_592_u64,
+                    "blocks_cached": 256,
+                    "max_cache_size": 512,
+                    "pending_assemblies": 3,
+                    "last_block_height": 1_847_293_u64,
+                    "avg_block_time_ms": 12_450
+                })),
+                SubsystemId::TransactionIndexing => Some(serde_json::json!({
+                    "total_indexed": 42_847_192_u64,
+                    "cached_trees": 847,
+                    "max_cached_trees": 1000,
+                    "proofs_generated": 128_492_u64,
+                    "proofs_verified": 127_841_u64,
+                    "last_block_height": 1_847_293_u64,
+                    "avg_tree_depth": 12
+                })),
+                SubsystemId::StateManagement => Some(serde_json::json!({
+                    "total_accounts": 2_847_192_u64,
+                    "state_root": "0x8a7d...3f2c",
+                    "trie_nodes_cached": 45_892,
+                    "max_trie_cache": 100_000,
+                    "dirty_nodes": 142,
+                    "last_state_height": 1_847_293_u64,
+                    "avg_proof_depth": 8
+                })),
+                SubsystemId::BlockPropagation => Some(serde_json::json!({
+                    "blocks_relayed": 12_847,
+                    "blocks_received": 13_102,
+                    "avg_propagation_ms": 245,
+                    "peer_coverage_percent": 94.5,
+                    "pending_broadcasts": 2,
+                    "failed_relays": 47
+                })),
+                SubsystemId::Mempool => Some(serde_json::json!({
+                    "pending_txs": 1_847,
+                    "queued_txs": 423,
+                    "pool_size_bytes": 4_194_304,
+                    "max_pool_size": 16_777_216,
+                    "txs_per_second": 127.5,
+                    "evicted_txs": 892,
+                    "total_received": 847_291
+                })),
+                SubsystemId::Consensus => Some(serde_json::json!({
+                    "current_height": 1_847_293_u64,
+                    "current_round": 0,
+                    "validator_count": 100,
+                    "active_validators": 97,
+                    "votes_received": 85,
+                    "proposals_made": 12_847,
+                    "consensus_state": "committed"
+                })),
+                SubsystemId::Finality => Some(serde_json::json!({
+                    "finalized_height": 1_847_285_u64,
+                    "finality_lag": 8,
+                    "checkpoint_interval": 100,
+                    "last_checkpoint": 1_847_200_u64,
+                    "pending_confirmations": 8,
+                    "reorg_count": 2
+                })),
+                SubsystemId::SignatureVerification => Some(serde_json::json!({
+                    "total_verified": 42_847_192_u64,
+                    "verification_rate": 8_472.5,
+                    "batch_size": 128,
+                    "pending_verifications": 256,
+                    "failed_verifications": 47,
+                    "cache_hits": 12_847_192_u64,
+                    "cache_hit_rate": 87.5
+                })),
+                SubsystemId::ApiGateway => Some(serde_json::json!({
+                    "total_requests": 847_291_u64,
+                    "active_connections": 47,
+                    "avg_response_ms": 12.5,
+                    "requests_per_second": 142.7,
+                    "error_count": 127,
+                    "rate_limited": 892,
+                    "ws_subscriptions": 23
+                })),
+                _ => None,
             };
 
             app.update_subsystem(SubsystemInfo {

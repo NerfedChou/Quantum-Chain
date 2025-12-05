@@ -69,6 +69,21 @@ pub struct Qc03Metrics {
     pub avg_tree_depth: Option<u8>,
     /// Proof generation success rate (if available)
     pub proof_success_rate: Option<f64>,
+    /// Head lag (blocks behind chain tip)
+    pub head_lag: u64,
+    /// Sync speed (blocks per second)
+    pub sync_speed: f64,
+    /// End-to-end latency in milliseconds
+    pub e2e_latency_ms: u64,
+    /// Traffic pattern: tx count per block (last N blocks)
+    pub block_tx_counts: Vec<BlockTxCount>,
+}
+
+/// Transaction count for a specific block (traffic pattern data)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockTxCount {
+    pub block: u64,
+    pub tx_count: u64,
 }
 
 /// Response for transaction location lookup
@@ -136,26 +151,31 @@ impl<S: TransactionIndexingApi> ApiGatewayHandler<S> {
             None
         };
 
-        // Estimate average tree depth from total indexed
-        // depth = ceil(log2(avg_txs_per_block)), assume ~100 txs/block average
-        let avg_tree_depth = if stats.total_indexed > 0 && stats.cached_trees > 0 {
-            let avg_txs = stats.total_indexed as f64 / stats.cached_trees as f64;
+        // Use avg_tree_depth from stats, or estimate if not available
+        let avg_tree_depth = if stats.avg_tree_depth > 0 {
+            Some(stats.avg_tree_depth)
+        } else if stats.total_indexed_txs > 0 && stats.cached_trees > 0 {
+            let avg_txs = stats.total_indexed_txs as f64 / stats.cached_trees as f64;
             Some((avg_txs.max(1.0).log2().ceil() as u8).max(1))
         } else {
             None
         };
 
         let metrics = Qc03Metrics {
-            total_indexed: stats.total_indexed,
+            total_indexed: stats.total_indexed_txs,
             cached_trees: stats.cached_trees,
             max_cached_trees: stats.max_cached_trees,
             cache_utilization_percent: cache_utilization,
             proofs_generated: stats.proofs_generated,
             proofs_verified: stats.proofs_verified,
-            last_merkle_root: self.last_merkle_root.map(|h| hex::encode(&h[..8])),
-            last_block_height: self.last_block_height,
+            last_merkle_root: stats.last_merkle_root.map(|h| hex::encode(&h[..8])),
+            last_block_height: Some(stats.last_indexed_height),
             avg_tree_depth,
             proof_success_rate,
+            head_lag: 0, // Will be calculated by caller with chain tip info
+            sync_speed: stats.blocks_per_second,
+            e2e_latency_ms: stats.e2e_latency_ms,
+            block_tx_counts: Vec::new(), // Will be populated by caller
         };
 
         serde_json::to_value(metrics).unwrap_or_default()
@@ -263,11 +283,16 @@ mod tests {
         fn new() -> Self {
             Self {
                 stats: IndexingStats {
-                    total_indexed: 1000,
+                    total_indexed_txs: 1000,
                     cached_trees: 50,
                     max_cached_trees: 100,
                     proofs_generated: 200,
                     proofs_verified: 180,
+                    last_indexed_height: 500,
+                    avg_tree_depth: 7,
+                    blocks_per_second: 12.5,
+                    e2e_latency_ms: 250,
+                    last_merkle_root: None,
                 },
             }
         }
@@ -316,6 +341,9 @@ mod tests {
         assert_eq!(result["max_cached_trees"], 100);
         assert_eq!(result["proofs_generated"], 200);
         assert_eq!(result["proofs_verified"], 180);
+        assert_eq!(result["last_block_height"], 500);
+        assert_eq!(result["sync_speed"], 12.5);
+        assert_eq!(result["e2e_latency_ms"], 250);
     }
 
     #[test]
