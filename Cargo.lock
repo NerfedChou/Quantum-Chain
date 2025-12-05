@@ -2309,6 +2309,7 @@ dependencies = [
  "log",
  "lru",
  "serde",
+ "serde_json",
  "sha2",
  "sha3",
  "shared-types",

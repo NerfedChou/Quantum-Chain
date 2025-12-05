@@ -9,7 +9,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Row, Table},
+    widgets::{Block, Borders, Paragraph},
     Frame,
 };
 
@@ -32,184 +32,315 @@ pub fn render(frame: &mut Frame, area: Rect, info: &SubsystemInfo, app: &App) {
     render_dependencies(frame, chunks[2]);
 }
 
-/// Render the overview section.
+/// Render the overview section with collapsed border boxes and bottom separator line.
 fn render_overview(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     // Extract metrics from info.metrics JSON if available
-    let (total_peers, max_peers, buckets_used, max_buckets, banned, pending, max_pending, oldest_age) =
+    let (total_peers, max_peers, buckets_used, max_buckets, banned, _pending, _max_pending, oldest_age) =
         extract_metrics(info);
 
-    let text = vec![
-        Line::raw(""),
-        Line::from(vec![
-            Span::raw("  Total Peers      "),
-            Span::styled(
-                format!("{:>5}", total_peers),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" / {:<5}", max_peers),
-                Style::default().fg(Color::DarkGray),
-            ),
-            Span::raw("    Buckets Used   "),
-            Span::styled(
-                format!("{:>3}", buckets_used),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" / {:<3}", max_buckets),
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw("  Pending Verify   "),
-            Span::styled(
-                format!("{:>5}", pending),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" / {:<5}", max_pending),
-                Style::default().fg(Color::DarkGray),
-            ),
-            Span::raw("    Banned Peers   "),
-            Span::styled(
-                format!("{:>3}", banned),
-                if banned > 0 {
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Green)
-                },
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw("  Oldest Peer Age  "),
-            Span::styled(
-                oldest_age,
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]),
-    ];
-
-    let paragraph = Paragraph::new(text).block(
-        Block::default()
-            .title(" Overview ")
-            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray)),
-    );
-
-    frame.render_widget(paragraph, area);
-}
-
-/// Render the peer table.
-fn render_peer_table(frame: &mut Frame, area: Rect, app: &App) {
-    // Header row
-    let header = Row::new(vec![
-        "NodeID",
-        "IP Address",
-        "Port",
-        "Rep",
-        "Last Seen",
-    ])
-    .style(
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    )
-    .bottom_margin(1);
-
-    // Build rows from real peer data
-    let rows: Vec<Row> = if app.peers.is_empty() {
-        // Show "No peers connected" message
-        vec![Row::new(vec![
-            "(No peers connected)".to_string(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
+    // Single area for the collapsed table
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(6), // Metric boxes (table)
         ])
-        .style(Style::default().fg(Color::DarkGray))]
-    } else {
-        app.peers
-            .iter()
-            .take(10) // Limit to top 10
-            .map(|peer| {
-                Row::new(vec![
-                    peer.node_id.clone(),
-                    peer.ip_address.clone(),
-                    peer.port.clone(),
-                    peer.reputation.to_string(),
-                    peer.last_seen.clone(),
-                ])
-                .style(Style::default().fg(Color::White))
-            })
-            .collect()
+        .split(area);
+
+    // Collapsed table style: outer border wraps all, inner cells only have RIGHT border
+    // Draw outer container first
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(outer, sections[0]);
+
+    // Shrink boxes area by 1 on each side to fit inside outer border
+    let inner_area = Rect {
+        x: sections[0].x + 1,
+        y: sections[0].y + 1,
+        width: sections[0].width.saturating_sub(2),
+        height: sections[0].height.saturating_sub(2),
     };
 
-    let widths = [
-        Constraint::Length(14),
-        Constraint::Length(15),
-        Constraint::Length(6),
-        Constraint::Length(4),
-        Constraint::Length(10),
-    ];
+    let inner_boxes = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+        ])
+        .split(inner_area);
 
-    let table = Table::new(rows, widths)
-        .header(header)
+    // Box 1: Total Peers (only RIGHT border for cell separator)
+    let peers_text = vec![
+        Line::from(Span::styled(" Total Peers", Style::default().fg(Color::DarkGray))),
+        Line::from(vec![
+            Span::styled(
+                format!("{}", total_peers),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" / {}", max_peers),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]),
+    ];
+    let peers_box = Paragraph::new(peers_text)
+        .alignment(ratatui::layout::Alignment::Center)
         .block(
             Block::default()
-                .title(format!(" Connected Peers ({}) ", app.peers.len()))
-                .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
-                .borders(Borders::ALL)
+                .borders(Borders::RIGHT)
                 .border_style(Style::default().fg(Color::DarkGray)),
         );
+    frame.render_widget(peers_box, inner_boxes[0]);
 
-    frame.render_widget(table, area);
-}
-
-/// Render the dependencies section.
-fn render_dependencies(frame: &mut Frame, area: Rect) {
-    let text = vec![
+    // Box 2: Buckets Used (only RIGHT border)
+    let buckets_text = vec![
+        Line::from(Span::styled(" Buckets Used", Style::default().fg(Color::DarkGray))),
         Line::from(vec![
-            Span::styled(" OUTBOUND ", Style::default().fg(Color::DarkGray)),
-            Span::raw("(I depend on):"),
-        ]),
-        Line::from(vec![
-            Span::raw("   → qc-10 Signature Verification  "),
-            Span::styled("●", Style::default().fg(Color::Green)),
-            Span::styled(" HEALTHY", Style::default().fg(Color::Green)),
-            Span::styled("  (DDoS edge defense)", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::raw(""),
-        Line::from(vec![
-            Span::styled(" INBOUND ", Style::default().fg(Color::DarkGray)),
-            Span::raw("(Depends on me):"),
-        ]),
-        Line::from(vec![
-            Span::raw("   ← qc-05 Block Propagation       "),
-            Span::styled("●", Style::default().fg(Color::Green)),
-            Span::styled(" HEALTHY", Style::default().fg(Color::Green)),
-        ]),
-        Line::from(vec![
-            Span::raw("   ← qc-07 Bloom Filters           "),
-            Span::styled("○", Style::default().fg(Color::DarkGray)),
-            Span::styled(" NOT IMPL", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::from(vec![
-            Span::raw("   ← qc-13 Light Clients           "),
-            Span::styled("○", Style::default().fg(Color::DarkGray)),
-            Span::styled(" NOT IMPL", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{}", buckets_used),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" / {}", max_buckets),
+                Style::default().fg(Color::DarkGray),
+            ),
         ]),
     ];
+    let buckets_box = Paragraph::new(buckets_text)
+        .alignment(ratatui::layout::Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::RIGHT)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+    frame.render_widget(buckets_box, inner_boxes[1]);
 
-    let paragraph = Paragraph::new(text).block(
-        Block::default()
-            .title(" Dependencies ")
-            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray)),
-    );
+    // Box 3: Banned Peers (only RIGHT border)
+    let banned_color = if banned > 0 { Color::Red } else { Color::Green };
+    let banned_text = vec![
+        Line::from(Span::styled(" Banned Peers", Style::default().fg(Color::DarkGray))),
+        Line::from(vec![
+            Span::styled(
+                format!("{}", banned),
+                Style::default().fg(banned_color).add_modifier(Modifier::BOLD),
+            ),
+        ]),
+    ];
+    let banned_box = Paragraph::new(banned_text)
+        .alignment(ratatui::layout::Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::RIGHT)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+    frame.render_widget(banned_box, inner_boxes[2]);
 
-    frame.render_widget(paragraph, area);
+    // Box 4: Oldest Peer Age (NO border - last cell)
+    let age_text = vec![
+        Line::from(Span::styled(" Oldest Peer", Style::default().fg(Color::DarkGray))),
+        Line::from(vec![
+            Span::styled(
+                oldest_age,
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            ),
+        ]),
+    ];
+    let age_box = Paragraph::new(age_text)
+        .alignment(ratatui::layout::Alignment::Center)
+        .block(Block::default());
+    frame.render_widget(age_box, inner_boxes[3]);
+}
+
+/// Render the peer table with collapsed borders like HTML table.
+fn render_peer_table(frame: &mut Frame, area: Rect, app: &App) {
+    // Title line above the table
+    let title_area = Rect {
+        x: area.x,
+        y: area.y,
+        width: area.width,
+        height: 1,
+    };
+    let title = Paragraph::new(Line::from(Span::styled(
+        format!(" Connected Peers ({}) ", app.peers.len()),
+        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+    )));
+    frame.render_widget(title, title_area);
+
+    // Table area below title
+    let table_area = Rect {
+        x: area.x,
+        y: area.y + 1,
+        width: area.width,
+        height: area.height.saturating_sub(1),
+    };
+
+    // Draw outer border for the entire table
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(outer, table_area);
+
+    // Inner area for cells
+    let inner_area = Rect {
+        x: table_area.x + 1,
+        y: table_area.y + 1,
+        width: table_area.width.saturating_sub(2),
+        height: table_area.height.saturating_sub(2),
+    };
+
+    // Calculate row heights: 1 for header, rest for data
+    let header_height = 1u16;
+
+    // Header row area
+    let header_area = Rect {
+        x: inner_area.x,
+        y: inner_area.y,
+        width: inner_area.width,
+        height: header_height,
+    };
+
+    // Calculate column widths (5 equal columns)
+    let col_width = inner_area.width / 5;
+    let headers = ["NodeID", "IP Address", "Port", "Rep", "Last Seen"];
+
+    // Render header cells with collapsed borders (only RIGHT border between cells)
+    for (i, title) in headers.iter().enumerate() {
+        let cell_area = Rect {
+            x: header_area.x + (i as u16 * col_width),
+            y: header_area.y,
+            width: if i == 4 { inner_area.width - (4 * col_width) } else { col_width },
+            height: header_height,
+        };
+        
+        // Cell separator: RIGHT border except for last cell
+        let borders = if i < 4 { Borders::RIGHT } else { Borders::NONE };
+        
+        let cell = Paragraph::new(Span::styled(
+            *title,
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ))
+        .alignment(ratatui::layout::Alignment::Center)
+        .block(Block::default().borders(borders).border_style(Style::default().fg(Color::DarkGray)));
+        
+        frame.render_widget(cell, cell_area);
+    }
+
+    // Draw horizontal line between header and data
+    let separator_y = header_area.y + header_height;
+    if separator_y < table_area.y + table_area.height - 1 {
+        let separator = "─".repeat(inner_area.width as usize);
+        let sep_line = Paragraph::new(Span::styled(separator, Style::default().fg(Color::DarkGray)));
+        frame.render_widget(sep_line, Rect {
+            x: inner_area.x,
+            y: separator_y,
+            width: inner_area.width,
+            height: 1,
+        });
+    }
+
+    // Render data rows
+    let data_start_y = separator_y + 1;
+    let peers_data: Vec<[String; 5]> = if app.peers.is_empty() {
+        vec![["(No peers)".to_string(), String::new(), String::new(), String::new(), String::new()]]
+    } else {
+        app.peers.iter().take(10).map(|p| {
+            [p.node_id.clone(), p.ip_address.clone(), p.port.to_string(), p.reputation.to_string(), p.last_seen.clone()]
+        }).collect()
+    };
+
+    for (row_idx, row_data) in peers_data.iter().enumerate() {
+        let row_y = data_start_y + row_idx as u16;
+        if row_y >= table_area.y + table_area.height - 1 {
+            break;
+        }
+
+        for (col_idx, cell_text) in row_data.iter().enumerate() {
+            let cell_area = Rect {
+                x: inner_area.x + (col_idx as u16 * col_width),
+                y: row_y,
+                width: if col_idx == 4 { inner_area.width - (4 * col_width) } else { col_width },
+                height: 1,
+            };
+            
+            let borders = if col_idx < 4 { Borders::RIGHT } else { Borders::NONE };
+            let style = if app.peers.is_empty() {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            
+            let cell = Paragraph::new(Span::styled(cell_text.as_str(), style))
+                .alignment(ratatui::layout::Alignment::Center)
+                .block(Block::default().borders(borders).border_style(Style::default().fg(Color::DarkGray)));
+            
+            frame.render_widget(cell, cell_area);
+        }
+    }
+}
+
+/// Render the dependencies section with side-by-side Outbound/Inbound boxes.
+fn render_dependencies(frame: &mut Frame, area: Rect) {
+    // Container block
+    let container = Block::default()
+        .title(" Dependencies ")
+        .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    
+    let inner = container.inner(area);
+    frame.render_widget(container, area);
+
+    // Split into two side-by-side sections (50/50)
+    let sides = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ])
+        .split(inner);
+
+    // Left side: OUTBOUND (I depend on) - only RIGHT border for separator
+    let outbound_text = vec![
+        Line::from(Span::styled("OUTBOUND", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::raw(""),
+        Line::from(vec![
+            Span::raw("  → qc-10 Signature  "),
+            Span::styled("● HEALTHY", Style::default().fg(Color::Green)),
+        ]),
+        Line::from(vec![
+            Span::styled("    (DDoS edge defense)", Style::default().fg(Color::DarkGray)),
+        ]),
+    ];
+    let outbound_box = Paragraph::new(outbound_text)
+        .block(
+            Block::default()
+                .borders(Borders::RIGHT)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+    frame.render_widget(outbound_box, sides[0]);
+
+    // Right side: INBOUND (Depends on me) - no borders
+    let inbound_text = vec![
+        Line::from(Span::styled("INBOUND", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD))),
+        Line::raw(""),
+        Line::from(vec![
+            Span::raw("  ← qc-05 Block Prop   "),
+            Span::styled("● HEALTHY", Style::default().fg(Color::Green)),
+        ]),
+        Line::from(vec![
+            Span::raw("  ← qc-07 Bloom        "),
+            Span::styled("○ NOT IMPL", Style::default().fg(Color::DarkGray)),
+        ]),
+        Line::from(vec![
+            Span::raw("  ← qc-13 Light Client "),
+            Span::styled("○ NOT IMPL", Style::default().fg(Color::DarkGray)),
+        ]),
+    ];
+    let inbound_box = Paragraph::new(inbound_text)
+        .block(Block::default());
+    frame.render_widget(inbound_box, sides[1]);
 }
 
 /// Extract metrics from subsystem info.

@@ -36,7 +36,7 @@ pub fn render(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
 /// Render the overview section.
 fn render_overview(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     let (last_finalized_epoch, last_finalized_block, finality_depth, 
-         last_justified_epoch, participation_percent, epochs_since_finality) = extract_metrics(info);
+         last_justified_epoch, participation_percent, _epochs_since_finality) = extract_metrics(info);
 
     let finality_status = if finality_depth == 0 {
         ("SYNCED", Color::Green)

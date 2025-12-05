@@ -2,11 +2,11 @@
 //!
 //! Displays:
 //! - Overview: Accounts, contracts, state root, trie stats
-//! - Patricia Merkle Trie health
-//! - Dependency health (V2.3 Choreography pattern)
+//! - Patricia Merkle Trie health (2x2 grid)
+//! - Dependency health (3 horizontal sections)
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
@@ -21,9 +21,9 @@ pub fn render(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(10), // Overview
-            Constraint::Length(8),  // Trie stats
-            Constraint::Min(10),    // Dependencies
+            Constraint::Length(5),  // Overview (boxes)
+            Constraint::Length(8),  // Trie stats (2x2 grid)
+            Constraint::Min(6),     // Dependencies (3 horizontal)
         ])
         .split(area);
 
@@ -32,201 +32,329 @@ pub fn render(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     render_dependencies(frame, chunks[2], info);
 }
 
-/// Render the overview section.
+/// Render the overview section with individual metric boxes.
 fn render_overview(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
-    let (total_accounts, total_contracts, current_state_root, cache_size_mb, 
-         proofs_generated, snapshots_count, pruning_depth) = extract_metrics(info);
+    let (total_accounts, total_contracts, _current_state_root, cache_size_mb, 
+         proofs_generated, snapshots_count, _pruning_depth) = extract_metrics(info);
 
-    let text = vec![
-        Line::raw(""),
-        Line::from(vec![
-            Span::raw("  Total Accounts   "),
-            Span::styled(
-                format!("{:<12}", format_number(total_accounts)),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("  Contracts        "),
-            Span::styled(
-                format!("{}", format_number(total_contracts)),
-                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw("  Proofs Generated "),
-            Span::styled(
-                format!("{:<12}", format_number(proofs_generated)),
-                Style::default().fg(Color::Green),
-            ),
-            Span::raw("  Snapshots        "),
-            Span::styled(
-                format!("{}", snapshots_count),
-                Style::default().fg(Color::Yellow),
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw("  Pruning Depth    "),
-            Span::styled(
-                format!("{:<12} blocks", pruning_depth),
-                Style::default().fg(Color::DarkGray),
-            ),
-            Span::raw("  Cache Size       "),
-            Span::styled(
-                format!("{} MB", cache_size_mb),
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]),
-        Line::raw(""),
-        Line::from(vec![
-            Span::raw("  Current State Root  "),
-            Span::styled(
-                if current_state_root.is_empty() {
-                    "EMPTY_TRIE_ROOT".to_string()
-                } else {
-                    format!("0x{}...", &current_state_root[..16.min(current_state_root.len())])
-                },
-                Style::default().fg(Color::Cyan),
-            ),
-        ]),
-    ];
+    // Container block
+    let container = Block::default()
+        .title(" Overview ")
+        .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    
+    let inner = container.inner(area);
+    frame.render_widget(container, area);
 
-    let paragraph = Paragraph::new(text).block(
+    // Horizontal layout with 5 equal boxes
+    let boxes = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
+        ])
+        .split(inner);
+
+    // Box 1: Accounts
+    let accounts_box = Paragraph::new(Line::from(Span::styled(
+        format_number(total_accounts),
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )))
+    .alignment(Alignment::Center)
+    .block(
         Block::default()
-            .title(" Overview ")
-            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+            .title(" Accounts ")
+            .title_style(Style::default().fg(Color::DarkGray))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::DarkGray)),
     );
+    frame.render_widget(accounts_box, boxes[0]);
 
-    frame.render_widget(paragraph, area);
+    // Box 2: Contracts
+    let contracts_box = Paragraph::new(Line::from(Span::styled(
+        format_number(total_contracts),
+        Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+    )))
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .title(" Contracts ")
+            .title_style(Style::default().fg(Color::DarkGray))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(contracts_box, boxes[1]);
+
+    // Box 3: Proofs
+    let proofs_box = Paragraph::new(Line::from(Span::styled(
+        format_number(proofs_generated),
+        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+    )))
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .title(" Proofs ")
+            .title_style(Style::default().fg(Color::DarkGray))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(proofs_box, boxes[2]);
+
+    // Box 4: Snapshots
+    let snapshots_box = Paragraph::new(Line::from(Span::styled(
+        format!("{}", snapshots_count),
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+    )))
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .title(" Snapshots ")
+            .title_style(Style::default().fg(Color::DarkGray))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(snapshots_box, boxes[3]);
+
+    // Box 5: Cache
+    let cache_box = Paragraph::new(Line::from(Span::styled(
+        format!("{} MB", cache_size_mb),
+        Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+    )))
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .title(" Cache ")
+            .title_style(Style::default().fg(Color::DarkGray))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(cache_box, boxes[4]);
 }
 
-/// Render the Patricia Merkle Trie stats section.
+/// Render the Patricia Merkle Trie stats section as 2x2 grid.
 fn render_trie_stats(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
-    let (_, _, _, _, _, _, _) = extract_metrics(info);
-    
-    // Extract trie-specific metrics
     let (trie_depth, trie_nodes, storage_slots) = extract_trie_metrics(info);
 
-    let text = vec![
-        Line::raw(""),
-        Line::from(vec![
-            Span::raw("  Trie Depth       "),
-            Span::styled(
-                format!("{:<4}", trie_depth),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                " / 64 max",
-                Style::default().fg(Color::DarkGray),
-            ),
-            Span::raw("       Trie Nodes     "),
-            Span::styled(
-                format_number(trie_nodes),
-                Style::default().fg(Color::Cyan),
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw("  Storage Slots    "),
-            Span::styled(
-                format!("{:<12}", format_number(storage_slots)),
-                Style::default().fg(Color::Yellow),
-            ),
-            Span::raw("  Hash Algorithm   "),
-            Span::styled(
-                "Keccak-256",
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]),
-        Line::raw(""),
-        Line::from(vec![
-            Span::styled(
-                "  INVARIANT-3: Deterministic Root | INVARIANT-4: Proof Validity",
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]),
-    ];
+    // Container block
+    let container = Block::default()
+        .title(" Patricia Merkle Trie ")
+        .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    
+    let inner = container.inner(area);
+    frame.render_widget(container, area);
 
-    let paragraph = Paragraph::new(text).block(
+    // 2x2 grid layout
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ])
+        .split(inner);
+
+    let top_cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ])
+        .split(rows[0]);
+
+    let bottom_cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ])
+        .split(rows[1]);
+
+    // Top-left: Trie Depth
+    let depth_box = Paragraph::new(Line::from(vec![
+        Span::styled(
+            format!("{}", trie_depth),
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" / 64", Style::default().fg(Color::DarkGray)),
+    ]))
+    .alignment(Alignment::Center)
+    .block(
         Block::default()
-            .title(" Patricia Merkle Trie ")
-            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+            .title(" Depth ")
+            .title_style(Style::default().fg(Color::DarkGray))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::DarkGray)),
     );
+    frame.render_widget(depth_box, top_cols[0]);
 
-    frame.render_widget(paragraph, area);
+    // Top-right: Trie Nodes
+    let nodes_box = Paragraph::new(Line::from(Span::styled(
+        format_number(trie_nodes),
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )))
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .title(" Nodes ")
+            .title_style(Style::default().fg(Color::DarkGray))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(nodes_box, top_cols[1]);
+
+    // Bottom-left: Storage Slots
+    let slots_box = Paragraph::new(Line::from(Span::styled(
+        format_number(storage_slots),
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+    )))
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .title(" Storage Slots ")
+            .title_style(Style::default().fg(Color::DarkGray))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(slots_box, bottom_cols[0]);
+
+    // Bottom-right: Hash Algorithm
+    let hash_box = Paragraph::new(Line::from(Span::styled(
+        "Keccak-256",
+        Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+    )))
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .title(" Hash Algo ")
+            .title_style(Style::default().fg(Color::DarkGray))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(hash_box, bottom_cols[1]);
 }
 
-/// Render the dependencies section (V2.3 Choreography pattern).
+/// Render the dependencies section with 4 horizontal boxes.
+/// Per SPEC-04: subscribes qc-08, publishes qc-02, accepts from qc-06/11/12/14, serves qc-16
 fn render_dependencies(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     let is_healthy = matches!(info.status, crate::domain::SubsystemStatus::Running);
 
-    let text = vec![
+    // Container block
+    let container = Block::default()
+        .title(" Dependencies ")
+        .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    
+    let inner = container.inner(area);
+    frame.render_widget(container, area);
+
+    // Split into 4 horizontal sections
+    let sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+        ])
+        .split(inner);
+
+    // Box 1: SUBSCRIBES TO (BlockValidated from Consensus)
+    let subscribes_text = vec![
         Line::from(vec![
-            Span::styled(" SUBSCRIBES TO ", Style::default().fg(Color::DarkGray)),
-            Span::raw("(Choreography - BlockValidated):"),
-        ]),
-        Line::from(vec![
-            Span::raw("   ← qc-08 Consensus               "),
+            Span::raw("← qc-08 "),
             status_indicator(is_healthy),
-            Span::styled("  (triggers state transition)", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::raw(""),
-        Line::from(vec![
-            Span::styled(" PUBLISHES ", Style::default().fg(Color::DarkGray)),
-            Span::raw("(Choreography - StateRootComputed):"),
-        ]),
-        Line::from(vec![
-            Span::raw("   → qc-02 Block Storage           "),
-            status_indicator(is_healthy),
-            Span::styled("  (completes block assembly)", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::raw(""),
-        Line::from(vec![
-            Span::styled(" SERVES ", Style::default().fg(Color::DarkGray)),
-            Span::raw("(API Queries via qc-16):"),
-        ]),
-        Line::from(vec![
-            Span::raw("   → eth_getBalance                "),
-            status_indicator(is_healthy),
-        ]),
-        Line::from(vec![
-            Span::raw("   → eth_getCode                   "),
-            status_indicator(is_healthy),
-        ]),
-        Line::from(vec![
-            Span::raw("   → eth_getStorageAt              "),
-            status_indicator(is_healthy),
-        ]),
-        Line::from(vec![
-            Span::raw("   → eth_getProof                  "),
-            status_indicator(is_healthy),
-            Span::styled("  (light client proofs)", Style::default().fg(Color::DarkGray)),
         ]),
     ];
+    let subscribes_box = Paragraph::new(subscribes_text)
+        .block(
+            Block::default()
+                .title(" SUBSCRIBES ")
+                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+    frame.render_widget(subscribes_box, sections[0]);
 
-    let paragraph = Paragraph::new(text).block(
-        Block::default()
-            .title(" Dependencies ")
-            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray)),
-    );
+    // Box 2: PUBLISHES (StateRootComputed to Block Storage)
+    let publishes_text = vec![
+        Line::from(vec![
+            Span::raw("→ qc-02 "),
+            status_indicator(is_healthy),
+        ]),
+    ];
+    let publishes_box = Paragraph::new(publishes_text)
+        .block(
+            Block::default()
+                .title(" PUBLISHES ")
+                .title_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+    frame.render_widget(publishes_box, sections[1]);
 
-    frame.render_widget(paragraph, area);
+    // Box 3: ACCEPTS FROM (Mempool, Smart Contracts, Tx Ordering, Sharding)
+    let accepts_text = vec![
+        Line::from(vec![
+            Span::raw("← qc-06 "),
+            status_indicator(is_healthy),
+        ]),
+        Line::from(vec![
+            Span::raw("← qc-11 "),
+            status_indicator(is_healthy),
+        ]),
+        Line::from(vec![
+            Span::raw("← qc-12 "),
+            status_indicator(is_healthy),
+        ]),
+        Line::from(vec![
+            Span::raw("← qc-14 "),
+            status_indicator(is_healthy),
+        ]),
+    ];
+    let accepts_box = Paragraph::new(accepts_text)
+        .block(
+            Block::default()
+                .title(" ACCEPTS ")
+                .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+    frame.render_widget(accepts_box, sections[2]);
+
+    // Box 4: SERVES (API Gateway for eth_* calls)
+    let serves_text = vec![
+        Line::from(vec![
+            Span::raw("→ qc-16 "),
+            status_indicator(is_healthy),
+        ]),
+    ];
+    let serves_box = Paragraph::new(serves_text)
+        .block(
+            Block::default()
+                .title(" SERVES ")
+                .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+    frame.render_widget(serves_box, sections[3]);
 }
 
 /// Create a status indicator span.
 fn status_indicator(healthy: bool) -> Span<'static> {
     if healthy {
-        Span::styled("● HEALTHY", Style::default().fg(Color::Green))
+        Span::styled("● OK", Style::default().fg(Color::Green))
     } else {
         Span::styled("● DOWN", Style::default().fg(Color::Red))
     }
 }
 
 /// Extract metrics from subsystem info.
-/// Returns (total_accounts, total_contracts, current_state_root, cache_size_mb, proofs_generated, snapshots_count, pruning_depth)
 fn extract_metrics(info: &SubsystemInfo) -> (u64, u64, String, u64, u64, u64, u64) {
     if let Some(metrics) = &info.metrics {
         let total_accounts = metrics.get("total_accounts")
@@ -262,7 +390,6 @@ fn extract_metrics(info: &SubsystemInfo) -> (u64, u64, String, u64, u64, u64, u6
 }
 
 /// Extract trie-specific metrics.
-/// Returns (trie_depth, trie_nodes, storage_slots)
 fn extract_trie_metrics(info: &SubsystemInfo) -> (u64, u64, u64) {
     if let Some(metrics) = &info.metrics {
         let trie_depth = metrics.get("trie_depth")

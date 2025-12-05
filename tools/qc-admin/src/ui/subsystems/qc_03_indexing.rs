@@ -1,7 +1,7 @@
 //! QC-03 Transaction Indexing panel renderer.
 //!
 //! Displays:
-//! - Overview: Total indexed, cached trees, proofs generated/verified
+//! - Overview: Total indexed, cached trees, proofs generated/verified (collapsed table style)
 //! - Merkle Tree Cache status (INVARIANT-5)
 //! - Dependency health (V2.2 Choreography pattern)
 
@@ -21,9 +21,9 @@ pub fn render(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(9),  // Overview
-            Constraint::Length(6),  // Cache gauge
-            Constraint::Min(10),    // Dependencies
+            Constraint::Length(4),  // Overview (collapsed table)
+            Constraint::Length(5),  // Cache gauge
+            Constraint::Min(6),     // Dependencies
         ])
         .split(area);
 
@@ -32,88 +32,100 @@ pub fn render(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     render_dependencies(frame, chunks[2], info);
 }
 
-/// Render the overview section.
+/// Render the overview section as collapsed table cells.
 fn render_overview(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
-    let (total_indexed, cached_trees, max_cached, proofs_generated, proofs_verified, last_merkle_root) =
+    let (total_indexed, cached_trees, max_cached, proofs_generated, proofs_verified, last_block_height, avg_tree_depth) =
         extract_metrics(info);
 
-    let cache_percent = if max_cached > 0 {
-        (cached_trees as f64 / max_cached as f64 * 100.0) as u32
-    } else {
-        0
-    };
+    // 6 metric boxes in collapsed table style
+    let boxes = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Ratio(1, 6),
+            Constraint::Ratio(1, 6),
+            Constraint::Ratio(1, 6),
+            Constraint::Ratio(1, 6),
+            Constraint::Ratio(1, 6),
+            Constraint::Ratio(1, 6),
+        ])
+        .split(area);
 
-    let text = vec![
-        Line::raw(""),
+    // Box 1: Total Indexed
+    let indexed_text = vec![
+        Line::from(Span::styled(" Indexed", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            format!(" {}", format_number(total_indexed)),
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )),
+    ];
+    let indexed_box = Paragraph::new(indexed_text)
+        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(indexed_box, boxes[0]);
+
+    // Box 2: Cached Trees
+    let cached_text = vec![
+        Line::from(Span::styled(" Cached", Style::default().fg(Color::DarkGray))),
         Line::from(vec![
-            Span::raw("  Total Indexed    "),
-            Span::styled(
-                format!("{:<12}", format_number(total_indexed)),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("  Proofs Generated  "),
-            Span::styled(
-                format!("{}", format_number(proofs_generated)),
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw("  Cached Trees     "),
-            Span::styled(
-                format!("{:<4}", cached_trees),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" / {:<5}", max_cached),
-                Style::default().fg(Color::DarkGray),
-            ),
-            Span::raw("    Proofs Verified   "),
-            Span::styled(
-                format!("{}", format_number(proofs_verified)),
-                Style::default().fg(Color::Green),
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw("  Cache Usage      "),
-            Span::styled(
-                format!("{}%", cache_percent),
-                if cache_percent > 90 {
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-                } else if cache_percent > 75 {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::Green)
-                },
-            ),
-        ]),
-        Line::raw(""),
-        Line::from(vec![
-            Span::raw("  Last Merkle Root "),
-            Span::styled(
-                if last_merkle_root.is_empty() {
-                    "N/A".to_string()
-                } else {
-                    format!("0x{}...", &last_merkle_root[..16.min(last_merkle_root.len())])
-                },
-                Style::default().fg(Color::DarkGray),
-            ),
+            Span::styled(format!(" {}", cached_trees), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("/{}", max_cached), Style::default().fg(Color::DarkGray)),
         ]),
     ];
+    let cached_box = Paragraph::new(cached_text)
+        .block(Block::default().borders(Borders::TOP | Borders::BOTTOM | Borders::RIGHT).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(cached_box, boxes[1]);
 
-    let paragraph = Paragraph::new(text).block(
-        Block::default()
-            .title(" Overview ")
-            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray)),
-    );
+    // Box 3: Proofs Generated
+    let gen_text = vec![
+        Line::from(Span::styled(" Generated", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            format!(" {}", format_number(proofs_generated)),
+            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        )),
+    ];
+    let gen_box = Paragraph::new(gen_text)
+        .block(Block::default().borders(Borders::TOP | Borders::BOTTOM | Borders::RIGHT).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(gen_box, boxes[2]);
 
-    frame.render_widget(paragraph, area);
+    // Box 4: Proofs Verified
+    let ver_text = vec![
+        Line::from(Span::styled(" Verified", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            format!(" {}", format_number(proofs_verified)),
+            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        )),
+    ];
+    let ver_box = Paragraph::new(ver_text)
+        .block(Block::default().borders(Borders::TOP | Borders::BOTTOM | Borders::RIGHT).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(ver_box, boxes[3]);
+
+    // Box 5: Last Block Height
+    let height_text = vec![
+        Line::from(Span::styled(" Last Block", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            format!(" #{}", last_block_height.map(|h| format_number(h)).unwrap_or_else(|| "-".to_string())),
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )),
+    ];
+    let height_box = Paragraph::new(height_text)
+        .block(Block::default().borders(Borders::TOP | Borders::BOTTOM | Borders::RIGHT).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(height_box, boxes[4]);
+
+    // Box 6: Avg Tree Depth
+    let depth_text = vec![
+        Line::from(Span::styled(" Tree Depth", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            format!(" {}", avg_tree_depth.map(|d| d.to_string()).unwrap_or_else(|| "-".to_string())),
+            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+        )),
+    ];
+    let depth_box = Paragraph::new(depth_text)
+        .block(Block::default().borders(Borders::TOP | Borders::BOTTOM | Borders::RIGHT).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(depth_box, boxes[5]);
 }
 
 /// Render the cache status gauge (INVARIANT-5 visualization).
 fn render_cache_status(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
-    let (_, cached_trees, max_cached, _, _, _) = extract_metrics(info);
+    let (_, cached_trees, max_cached, _, _, _, _) = extract_metrics(info);
 
     let cache_ratio = if max_cached > 0 {
         cached_trees as f64 / max_cached as f64
@@ -149,69 +161,78 @@ fn render_cache_status(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     frame.render_widget(gauge, area);
 }
 
-/// Render the dependencies section (V2.2 Choreography pattern).
+/// Render the dependencies section without borders (clean style).
+/// Per SPEC-03: subscribes qc-08, publishes qc-02, queries qc-02, serves qc-13/qc-16
 fn render_dependencies(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     let is_healthy = matches!(info.status, crate::domain::SubsystemStatus::Running);
 
-    let text = vec![
+    // Container block
+    let container = Block::default()
+        .title(" Dependencies ")
+        .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    
+    let inner = container.inner(area);
+    frame.render_widget(container, area);
+
+    // Split into 2 horizontal sections: Inbound | Outbound
+    let sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ])
+        .split(inner);
+
+    // Left: INBOUND (subscribes from qc-08)
+    let inbound_text = vec![
+        Line::from(Span::styled("INBOUND", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(""),
         Line::from(vec![
-            Span::styled(" SUBSCRIBES TO ", Style::default().fg(Color::DarkGray)),
-            Span::raw("(Choreography - BlockValidated):"),
-        ]),
-        Line::from(vec![
-            Span::raw("   ← qc-08 Consensus               "),
-            status_indicator(is_healthy),
-            Span::styled("  (BlockValidated event)", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::raw(""),
-        Line::from(vec![
-            Span::styled(" PUBLISHES ", Style::default().fg(Color::DarkGray)),
-            Span::raw("(Choreography - MerkleRootComputed):"),
-        ]),
-        Line::from(vec![
-            Span::raw("   → qc-02 Block Storage           "),
-            status_indicator(is_healthy),
-            Span::styled("  (triggers block write)", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::raw(""),
-        Line::from(vec![
-            Span::styled(" QUERIES ", Style::default().fg(Color::DarkGray)),
-            Span::raw("(V2.3 Data Retrieval):"),
-        ]),
-        Line::from(vec![
-            Span::raw("   ← qc-02 GetTransactionHashes    "),
+            Span::raw("  ← qc-08 BlockValidated "),
             status_indicator(is_healthy),
         ]),
         Line::from(vec![
-            Span::raw("   → qc-16 MerkleProofResponse     "),
+            Span::raw("  ↔ qc-02 GetTxHashes "),
             status_indicator(is_healthy),
-            Span::styled("  (API proof requests)", Style::default().fg(Color::DarkGray)),
         ]),
     ];
+    let inbound_para = Paragraph::new(inbound_text);
+    frame.render_widget(inbound_para, sections[0]);
 
-    let paragraph = Paragraph::new(text).block(
-        Block::default()
-            .title(" Dependencies ")
-            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray)),
-    );
-
-    frame.render_widget(paragraph, area);
+    // Right: OUTBOUND (publishes to qc-02, serves qc-13/qc-16)
+    let outbound_text = vec![
+        Line::from(Span::styled("OUTBOUND", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  → qc-02 MerkleRootComputed "),
+            status_indicator(is_healthy),
+        ]),
+        Line::from(vec![
+            Span::raw("  → qc-13 MerkleProofs "),
+            status_indicator(is_healthy),
+        ]),
+        Line::from(vec![
+            Span::raw("  → qc-16 Admin/API "),
+            status_indicator(is_healthy),
+        ]),
+    ];
+    let outbound_para = Paragraph::new(outbound_text);
+    frame.render_widget(outbound_para, sections[1]);
 }
 
 /// Create a status indicator span.
 fn status_indicator(healthy: bool) -> Span<'static> {
     if healthy {
-        Span::styled("● HEALTHY", Style::default().fg(Color::Green))
+        Span::styled("● OK", Style::default().fg(Color::Green))
     } else {
         Span::styled("● DOWN", Style::default().fg(Color::Red))
     }
 }
 
 /// Extract metrics from subsystem info.
-/// Returns (total_indexed, cached_trees, max_cached, proofs_generated, proofs_verified, last_merkle_root)
-fn extract_metrics(info: &SubsystemInfo) -> (u64, usize, usize, u64, u64, String) {
+fn extract_metrics(info: &SubsystemInfo) -> (u64, usize, usize, u64, u64, Option<u64>, Option<u8>) {
     if let Some(metrics) = &info.metrics {
         let total_indexed = metrics.get("total_indexed")
             .or_else(|| metrics.get("merkle_trees"))
@@ -229,14 +250,15 @@ fn extract_metrics(info: &SubsystemInfo) -> (u64, usize, usize, u64, u64, String
         let proofs_verified = metrics.get("proofs_verified")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
-        let last_merkle_root = metrics.get("last_merkle_root")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let last_block_height = metrics.get("last_block_height")
+            .and_then(|v| v.as_u64());
+        let avg_tree_depth = metrics.get("avg_tree_depth")
+            .and_then(|v| v.as_u64())
+            .map(|d| d as u8);
 
-        (total_indexed, cached_trees, max_cached, proofs_generated, proofs_verified, last_merkle_root)
+        (total_indexed, cached_trees, max_cached, proofs_generated, proofs_verified, last_block_height, avg_tree_depth)
     } else {
-        (0, 0, 1000, 0, 0, String::new())
+        (0, 0, 1000, 0, 0, None, None)
     }
 }
 

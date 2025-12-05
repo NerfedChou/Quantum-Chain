@@ -693,9 +693,20 @@ impl ApiQueryHandler {
             }
             // qc-16: API Gateway (self)
             16 => {
+                // Return detailed metrics matching the panel expectations
+                // In production, these would come from GatewayMetrics
                 Ok(serde_json::json!({
-                    "requests_total": 0, // Would track in gateway metrics
-                    "websocket_connections": 0
+                    "requests_total": 0,
+                    "requests_success": 0,
+                    "requests_error": 0,
+                    "write_requests": 0,
+                    "avg_latency_ms": 0.0,
+                    "pending_requests": 0,
+                    "pending_timeouts": 0,
+                    "rate_limit_rejected": 0,
+                    "websocket_connections": 0,
+                    "websocket_subscriptions": 0,
+                    "websocket_messages": 0
                 }))
             }
             // Unimplemented subsystems

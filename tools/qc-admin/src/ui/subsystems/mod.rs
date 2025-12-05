@@ -13,6 +13,7 @@ mod qc_06_mempool;
 mod qc_08_consensus;
 mod qc_09_finality;
 mod qc_10_signature;
+mod qc_16_gateway;
 
 use ratatui::{layout::Rect, Frame};
 
@@ -36,6 +37,6 @@ pub fn render(frame: &mut Frame, area: Rect, id: SubsystemId, info: &SubsystemIn
         SubsystemId::LightClientSync => not_implemented::render_not_implemented(frame, area, id),
         SubsystemId::Sharding => not_implemented::render_not_implemented(frame, area, id),
         SubsystemId::CrossChain => not_implemented::render_not_implemented(frame, area, id),
-        SubsystemId::ApiGateway => not_implemented::render_placeholder(frame, area, id),
+        SubsystemId::ApiGateway => qc_16_gateway::render(frame, area, info),
     }
 }

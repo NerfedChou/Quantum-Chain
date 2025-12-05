@@ -32,79 +32,112 @@ pub fn render(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     render_dependencies(frame, chunks[2], info);
 }
 
-/// Render the overview section.
+/// Render the overview section with metrics in individual boxes (flex, space-around).
 fn render_overview(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     let (blocks_propagated, peers_reached, avg_propagation_ms, compact_success_rate,
          fanout, seen_cache_size, announcements_received) = extract_metrics(info);
 
-    let text = vec![
-        Line::raw(""),
-        Line::from(vec![
-            Span::raw("  Blocks Propagated  "),
-            Span::styled(
-                format!("{:<10}", format_number(blocks_propagated)),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("  Peers Reached     "),
-            Span::styled(
-                format!("{}", peers_reached),
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw("  Avg Propagation    "),
-            Span::styled(
-                format!("{:<10}ms", avg_propagation_ms),
-                if avg_propagation_ms > 1000 {
-                    Style::default().fg(Color::Red)
-                } else if avg_propagation_ms > 500 {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::Green)
-                },
-            ),
-            Span::raw("  Announcements     "),
-            Span::styled(
-                format!("{}", format_number(announcements_received)),
-                Style::default().fg(Color::Cyan),
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw("  Gossip Fanout      "),
-            Span::styled(
-                format!("{:<10}", fanout),
-                Style::default().fg(Color::DarkGray),
-            ),
-            Span::raw("  Seen Cache        "),
-            Span::styled(
-                format!("{} blocks", format_number(seen_cache_size)),
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]),
-        Line::raw(""),
-        Line::from(vec![
-            Span::styled(
-                format!("  Compact Block Success Rate: {:.1}%", compact_success_rate),
-                if compact_success_rate > 90.0 {
-                    Style::default().fg(Color::Green)
-                } else if compact_success_rate > 70.0 {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::Red)
-                },
-            ),
-        ]),
-    ];
+    // Container block
+    let container = Block::default()
+        .title(" Overview ")
+        .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    
+    let inner = container.inner(area);
+    frame.render_widget(container, area);
 
-    let paragraph = Paragraph::new(text).block(
-        Block::default()
-            .title(" Overview ")
-            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray)),
-    );
+    // Split into 6 boxes horizontally (space-around effect)
+    let boxes = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(16),
+            Constraint::Percentage(17),
+            Constraint::Percentage(17),
+            Constraint::Percentage(17),
+            Constraint::Percentage(16),
+            Constraint::Percentage(17),
+        ])
+        .split(inner);
 
-    frame.render_widget(paragraph, area);
+    // Box 1: Blocks Propagated
+    let box1 = Paragraph::new(vec![
+        Line::raw(""),
+        Line::from(Span::styled(
+            format_number(blocks_propagated),
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )),
+    ])
+    .alignment(ratatui::layout::Alignment::Center)
+    .block(Block::default().title(" Blocks ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(box1, boxes[0]);
+
+    // Box 2: Peers Reached
+    let box2 = Paragraph::new(vec![
+        Line::raw(""),
+        Line::from(Span::styled(
+            format!("{}", peers_reached),
+            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        )),
+    ])
+    .alignment(ratatui::layout::Alignment::Center)
+    .block(Block::default().title(" Peers ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(box2, boxes[1]);
+
+    // Box 3: Avg Propagation
+    let prop_color = if avg_propagation_ms > 1000 {
+        Color::Red
+    } else if avg_propagation_ms > 500 {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+    let box3 = Paragraph::new(vec![
+        Line::raw(""),
+        Line::from(Span::styled(
+            format!("{}ms", avg_propagation_ms),
+            Style::default().fg(prop_color).add_modifier(Modifier::BOLD),
+        )),
+    ])
+    .alignment(ratatui::layout::Alignment::Center)
+    .block(Block::default().title(" Avg Prop ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(box3, boxes[2]);
+
+    // Box 4: Announcements
+    let box4 = Paragraph::new(vec![
+        Line::raw(""),
+        Line::from(Span::styled(
+            format_number(announcements_received),
+            Style::default().fg(Color::Cyan),
+        )),
+    ])
+    .alignment(ratatui::layout::Alignment::Center)
+    .block(Block::default().title(" Announces ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(box4, boxes[3]);
+
+    // Box 5: Gossip Fanout
+    let box5 = Paragraph::new(vec![
+        Line::raw(""),
+        Line::from(Span::styled(
+            format!("{}", fanout),
+            Style::default().fg(Color::White),
+        )),
+    ])
+    .alignment(ratatui::layout::Alignment::Center)
+    .block(Block::default().title(" Fanout ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(box5, boxes[4]);
+
+    // Box 6: Seen Cache
+    let box6 = Paragraph::new(vec![
+        Line::raw(""),
+        Line::from(Span::styled(
+            format_number(seen_cache_size),
+            Style::default().fg(Color::White),
+        )),
+    ])
+    .alignment(ratatui::layout::Alignment::Center)
+    .block(Block::default().title(" Cache ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(box6, boxes[5]);
 }
 
 /// Render the gossip metrics section (BIP152 compact block stats).
@@ -168,61 +201,107 @@ fn render_gossip_metrics(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     frame.render_widget(stats_paragraph, inner_chunks[1]);
 }
 
-/// Render the dependencies section (V2.3 Choreography pattern).
+/// Render the dependencies section with 4 horizontal boxes.
+/// Per SPEC-05: receives qc-08, gossips via qc-01, queries qc-06/qc-10
 fn render_dependencies(frame: &mut Frame, area: Rect, info: &SubsystemInfo) {
     let is_healthy = matches!(info.status, crate::domain::SubsystemStatus::Running);
 
-    let text = vec![
+    // Container block
+    let container = Block::default()
+        .title(" Dependencies ")
+        .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    
+    let inner = container.inner(area);
+    frame.render_widget(container, area);
+
+    // Split into 4 horizontal sections
+    let sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+        ])
+        .split(inner);
+
+    // Box 1: RECEIVES FROM (PropagateBlockRequest from Consensus)
+    let receives_text = vec![
         Line::from(vec![
-            Span::styled(" RECEIVES FROM ", Style::default().fg(Color::DarkGray)),
-            Span::raw("(PropagateBlockRequest):"),
-        ]),
-        Line::from(vec![
-            Span::raw("   ← qc-08 Consensus               "),
+            Span::raw("← qc-08 "),
             status_indicator(is_healthy),
-            Span::styled("  (validated block to propagate)", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::raw(""),
-        Line::from(vec![
-            Span::styled(" GOSSIPS TO ", Style::default().fg(Color::DarkGray)),
-            Span::raw("(P2P Network - fanout=8):"),
-        ]),
-        Line::from(vec![
-            Span::raw("   → qc-01 Peer Discovery          "),
-            status_indicator(is_healthy),
-            Span::styled("  (get peers for gossip)", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::from(vec![
-            Span::raw("   → Network Peers                 "),
-            status_indicator(is_healthy),
-            Span::styled("  (BlockAnnouncement, CompactBlock)", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::raw(""),
-        Line::from(vec![
-            Span::styled(" QUERIES ", Style::default().fg(Color::DarkGray)),
-            Span::raw("(Compact Block Reconstruction):"),
-        ]),
-        Line::from(vec![
-            Span::raw("   ← qc-06 Mempool                 "),
-            status_indicator(is_healthy),
-            Span::styled("  (lookup txs by short ID)", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::from(vec![
-            Span::raw("   → qc-10 Signature Verification  "),
-            status_indicator(is_healthy),
-            Span::styled("  (verify incoming blocks)", Style::default().fg(Color::DarkGray)),
         ]),
     ];
+    let receives_box = Paragraph::new(receives_text)
+        .block(
+            Block::default()
+                .title(" RECEIVES ")
+                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+    frame.render_widget(receives_box, sections[0]);
 
-    let paragraph = Paragraph::new(text).block(
-        Block::default()
-            .title(" Dependencies ")
-            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray)),
-    );
+    // Box 2: GOSSIPS TO (Peer Discovery for peer list, Network Peers)
+    let gossips_text = vec![
+        Line::from(vec![
+            Span::raw("→ qc-01 "),
+            status_indicator(is_healthy),
+        ]),
+        Line::from(vec![
+            Span::raw("→ Peers "),
+            status_indicator(is_healthy),
+        ]),
+    ];
+    let gossips_box = Paragraph::new(gossips_text)
+        .block(
+            Block::default()
+                .title(" GOSSIPS ")
+                .title_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+    frame.render_widget(gossips_box, sections[1]);
 
-    frame.render_widget(paragraph, area);
+    // Box 3: QUERIES (Mempool for tx lookup, Sig Verify for blocks)
+    let queries_text = vec![
+        Line::from(vec![
+            Span::raw("↔ qc-06 "),
+            status_indicator(is_healthy),
+        ]),
+        Line::from(vec![
+            Span::raw("→ qc-10 "),
+            status_indicator(is_healthy),
+        ]),
+    ];
+    let queries_box = Paragraph::new(queries_text)
+        .block(
+            Block::default()
+                .title(" QUERIES ")
+                .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+    frame.render_widget(queries_box, sections[2]);
+
+    // Box 4: SENDS TO (Consensus for received block validation)
+    let sends_text = vec![
+        Line::from(vec![
+            Span::raw("→ qc-08 "),
+            status_indicator(is_healthy),
+        ]),
+    ];
+    let sends_box = Paragraph::new(sends_text)
+        .block(
+            Block::default()
+                .title(" SENDS TO ")
+                .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+    frame.render_widget(sends_box, sections[3]);
 }
 
 /// Create a status indicator span.
