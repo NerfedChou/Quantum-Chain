@@ -6,7 +6,8 @@
 use crate::{
     config::BlockProductionConfig,
     domain::{BlockTemplate, ConsensusMode, BlockHeader, PoWMiner, 
-             create_coinbase_transaction, calculate_block_reward, calculate_transaction_fees},
+             create_coinbase_transaction, calculate_block_reward, calculate_transaction_fees,
+             DifficultyAdjuster, DifficultyConfig},
     error::{BlockProductionError, Result},
     ports::{BlockProducerService, ProductionConfig, ProductionStatus},
     security::SecurityValidator,
@@ -47,6 +48,9 @@ pub struct ConcreteBlockProducer {
 
     /// Mining thread handle
     mining_handle: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    
+    /// Difficulty adjuster for PoW
+    difficulty_adjuster: Option<DifficultyAdjuster>,
 }
 
 impl ConcreteBlockProducer {
@@ -75,6 +79,23 @@ impl ConcreteBlockProducer {
         let num_threads = config.pow.as_ref().map(|p| p.threads).unwrap_or(4);
         let pow_miner = PoWMiner::new(num_threads);
 
+        // Initialize difficulty adjuster for PoW
+        let difficulty_adjuster = if config.mode == ConsensusMode::ProofOfWork {
+            let pow_config = config.pow.as_ref();
+            let difficulty_config = DifficultyConfig {
+                target_block_time: pow_config.and_then(|p| p.target_block_time).unwrap_or(10),
+                use_dgw: pow_config.and_then(|p| p.use_dgw).unwrap_or(true),
+                dgw_window: pow_config.and_then(|p| p.dgw_window).unwrap_or(24),
+                ..Default::default()
+            };
+            info!("  Difficulty Adjustment: {} (target: {}s per block)", 
+                  if difficulty_config.use_dgw { "Dark Gravity Wave" } else { "Epoch-based" },
+                  difficulty_config.target_block_time);
+            Some(DifficultyAdjuster::new(difficulty_config))
+        } else {
+            None
+        };
+
         Self {
             event_bus,
             config: std::sync::RwLock::new(config),
@@ -83,6 +104,7 @@ impl ConcreteBlockProducer {
             is_active: std::sync::atomic::AtomicBool::new(false),
             pow_miner,
             mining_handle: std::sync::Mutex::new(None),
+            difficulty_adjuster,
         }
     }
 
@@ -147,6 +169,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                 let block_config = self.config.read().unwrap().clone();
                 let pow_miner = PoWMiner::new(threads);
                 let status = self.status.clone(); // Share the same RwLock, don't copy!
+                let difficulty_adjuster = self.difficulty_adjuster.clone();
                 
                 let mining_task = tokio::task::spawn(async move {
                     info!("[qc-17] PoW mining task started");
@@ -154,6 +177,9 @@ impl BlockProducerService for ConcreteBlockProducer {
                     // Start from persisted chain height
                     let mut blocks_mined = starting_height;
                     let start_time = std::time::Instant::now();
+                    
+                    // Track recent blocks for difficulty adjustment
+                    let mut recent_blocks: Vec<crate::domain::difficulty::BlockInfo> = Vec::new();
                     
                     while is_active_clone.load(std::sync::atomic::Ordering::Relaxed) {
                         // Step 1: Get pending transactions from mempool
@@ -201,10 +227,18 @@ impl BlockProducerService for ConcreteBlockProducer {
                             .map(|tx| serde_json::to_vec(&tx).unwrap_or_default())
                             .collect();
                         
-                        // Step 6: Calculate difficulty
-                        // Development: require 1 leading zero byte for fast mining
-                        // Production: increase to U256::from(2).pow(U256::from(224)) for 4 leading zeros
-                        let difficulty = U256::from(2).pow(U256::from(248)); // ~1 leading zero byte
+                        // Step 6: Calculate difficulty dynamically based on recent blocks
+                        let difficulty = if let Some(ref adjuster) = difficulty_adjuster {
+                            let calculated = adjuster.calculate_next_difficulty(&recent_blocks);
+                            let desc = DifficultyAdjuster::describe_difficulty(calculated);
+                            if block_number % 10 == 1 { // Log every 10 blocks
+                                info!("[qc-17] 📊 Difficulty adjusted: {}", desc);
+                            }
+                            calculated
+                        } else {
+                            // Fallback: static difficulty
+                            U256::from(2).pow(U256::from(240))
+                        };
                         
                         let template = BlockTemplate {
                             header: BlockHeader {
@@ -245,6 +279,17 @@ impl BlockProducerService for ConcreteBlockProducer {
                                 
                                 info!("[qc-17] ✓ Block #{} mined! Nonce: {}, Total blocks: {}", 
                                     block_number, nonce, blocks_mined);
+                                
+                                // Track this block for difficulty adjustment
+                                recent_blocks.insert(0, crate::domain::difficulty::BlockInfo {
+                                    height: block_number,
+                                    timestamp,
+                                    difficulty,
+                                });
+                                // Keep only the last 50 blocks in memory
+                                if recent_blocks.len() > 50 {
+                                    recent_blocks.truncate(50);
+                                }
                                 
                                 // JSON EVENT LOG
                                 let correlation_id = uuid::Uuid::new_v4().to_string();

@@ -14,8 +14,12 @@ use std::sync::Arc;
 
 use qc_02_block_storage::ports::outbound::{
     BincodeBlockSerializer, ChecksumProvider, DefaultChecksumProvider, FileSystemAdapter,
-    FileBackedKVStore, KeyValueStore, MockFileSystemAdapter, SystemTimeSource, TimeSource,
+    KeyValueStore, SystemTimeSource, TimeSource,
 };
+#[cfg(not(feature = "rocksdb"))]
+use qc_02_block_storage::ports::outbound::{FileBackedKVStore, MockFileSystemAdapter};
+#[cfg(feature = "rocksdb")]
+use crate::adapters::{ProductionFileSystemAdapter, RocksDbStore};
 use qc_02_block_storage::BlockStorageService;
 use qc_09_finality::domain::{AggregatedAttestations, Attestation, ValidatorId, ValidatorSet};
 use qc_09_finality::error::{FinalityError, FinalityResult};
@@ -54,6 +58,16 @@ where
 }
 
 /// Type alias for the concrete block storage adapter used in the container
+#[cfg(feature = "rocksdb")]
+pub type ConcreteFinalityBlockStorageAdapter = FinalityBlockStorageAdapter<
+    RocksDbStore,
+    ProductionFileSystemAdapter,
+    DefaultChecksumProvider,
+    SystemTimeSource,
+    BincodeBlockSerializer,
+>;
+
+#[cfg(not(feature = "rocksdb"))]
 pub type ConcreteFinalityBlockStorageAdapter = FinalityBlockStorageAdapter<
     FileBackedKVStore,
     MockFileSystemAdapter,

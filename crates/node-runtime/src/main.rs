@@ -413,6 +413,9 @@ impl NodeRuntime {
             pow: Some(qc_17_block_production::PoWConfig {
                 threads: num_cpus::get() as u8,
                 algorithm: qc_17_block_production::HashAlgorithm::Keccak256,
+                target_block_time: Some(10),
+                use_dgw: Some(true),
+                dgw_window: Some(24),
             }),
             pos: None,
             pbft: None,
@@ -542,7 +545,7 @@ impl NodeRuntime {
                         use shared_types::{ValidatedBlock, BlockHeader, ConsensusProof, Hash, PublicKey};
                         
                         // Compute block hash (deterministic from height + parent)
-                        let block_hash: [u8; 32] = {
+                        let _block_hash: [u8; 32] = {
                             use sha2::{Sha256, Digest};
                             let mut hasher = Sha256::new();
                             hasher.update(&block_height.to_be_bytes());

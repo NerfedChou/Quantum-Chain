@@ -522,6 +522,9 @@ impl SubsystemContainer {
             block_config.pow = Some(qc_17_block_production::PoWConfig {
                 threads: config.mining.worker_threads as u8,
                 algorithm: qc_17_block_production::HashAlgorithm::Keccak256,
+                target_block_time: Some(10),
+                use_dgw: Some(true),
+                dgw_window: Some(24),
             });
         }
 

@@ -37,6 +37,7 @@ mod entities;
 pub mod invariants;
 mod services;
 pub mod genesis;
+pub mod difficulty;
 
 pub use entities::*;
 pub use genesis::*;
@@ -44,3 +45,4 @@ pub use invariants::*;
 pub use services::{
     AccountState, NonceValidator, PoSProposer, PoWMiner, StatePrefetchCache, TransactionSelector,
 };
+pub use difficulty::{DifficultyAdjuster, DifficultyConfig, BlockInfo};

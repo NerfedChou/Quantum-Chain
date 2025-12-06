@@ -61,6 +61,15 @@ pub struct PoWConfig {
 
     /// Hash algorithm
     pub algorithm: HashAlgorithm,
+    
+    /// Target block time in seconds (default: 10)
+    pub target_block_time: Option<u64>,
+    
+    /// Use Dark Gravity Wave for per-block difficulty adjustment (default: true)
+    pub use_dgw: Option<bool>,
+    
+    /// Number of blocks to look back for DGW (default: 24)
+    pub dgw_window: Option<usize>,
 }
 
 impl Default for PoWConfig {
@@ -68,6 +77,9 @@ impl Default for PoWConfig {
         Self {
             threads: num_cpus::get() as u8,
             algorithm: HashAlgorithm::Keccak256,
+            target_block_time: Some(10), // 10 seconds per block
+            use_dgw: Some(true), // Enable Dark Gravity Wave
+            dgw_window: Some(24), // Look at last 24 blocks
         }
     }
 }
