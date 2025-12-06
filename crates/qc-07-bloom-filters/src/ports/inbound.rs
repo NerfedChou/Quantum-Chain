@@ -8,7 +8,7 @@
 use async_trait::async_trait;
 use shared_types::{Address, Hash, SignedTransaction};
 
-use crate::domain::{BloomConfig, BloomFilter, BlockFilter};
+use crate::domain::{BlockFilter, BloomConfig, BloomFilter};
 use crate::error::FilterError;
 
 /// Result of matching a transaction against a filter

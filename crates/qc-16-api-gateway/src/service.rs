@@ -842,8 +842,9 @@ fn parse_param<T: serde::de::DeserializeOwned>(
         })
         .ok_or_else(|| ApiError::invalid_params(format!("missing parameter at index {}", index)))?;
 
-    serde_json::from_value(param.clone())
-        .map_err(|e| ApiError::invalid_params(format!("invalid parameter at index {}: {}", index, e)))
+    serde_json::from_value(param.clone()).map_err(|e| {
+        ApiError::invalid_params(format!("invalid parameter at index {}: {}", index, e))
+    })
 }
 
 /// Parse an optional parameter from JSON-RPC params array.

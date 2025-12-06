@@ -1,0 +1,42 @@
+# ============================================================================
+# Quantum-Chain GPU-Accelerated Docker Compose (NVIDIA)
+# ============================================================================
+# Use this for GPU-accelerated mining and signature verification.
+#
+# Requirements:
+#   - NVIDIA: Docker with nvidia-container-toolkit
+#
+# Usage:
+#   # Build and run with GPU support
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+#
+# Subsystems using GPU (via OpenCL):
+#   - QC-17 (Mining): SHA256 hashing - ~100x faster
+#   - QC-10 (Signatures): ECDSA batch verification - ~50x faster  
+#   - QC-03 (Merkle): Tree computation - ~20x faster
+# ============================================================================
+
+services:
+  quantum-chain:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        ENABLE_GPU: "true"
+    
+    # Enable GPU for compute-intensive subsystems
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, compute, utility]
+    
+    environment:
+      # GPU compute settings (auto-detected at runtime)
+      QC_COMPUTE_BACKEND: "auto"  # auto, opencl, cpu
+      
+      # NVIDIA-specific
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility"

@@ -72,4 +72,6 @@ pub use ipc::payloads::*;
 pub use ipc::{AuthenticatedMessage, BlockStorageHandler, EnvelopeError, EnvelopeValidator};
 
 // Re-export API Gateway handler
-pub use adapters::{ApiGatewayHandler, ApiQueryError, Qc02Metrics, RpcPendingAssembly, handle_api_query};
+pub use adapters::{
+    handle_api_query, ApiGatewayHandler, ApiQueryError, Qc02Metrics, RpcPendingAssembly,
+};

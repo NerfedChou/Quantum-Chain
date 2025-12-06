@@ -16,7 +16,9 @@ use crate::handler::BloomFilterHandler;
 use crate::ports::BloomFilterApi;
 use crate::service::BloomFilterService;
 use futures::StreamExt;
-use shared_bus::{ApiQueryError, BlockchainEvent, EventFilter, EventPublisher, EventTopic, InMemoryEventBus};
+use shared_bus::{
+    ApiQueryError, BlockchainEvent, EventFilter, EventPublisher, EventTopic, InMemoryEventBus,
+};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
@@ -157,15 +159,15 @@ where
             target_fpr: Option<f64>,
         }
 
-        let params: BuildParams =
-            serde_json::from_value(params).map_err(|e| FilterError::InvalidParams(e.to_string()))?;
+        let params: BuildParams = serde_json::from_value(params)
+            .map_err(|e| FilterError::InvalidParams(e.to_string()))?;
 
         // Create filter with optimal parameters using service
         let config = BloomConfig {
             target_fpr: params.target_fpr.unwrap_or(0.01),
             ..self.default_config
         };
-        
+
         let service = self.service.read().await;
         let filter = service.create_filter(&params.addresses, &config)?;
 
@@ -194,8 +196,8 @@ where
             address: [u8; 20],
         }
 
-        let params: CheckParams =
-            serde_json::from_value(params).map_err(|e| FilterError::InvalidParams(e.to_string()))?;
+        let params: CheckParams = serde_json::from_value(params)
+            .map_err(|e| FilterError::InvalidParams(e.to_string()))?;
 
         let filters = self.active_filters.read().await;
         let filter = filters
@@ -221,8 +223,8 @@ where
             client_id: String,
         }
 
-        let params: StatusParams =
-            serde_json::from_value(params).map_err(|e| FilterError::InvalidParams(e.to_string()))?;
+        let params: StatusParams = serde_json::from_value(params)
+            .map_err(|e| FilterError::InvalidParams(e.to_string()))?;
 
         let filters = self.active_filters.read().await;
         let filter = filters
@@ -250,8 +252,8 @@ where
             block_height: u64,
         }
 
-        let params: FilteredTxParams =
-            serde_json::from_value(params).map_err(|e| FilterError::InvalidParams(e.to_string()))?;
+        let params: FilteredTxParams = serde_json::from_value(params)
+            .map_err(|e| FilterError::InvalidParams(e.to_string()))?;
 
         let filters = self.active_filters.read().await;
         let filter = filters

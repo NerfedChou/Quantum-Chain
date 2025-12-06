@@ -130,11 +130,13 @@ impl TransactionDataProvider for TxIndexingAdapter {
             "block_height": block_height
         });
 
-        let result = self.query_tx_indexing("get_transaction_hashes", params).await?;
+        let result = self
+            .query_tx_indexing("get_transaction_hashes", params)
+            .await?;
 
         // Parse response - Hash is a type alias for [u8; 32]
-        let hashes: Vec<Hash> = serde_json::from_value(result)
-            .map_err(|e| DataError::ParseError(e.to_string()))?;
+        let hashes: Vec<Hash> =
+            serde_json::from_value(result).map_err(|e| DataError::ParseError(e.to_string()))?;
 
         // Update cache
         {
@@ -157,8 +159,8 @@ impl TransactionDataProvider for TxIndexingAdapter {
         let result = self.query_tx_indexing("get_transactions", params).await?;
 
         // Parse response
-        let transactions: Vec<SignedTransaction> = serde_json::from_value(result)
-            .map_err(|e| DataError::ParseError(e.to_string()))?;
+        let transactions: Vec<SignedTransaction> =
+            serde_json::from_value(result).map_err(|e| DataError::ParseError(e.to_string()))?;
 
         Ok(transactions)
     }
@@ -186,8 +188,8 @@ impl TransactionDataProvider for TxIndexingAdapter {
             log_addresses: Vec<[u8; 20]>,
         }
 
-        let addresses: Vec<AddressData> = serde_json::from_value(result)
-            .map_err(|e| DataError::ParseError(e.to_string()))?;
+        let addresses: Vec<AddressData> =
+            serde_json::from_value(result).map_err(|e| DataError::ParseError(e.to_string()))?;
 
         Ok(addresses
             .into_iter()

@@ -10,12 +10,15 @@
 //!   for all IPC communication.
 //! - **No Redundant Identity**: Payloads MUST NOT contain `requester_id` fields;
 //!   the envelope's `sender_id` is authoritative.
+//! - **Plug-and-Play**: Subsystems implement the `Subsystem` trait for runtime discovery.
 
 pub mod entities;
 pub mod envelope;
 pub mod errors;
 pub mod ipc;
 pub mod security;
+pub mod subsystem_registry;
+pub mod subsystem_trait;
 
 /// Subsystem identification types.
 pub mod subsystem {
@@ -27,3 +30,10 @@ pub use envelope::AuthenticatedMessage;
 pub use errors::*;
 pub use ipc::*;
 pub use security::*;
+
+// Re-export the plug-and-play architecture types
+pub use subsystem_registry::SubsystemRegistry;
+pub use subsystem_trait::{
+    DynSubsystem, Subsystem, SubsystemError, SubsystemErrorKind, SubsystemFactory, SubsystemInfo,
+    SubsystemStatus,
+};

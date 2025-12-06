@@ -276,8 +276,8 @@ impl Default for MiningConfig {
         Self {
             enabled: false,
             worker_threads: num_cpus::get().max(1),
-            target_block_time_ms: 12000, // 12 seconds
-            initial_difficulty: 20, // 20 leading zero bits
+            target_block_time_ms: 12000,         // 12 seconds
+            initial_difficulty: 20,              // 20 leading zero bits
             difficulty_adjustment_interval: 100, // Every 100 blocks
             max_adjustment_factor: 4.0,
             pool_refresh_interval_ms: 1000, // 1 second

@@ -12,14 +12,14 @@ use async_trait::async_trait;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
+#[cfg(feature = "rocksdb")]
+use crate::adapters::{ProductionFileSystemAdapter, RocksDbStore};
 use qc_02_block_storage::ports::outbound::{
     BincodeBlockSerializer, ChecksumProvider, DefaultChecksumProvider, FileSystemAdapter,
     KeyValueStore, SystemTimeSource, TimeSource,
 };
 #[cfg(not(feature = "rocksdb"))]
 use qc_02_block_storage::ports::outbound::{FileBackedKVStore, MockFileSystemAdapter};
-#[cfg(feature = "rocksdb")]
-use crate::adapters::{ProductionFileSystemAdapter, RocksDbStore};
 use qc_02_block_storage::BlockStorageService;
 use qc_09_finality::domain::{AggregatedAttestations, Attestation, ValidatorId, ValidatorSet};
 use qc_09_finality::error::{FinalityError, FinalityResult};

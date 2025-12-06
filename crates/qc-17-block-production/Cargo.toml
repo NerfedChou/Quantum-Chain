@@ -10,6 +10,7 @@ description = "Block Production Engine with intelligent transaction selection, P
 [dependencies]
 shared-types = { path = "../shared-types" }
 shared-bus = { path = "../shared-bus" }
+qc-compute = { path = "../qc-compute" }
 uuid = { version = "1.11", features = ["v4", "serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

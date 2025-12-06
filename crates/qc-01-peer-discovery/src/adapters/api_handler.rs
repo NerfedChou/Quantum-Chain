@@ -143,11 +143,7 @@ impl<S: PeerDiscoveryApi> ApiGatewayHandler<S> {
     /// Handle get_node_info request (admin_nodeInfo).
     pub fn handle_get_node_info(&self) -> serde_json::Value {
         let node_id_hex = hex::encode(self.local_node_id.as_bytes());
-        let enode = format!(
-            "enode://{}@0.0.0.0:{}",
-            node_id_hex,
-            self.listen_port
-        );
+        let enode = format!("enode://{}@0.0.0.0:{}", node_id_hex, self.listen_port);
 
         let info = RpcNodeInfo {
             id: node_id_hex.clone(),
@@ -163,8 +159,10 @@ impl<S: PeerDiscoveryApi> ApiGatewayHandler<S> {
                 eth: RpcEthProtocol {
                     network: 1,
                     difficulty: 0,
-                    genesis: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-                    head: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                    genesis: "0x0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_string(),
+                    head: "0x0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_string(),
                 },
             },
         };
@@ -175,7 +173,7 @@ impl<S: PeerDiscoveryApi> ApiGatewayHandler<S> {
     /// Handle get_subsystem_metrics request (debug panel).
     pub fn handle_get_metrics(&self) -> serde_json::Value {
         let stats = self.service.get_stats();
-        
+
         let metrics = Qc01Metrics {
             total_peers: stats.total_peers,
             max_peers: stats.max_pending_peers, // Use max_pending_peers as proxy for max_peers
@@ -273,8 +271,8 @@ pub struct ApiQueryError {
 mod tests {
     use super::*;
     use crate::domain::{
-        BanReason, IpAddr, KademliaConfig, PeerDiscoveryError, RoutingTable,
-        RoutingTableStats, SocketAddr, Timestamp,
+        BanReason, IpAddr, KademliaConfig, PeerDiscoveryError, RoutingTable, RoutingTableStats,
+        SocketAddr, Timestamp,
     };
 
     struct TestService {
@@ -303,7 +301,9 @@ mod tests {
                     now,
                 );
                 if let Ok(true) = service.table.stage_peer(peer.clone(), now) {
-                    let _ = service.table.on_verification_result(&peer.node_id, true, now);
+                    let _ = service
+                        .table
+                        .on_verification_result(&peer.node_id, true, now);
                 }
             }
             service
@@ -329,7 +329,8 @@ mod tests {
             duration_seconds: u64,
             reason: BanReason,
         ) -> Result<(), PeerDiscoveryError> {
-            self.table.ban_peer(node_id, duration_seconds, reason, Timestamp::new(1000))
+            self.table
+                .ban_peer(node_id, duration_seconds, reason, Timestamp::new(1000))
         }
 
         fn is_banned(&self, node_id: NodeId) -> bool {
@@ -369,7 +370,7 @@ mod tests {
         let result = handler.handle_get_peers();
         let peers: Vec<RpcPeerInfo> = serde_json::from_value(result).unwrap();
         assert_eq!(peers.len(), 5);
-        
+
         // Verify peer format
         let peer = &peers[0];
         assert!(!peer.id.is_empty());
@@ -385,7 +386,7 @@ mod tests {
 
         let result = handler.handle_get_node_info();
         let info: RpcNodeInfo = serde_json::from_value(result).unwrap();
-        
+
         assert!(info.enode.starts_with("enode://"));
         assert!(info.enode.contains("0101010101")); // First bytes of node ID
         assert_eq!(info.ports.listener, 30303);
@@ -399,7 +400,7 @@ mod tests {
 
         let result = handler.handle_get_metrics();
         let metrics: Qc01Metrics = serde_json::from_value(result).unwrap();
-        
+
         assert_eq!(metrics.total_peers, 3);
         assert_eq!(metrics.pending_verification_count, 0);
     }

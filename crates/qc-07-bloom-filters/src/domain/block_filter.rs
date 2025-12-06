@@ -59,9 +59,7 @@ impl BlockFilter {
 
     /// Check if any of the given addresses might be in this block
     pub fn might_contain_any(&self, addresses: &[[u8; 20]]) -> bool {
-        addresses
-            .iter()
-            .any(|addr| self.filter.contains(addr))
+        addresses.iter().any(|addr| self.filter.contains(addr))
     }
 }
 

@@ -224,9 +224,7 @@ async fn test_full_query_response_cycle() {
     // Gateway receives response (skip the query event we sent)
     let mut response_received = false;
     for _ in 0..5 {
-        if let Ok(Some(event)) =
-            timeout(Duration::from_millis(100), gateway_sub.recv()).await
-        {
+        if let Ok(Some(event)) = timeout(Duration::from_millis(100), gateway_sub.recv()).await {
             if let BlockchainEvent::ApiQueryResponse {
                 correlation_id,
                 source,
@@ -262,10 +260,7 @@ async fn test_concurrent_queries_with_correlation() {
     let handler_task = tokio::spawn(async move {
         let mut queries_handled = 0;
         while queries_handled < 3 {
-            if let Some(BlockchainEvent::ApiQuery {
-                correlation_id,
-                ..
-            }) = handler_sub.recv().await
+            if let Some(BlockchainEvent::ApiQuery { correlation_id, .. }) = handler_sub.recv().await
             {
                 // Each query gets a unique response based on correlation_id
                 let block_num = match correlation_id.as_str() {
@@ -307,9 +302,7 @@ async fn test_concurrent_queries_with_correlation() {
     let mut responses = std::collections::HashMap::new();
     for _ in 0..10 {
         // Try to receive up to 10 events
-        if let Ok(Some(event)) =
-            timeout(Duration::from_millis(50), gateway_sub.recv()).await
-        {
+        if let Ok(Some(event)) = timeout(Duration::from_millis(50), gateway_sub.recv()).await {
             if let BlockchainEvent::ApiQueryResponse {
                 correlation_id,
                 result,
@@ -431,30 +424,30 @@ async fn test_route_net_peer_count_to_qc01() {
 async fn test_event_bus_sender_publishes_api_query() {
     use qc_16_api_gateway::ipc::requests::GetBlockNumberRequest;
     use qc_16_api_gateway::ipc::{IpcRequest, IpcSender, RequestPayload};
-    
+
     let bus = Arc::new(InMemoryEventBus::new());
     let mut sub = bus.subscribe(EventFilter::all());
-    
+
     tokio::task::yield_now().await;
-    
+
     // Create the sender (this is the adapter we need to implement)
     let sender = node_runtime::adapters::api_gateway::EventBusIpcSender::new(Arc::clone(&bus));
-    
+
     // Create an IPC request
     let request = IpcRequest::new(
         "qc-02-block-storage",
         RequestPayload::GetBlockNumber(GetBlockNumberRequest),
     );
-    
+
     // Send the request - this should publish an ApiQuery event
     sender.send(request).await.expect("Send should succeed");
-    
+
     // Verify the event was published
     let event = timeout(Duration::from_millis(100), sub.recv())
         .await
         .expect("Should receive within timeout")
         .expect("Should have event");
-    
+
     match event {
         BlockchainEvent::ApiQuery { target, method, .. } => {
             assert_eq!(target, "qc-02-block-storage");
@@ -465,7 +458,7 @@ async fn test_event_bus_sender_publishes_api_query() {
 }
 
 // =============================================================================
-// API QUERY HANDLER TESTS  
+// API QUERY HANDLER TESTS
 // =============================================================================
 // These tests verify that the ApiQueryHandler in node-runtime correctly
 // processes ApiQuery events and responds with ApiQueryResponse.
@@ -480,16 +473,16 @@ async fn test_api_query_handler_responds_to_block_number() {
     // 2. An ApiQueryHandler that listens for ApiQuery events
     // 3. The handler to call block_storage.get_latest_height()
     // 4. The handler to publish ApiQueryResponse
-    
+
     // For now, we test the expected behavior pattern
     let bus = Arc::new(InMemoryEventBus::new());
-    
+
     // Subscribe BEFORE spawning handler to avoid race condition
     let mut gateway_sub = bus.subscribe(EventFilter::all());
     let mut handler_sub = bus.subscribe(EventFilter::all());
-    
+
     tokio::task::yield_now().await;
-    
+
     // Simulate what ApiQueryHandler SHOULD do when it receives a query
     let bus_clone = Arc::clone(&bus);
     let handler_task = tokio::spawn(async move {
@@ -503,11 +496,11 @@ async fn test_api_query_handler_responds_to_block_number() {
             // Handler should route to appropriate subsystem
             assert_eq!(target, "qc-02-block-storage");
             assert_eq!(method, "get_block_number");
-            
+
             // Handler should get data from subsystem and respond
             // For now, simulate the response
             let block_height = 0u64; // Would come from block_storage.get_latest_height()
-            
+
             let response = BlockchainEvent::ApiQueryResponse {
                 correlation_id,
                 source: 2,
@@ -516,7 +509,7 @@ async fn test_api_query_handler_responds_to_block_number() {
             bus_clone.publish(response).await;
         }
     });
-    
+
     // Send query
     let query = BlockchainEvent::ApiQuery {
         correlation_id: "handler-test-001".to_string(),
@@ -525,13 +518,13 @@ async fn test_api_query_handler_responds_to_block_number() {
         params: serde_json::json!({}),
     };
     bus.publish(query).await;
-    
+
     // Wait for handler
     timeout(Duration::from_millis(500), handler_task)
         .await
         .expect("Handler should complete")
         .expect("Handler should not panic");
-    
+
     // Gateway should receive response
     let mut got_response = false;
     for _ in 0..5 {
@@ -547,7 +540,7 @@ async fn test_api_query_handler_responds_to_block_number() {
             break;
         }
     }
-    
+
     assert!(got_response, "Should receive ApiQueryResponse");
 }
 
@@ -560,8 +553,8 @@ async fn test_api_query_handler_responds_to_block_number() {
 /// Test that EventBusIpcReceiver receives ApiQueryResponse and completes pending request.
 #[tokio::test]
 async fn test_event_bus_receiver_completes_pending_request() {
-    use qc_16_api_gateway::domain::{CorrelationId, PendingRequestStore};
     use qc_16_api_gateway::domain::pending::ResponseError;
+    use qc_16_api_gateway::domain::{CorrelationId, PendingRequestStore};
 
     let bus = Arc::new(InMemoryEventBus::new());
     let pending_store = Arc::new(PendingRequestStore::new(Duration::from_secs(60)));
@@ -574,7 +567,7 @@ async fn test_event_bus_receiver_completes_pending_request() {
     let store_clone = Arc::clone(&pending_store);
     let listener_task = tokio::spawn(async move {
         let mut sub = bus_clone.subscribe(EventFilter::all());
-        
+
         while let Some(event) = sub.recv().await {
             if let BlockchainEvent::ApiQueryResponse {
                 correlation_id: cid,
@@ -627,8 +620,8 @@ async fn test_event_bus_receiver_completes_pending_request() {
 /// Test that multiple pending requests are correctly matched by correlation ID.
 #[tokio::test]
 async fn test_event_bus_receiver_matches_correlation_ids() {
-    use qc_16_api_gateway::domain::{CorrelationId, PendingRequestStore};
     use qc_16_api_gateway::domain::pending::ResponseError;
+    use qc_16_api_gateway::domain::{CorrelationId, PendingRequestStore};
 
     let bus = Arc::new(InMemoryEventBus::new());
     let pending_store = Arc::new(PendingRequestStore::new(Duration::from_secs(60)));
@@ -644,7 +637,7 @@ async fn test_event_bus_receiver_matches_correlation_ids() {
     let listener_task = tokio::spawn(async move {
         let mut sub = bus_clone.subscribe(EventFilter::all());
         let mut processed = 0;
-        
+
         while processed < 3 {
             if let Some(BlockchainEvent::ApiQueryResponse {
                 correlation_id: cid,
@@ -676,36 +669,48 @@ async fn test_event_bus_receiver_matches_correlation_ids() {
         correlation_id: cid2.to_string(),
         source: 6,
         result: Ok(serde_json::json!("0x3b9aca00")),
-    }).await;
+    })
+    .await;
 
     bus.publish(BlockchainEvent::ApiQueryResponse {
         correlation_id: cid3.to_string(),
         source: 1,
         result: Ok(serde_json::json!("0x5")),
-    }).await;
+    })
+    .await;
 
     bus.publish(BlockchainEvent::ApiQueryResponse {
         correlation_id: cid1.to_string(),
         source: 2,
         result: Ok(serde_json::json!("0xff")),
-    }).await;
+    })
+    .await;
 
     let _ = timeout(Duration::from_millis(500), listener_task).await;
 
     // Each receiver should get ITS OWN response
-    let r1 = timeout(Duration::from_millis(100), rx1).await.unwrap().unwrap();
-    let r2 = timeout(Duration::from_millis(100), rx2).await.unwrap().unwrap();
-    let r3 = timeout(Duration::from_millis(100), rx3).await.unwrap().unwrap();
+    let r1 = timeout(Duration::from_millis(100), rx1)
+        .await
+        .unwrap()
+        .unwrap();
+    let r2 = timeout(Duration::from_millis(100), rx2)
+        .await
+        .unwrap()
+        .unwrap();
+    let r3 = timeout(Duration::from_millis(100), rx3)
+        .await
+        .unwrap()
+        .unwrap();
 
-    assert_eq!(r1.result.unwrap(), serde_json::json!("0xff"));      // Block number
+    assert_eq!(r1.result.unwrap(), serde_json::json!("0xff")); // Block number
     assert_eq!(r2.result.unwrap(), serde_json::json!("0x3b9aca00")); // Gas price
-    assert_eq!(r3.result.unwrap(), serde_json::json!("0x5"));        // Peer count
+    assert_eq!(r3.result.unwrap(), serde_json::json!("0x5")); // Peer count
 }
 
 // =============================================================================
 // END-TO-END CIRCUIT TEST
 // =============================================================================
-// Full integration test: API Gateway → Event Bus → ApiQueryHandler → 
+// Full integration test: API Gateway → Event Bus → ApiQueryHandler →
 // Event Bus → EventBusIpcReceiver → Pending Request completed
 
 /// Test the complete circuit from RPC request to response.
@@ -718,8 +723,8 @@ async fn test_event_bus_receiver_matches_correlation_ids() {
 /// 5. Original caller receives response
 #[tokio::test]
 async fn test_complete_rpc_circuit() {
-    use qc_16_api_gateway::domain::PendingRequestStore;
     use node_runtime::adapters::EventBusIpcReceiver;
+    use qc_16_api_gateway::domain::PendingRequestStore;
 
     // Setup: Create event bus and pending store
     let bus = Arc::new(InMemoryEventBus::new());
@@ -746,10 +751,10 @@ async fn test_complete_rpc_circuit() {
                 // Simulate processing
                 let result = match (target.as_str(), method.as_str()) {
                     ("qc-02-block-storage", "get_block_number") => {
-                        Ok(serde_json::json!("0x2a"))  // Block 42
+                        Ok(serde_json::json!("0x2a")) // Block 42
                     }
                     ("qc-06-mempool", "get_gas_price") => {
-                        Ok(serde_json::json!("0x3b9aca00"))  // 1 gwei
+                        Ok(serde_json::json!("0x3b9aca00")) // 1 gwei
                     }
                     _ => Err(shared_bus::ApiQueryError {
                         code: -32601,
@@ -774,14 +779,15 @@ async fn test_complete_rpc_circuit() {
 
     // === Test 1: eth_blockNumber ===
     let (cid1, rx1) = pending_store.register("eth_blockNumber", None);
-    
+
     // Simulate what EventBusSender does
     bus.publish(BlockchainEvent::ApiQuery {
         correlation_id: cid1.to_string(),
         target: "qc-02-block-storage".to_string(),
         method: "get_block_number".to_string(),
         params: serde_json::json!({}),
-    }).await;
+    })
+    .await;
 
     // Wait for response
     let response1 = timeout(Duration::from_secs(1), rx1)
@@ -794,13 +800,14 @@ async fn test_complete_rpc_circuit() {
 
     // === Test 2: eth_gasPrice ===
     let (cid2, rx2) = pending_store.register("eth_gasPrice", None);
-    
+
     bus.publish(BlockchainEvent::ApiQuery {
         correlation_id: cid2.to_string(),
         target: "qc-06-mempool".to_string(),
         method: "get_gas_price".to_string(),
         params: serde_json::json!({}),
-    }).await;
+    })
+    .await;
 
     let response2 = timeout(Duration::from_secs(1), rx2)
         .await

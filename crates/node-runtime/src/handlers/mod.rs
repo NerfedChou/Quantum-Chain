@@ -1,9 +1,15 @@
 //! # Event Handlers
 //!
 //! Message handlers for each subsystem that process choreography events.
+//!
+//! ## Plug-and-Play (v2.4)
+//!
+//! Handlers are conditionally compiled based on which subsystems are enabled.
 
+#[cfg(feature = "qc-16")]
 pub mod api_query;
-pub mod choreography;
-
+#[cfg(feature = "qc-16")]
 pub use api_query::ApiQueryHandler;
+
+pub mod choreography;
 pub use choreography::*;

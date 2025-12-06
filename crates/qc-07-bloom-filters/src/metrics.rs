@@ -58,10 +58,16 @@ impl Metrics {
     /// * `size_bits` - Filter size in bits
     /// * `hash_count` - Number of hash functions (k)
     /// * `expected_elements` - Expected number of elements
-    pub fn record_filter_created(&self, size_bits: usize, _hash_count: usize, _expected_elements: usize) {
+    pub fn record_filter_created(
+        &self,
+        size_bits: usize,
+        _hash_count: usize,
+        _expected_elements: usize,
+    ) {
         self.filters_created.fetch_add(1, Ordering::Relaxed);
         // Convert bits to bytes for allocation tracking
-        self.bytes_allocated.fetch_add((size_bits / 8) as u64, Ordering::Relaxed);
+        self.bytes_allocated
+            .fetch_add((size_bits / 8) as u64, Ordering::Relaxed);
     }
 
     /// Record element insertion
@@ -70,7 +76,8 @@ impl Metrics {
     /// * `duration` - Time taken for insertion
     pub fn record_insert(&self, duration: Duration) {
         self.elements_inserted.fetch_add(1, Ordering::Relaxed);
-        self.insert_time_ns.fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
+        self.insert_time_ns
+            .fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
     }
 
     /// Record lookup operation
@@ -80,7 +87,8 @@ impl Metrics {
     /// * `found` - Whether the element was found (possibly false positive)
     pub fn record_lookup(&self, duration: Duration, found: bool) {
         self.lookups_performed.fetch_add(1, Ordering::Relaxed);
-        self.lookup_time_ns.fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
+        self.lookup_time_ns
+            .fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
         if found {
             self.lookups_positive.fetch_add(1, Ordering::Relaxed);
         }
@@ -96,7 +104,8 @@ impl Metrics {
     /// # Arguments
     /// * `size_bits` - Filter size in bits being freed
     pub fn record_filter_freed(&self, size_bits: usize) {
-        self.bytes_allocated.fetch_sub((size_bits / 8) as u64, Ordering::Relaxed);
+        self.bytes_allocated
+            .fetch_sub((size_bits / 8) as u64, Ordering::Relaxed);
     }
 
     /// Get current metrics snapshot

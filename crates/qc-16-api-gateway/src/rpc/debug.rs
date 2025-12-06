@@ -18,7 +18,7 @@ pub struct DebugRpc {
 
 impl DebugRpc {
     pub fn new(ipc: Arc<IpcHandler>) -> Self {
-        Self { 
+        Self {
             ipc,
             start_time: Instant::now(),
         }
@@ -75,7 +75,7 @@ impl DebugRpc {
 
         // Try to ping the subsystem via IPC
         let target = format!("qc-{:02}-{}", id, code);
-        
+
         // Attempt a lightweight health check
         let (status, latency_ms) = match self.ipc.health_check(&target).await {
             Ok(latency) => (SubsystemStatus::Running, Some(latency)),
@@ -90,10 +90,10 @@ impl DebugRpc {
             name: name.to_string(),
             status,
             implemented: true,
-            uptime_ms: if status == SubsystemStatus::Running { 
-                Some(self.start_time.elapsed().as_millis() as u64) 
-            } else { 
-                None 
+            uptime_ms: if status == SubsystemStatus::Running {
+                Some(self.start_time.elapsed().as_millis() as u64)
+            } else {
+                None
             },
             memory_bytes: None,
             ipc_sent: 0,
@@ -108,14 +108,17 @@ impl DebugRpc {
 
     /// Query subsystem-specific metrics via IPC
     async fn query_specific_metrics(&self, subsystem_id: u8) -> Option<serde_json::Value> {
-        use crate::ipc::requests::{RequestPayload, GetSubsystemMetricsRequest};
+        use crate::ipc::requests::{GetSubsystemMetricsRequest, RequestPayload};
         use std::time::Duration;
 
-        let payload = RequestPayload::GetSubsystemMetrics(GetSubsystemMetricsRequest {
-            subsystem_id,
-        });
+        let payload =
+            RequestPayload::GetSubsystemMetrics(GetSubsystemMetricsRequest { subsystem_id });
 
-        match self.ipc.request("admin", payload, Some(Duration::from_millis(500))).await {
+        match self
+            .ipc
+            .request("admin", payload, Some(Duration::from_millis(500)))
+            .await
+        {
             Ok(value) => Some(value),
             Err(_) => None,
         }
@@ -125,7 +128,7 @@ impl DebugRpc {
     #[instrument(skip(self))]
     pub async fn ipc_metrics(&self) -> ApiResult<IpcMetricsResponse> {
         let metrics = self.ipc.get_metrics();
-        
+
         Ok(IpcMetricsResponse {
             metrics: IpcMetrics {
                 total_sent: metrics.total_sent,
@@ -136,16 +139,18 @@ impl DebugRpc {
                 errors_per_sec: metrics.errors_per_sec,
                 p50_latency_ms: metrics.p50_latency_ms,
                 p99_latency_ms: metrics.p99_latency_ms,
-                by_subsystem: metrics.by_subsystem.into_iter().map(|(k, v)| {
-                    SubsystemIpcMetrics {
+                by_subsystem: metrics
+                    .by_subsystem
+                    .into_iter()
+                    .map(|(k, v)| SubsystemIpcMetrics {
                         subsystem_id: k,
                         sent: v.sent,
                         received: v.received,
                         errors: v.errors,
                         timeouts: v.timeouts,
                         avg_latency_ms: v.avg_latency_ms,
-                    }
-                }).collect(),
+                    })
+                    .collect(),
             },
             window_seconds: 60,
             timestamp_ms: std::time::SystemTime::now()
@@ -157,7 +162,10 @@ impl DebugRpc {
 
     /// debug_subsystemStatus - Returns detailed status for a specific subsystem
     #[instrument(skip(self))]
-    pub async fn subsystem_status(&self, subsystem_id: String) -> ApiResult<SubsystemDetailedStatus> {
+    pub async fn subsystem_status(
+        &self,
+        subsystem_id: String,
+    ) -> ApiResult<SubsystemDetailedStatus> {
         // Parse subsystem ID (e.g., "qc-01" or "01")
         let id_num: u8 = subsystem_id
             .trim_start_matches("qc-")
@@ -170,19 +178,23 @@ impl DebugRpc {
             .ok_or_else(|| ApiError::invalid_params("Unknown subsystem ID"))?;
 
         let health = self.query_subsystem_health(id_num, name, code).await;
-        
+
         Ok(SubsystemDetailedStatus {
             id: health.id,
             name: health.name,
             status: health.status,
             uptime_ms: health.uptime_ms.unwrap_or(0),
             memory_bytes: health.memory_bytes.unwrap_or(0),
-            connections: health.connections.into_iter().map(|c| ConnectionInfo {
-                target_id: c,
-                status: SubsystemStatus::Unknown,
-                last_message_ms: 0,
-                message_count: 0,
-            }).collect(),
+            connections: health
+                .connections
+                .into_iter()
+                .map(|c| ConnectionInfo {
+                    target_id: c,
+                    status: SubsystemStatus::Unknown,
+                    last_message_ms: 0,
+                    message_count: 0,
+                })
+                .collect(),
         })
     }
 

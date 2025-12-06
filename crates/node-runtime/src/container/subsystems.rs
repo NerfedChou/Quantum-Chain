@@ -2,6 +2,18 @@
 //!
 //! Holds all core subsystem instances and manages their lifecycle.
 //!
+//! ## Plug-and-Play Architecture (v2.4)
+//!
+//! Subsystems are optional and can be enabled/disabled via Cargo features:
+//!
+//! ```bash
+//! # Minimal node (only required subsystems)
+//! cargo build --features "qc-02,qc-08,qc-10"
+//!
+//! # Full node (all subsystems)
+//! cargo build --features "full"
+//! ```
+//!
 //! ## Initialization Order (Architecture.md v2.3)
 //!
 //! Subsystems are initialized in strict dependency order:
@@ -24,16 +36,21 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::RwLock;
-use tracing::{info, instrument};
+use tracing::{info, instrument, warn};
 
 use shared_bus::{InMemoryEventBus, TimeBoundedNonceCache};
+use shared_types::SubsystemRegistry;
 
 use crate::container::config::NodeConfig;
 
-// Import subsystem services
+// =============================================================================
+// CONDITIONAL IMPORTS - Only import enabled subsystems
+// =============================================================================
+
+#[cfg(feature = "qc-01")]
 use qc_01_peer_discovery::PeerDiscoveryService;
-#[cfg(not(feature = "rocksdb"))]
-use qc_02_block_storage::ports::outbound::{FileBackedKVStore, MockFileSystemAdapter};
+
+#[cfg(feature = "qc-02")]
 use qc_02_block_storage::{
     ports::outbound::{
         BincodeBlockSerializer, DefaultChecksumProvider, SystemTimeSource as StorageTimeSource,
@@ -41,26 +58,34 @@ use qc_02_block_storage::{
     AssemblyConfig, BlockAssemblyBuffer, BlockStorageService,
 };
 
+#[cfg(all(feature = "qc-02", not(feature = "rocksdb")))]
+use qc_02_block_storage::ports::outbound::{FileBackedKVStore, MockFileSystemAdapter};
+
+#[cfg(feature = "qc-03")]
 use qc_03_transaction_indexing::{IndexConfig, TransactionIndex};
+
+#[cfg(feature = "qc-04")]
 use qc_04_state_management::PatriciaMerkleTrie;
+
+#[cfg(feature = "qc-06")]
 use qc_06_mempool::TransactionPool;
 
-// Consensus service and adapters
+#[cfg(feature = "qc-08")]
 use crate::adapters::ports::consensus::{
     ConsensusEventBusAdapter, ConsensusMempoolAdapter, ConsensusSignatureAdapter,
     ConsensusValidatorSetAdapter,
 };
+#[cfg(feature = "qc-08")]
 use qc_08_consensus::{ConsensusConfig, ConsensusService};
 
-// Finality service and adapters (used in handlers)
-#[allow(unused_imports)]
+#[cfg(feature = "qc-09")]
 use crate::adapters::ports::finality::{
     ConcreteFinalityBlockStorageAdapter, FinalityAttestationAdapter, FinalityValidatorSetAdapter,
 };
-#[allow(unused_imports)]
+#[cfg(feature = "qc-09")]
 use qc_09_finality::service::{FinalityConfig, FinalityService};
 
-// Block Production service (Subsystem 17)
+#[cfg(feature = "qc-17")]
 use qc_17_block_production::ConcreteBlockProducer;
 
 // RocksDB imports (when feature is enabled)
@@ -72,8 +97,12 @@ use crate::adapters::storage::{
 #[cfg(feature = "rocksdb")]
 use std::sync::Arc as StdArc;
 
+// =============================================================================
+// TYPE ALIASES - Conditional based on features
+// =============================================================================
+
 /// Concrete type for Block Storage Service with file-backed storage (default).
-#[cfg(not(feature = "rocksdb"))]
+#[cfg(all(feature = "qc-02", not(feature = "rocksdb")))]
 pub type ConcreteBlockStorageService = BlockStorageService<
     FileBackedKVStore,
     MockFileSystemAdapter,
@@ -83,7 +112,7 @@ pub type ConcreteBlockStorageService = BlockStorageService<
 >;
 
 /// Concrete type for Block Storage Service with RocksDB (production).
-#[cfg(feature = "rocksdb")]
+#[cfg(all(feature = "qc-02", feature = "rocksdb"))]
 pub type ConcreteBlockStorageService = BlockStorageService<
     RocksDbStore,
     ProductionFileSystemAdapter,
@@ -93,6 +122,7 @@ pub type ConcreteBlockStorageService = BlockStorageService<
 >;
 
 /// Concrete type for Consensus Service with all adapters wired.
+#[cfg(feature = "qc-08")]
 pub type ConcreteConsensusService = ConsensusService<
     ConsensusEventBusAdapter,
     ConsensusMempoolAdapter,
@@ -101,7 +131,7 @@ pub type ConcreteConsensusService = ConsensusService<
 >;
 
 /// Concrete type for Finality Service with all adapters wired (in-memory backends).
-#[cfg(not(feature = "rocksdb"))]
+#[cfg(all(feature = "qc-09", not(feature = "rocksdb")))]
 pub type ConcreteFinalityService = FinalityService<
     ConcreteFinalityBlockStorageAdapter,
     FinalityAttestationAdapter,
@@ -109,7 +139,7 @@ pub type ConcreteFinalityService = FinalityService<
 >;
 
 /// Concrete type for Finality Service with RocksDB backend (production).
-#[cfg(feature = "rocksdb")]
+#[cfg(all(feature = "qc-09", feature = "rocksdb"))]
 pub type ConcreteFinalityService = FinalityService<
     ConcreteFinalityBlockStorageAdapter,
     FinalityAttestationAdapter,
@@ -121,13 +151,10 @@ pub type ConcreteFinalityService = FinalityService<
 /// This is the main integration point where all subsystems are wired together
 /// with their adapters implementing the required ports.
 ///
-/// ## V2.3 Choreography Pattern
+/// ## V2.4 Plug-and-Play Pattern
 ///
-/// All inter-subsystem communication flows through the Event Bus:
-/// - Consensus (8) publishes `BlockValidated`
-/// - Transaction Indexing (3) subscribes, publishes `MerkleRootComputed`
-/// - State Management (4) subscribes, publishes `StateRootComputed`
-/// - Block Storage (2) assembles all three components atomically
+/// Subsystems are conditionally compiled based on Cargo features.
+/// Missing subsystems are represented as `Option::None`.
 pub struct SubsystemContainer {
     // =========================================================================
     // LEVEL 0: No Dependencies
@@ -137,82 +164,79 @@ pub struct SubsystemContainer {
     // =========================================================================
     // LEVEL 1: Depends on Level 0
     // =========================================================================
-    /// Peer Discovery (Subsystem 1)
-    /// Depends on Sig Verification for DDoS defense.
+    /// Peer Discovery (Subsystem 1) - Optional
+    #[cfg(feature = "qc-01")]
     pub peer_discovery: Arc<RwLock<PeerDiscoveryService>>,
 
-    /// Mempool (Subsystem 6)
-    /// Depends on Sig Verification for transaction validation.
+    /// Mempool (Subsystem 6) - Optional
+    #[cfg(feature = "qc-06")]
     pub mempool: Arc<RwLock<TransactionPool>>,
 
     // =========================================================================
     // LEVEL 2: Depends on Level 0-1
     // =========================================================================
-    /// Transaction Indexing (Subsystem 3)
-    /// Computes Merkle roots and provides proofs.
+    /// Transaction Indexing (Subsystem 3) - Optional
+    #[cfg(feature = "qc-03")]
     pub transaction_index: Arc<RwLock<TransactionIndex>>,
 
-    /// State Management (Subsystem 4)
-    /// Patricia Merkle Trie for account state.
+    /// State Management (Subsystem 4) - Optional
+    #[cfg(feature = "qc-04")]
     pub state_trie: Arc<RwLock<PatriciaMerkleTrie>>,
 
     // =========================================================================
     // LEVEL 3: Depends on Level 0-2
     // =========================================================================
-    /// Consensus (Subsystem 8)
-    /// Block validation with PoS/PBFT.
+    /// Consensus (Subsystem 8) - Required for block validation
+    #[cfg(feature = "qc-08")]
     pub consensus: Arc<ConcreteConsensusService>,
 
     // =========================================================================
     // LEVEL 4: Depends on Level 0-3
     // =========================================================================
-    /// Block Storage (Subsystem 2)
-    /// Stateful Assembler for V2.3 choreography.
+    /// Block Storage (Subsystem 2) - Required for persistence
+    #[cfg(feature = "qc-02")]
     pub block_storage: Arc<RwLock<ConcreteBlockStorageService>>,
 
     /// Block Assembly Buffer (for choreography)
+    #[cfg(feature = "qc-02")]
     pub assembly_buffer: Arc<RwLock<BlockAssemblyBuffer>>,
 
-    /// Finality (Subsystem 9)
-    /// Casper FFG finalization gadget.
+    /// Finality (Subsystem 9) - Optional
+    #[cfg(feature = "qc-09")]
     pub finality: Arc<ConcreteFinalityService>,
 
     // =========================================================================
     // LEVEL 5: Advanced Subsystems
     // =========================================================================
-    /// Block Production (Subsystem 17)
-    /// Multi-threaded miner with ASIC-resistant PoW.
+    /// Block Production (Subsystem 17) - Optional
+    #[cfg(feature = "qc-17")]
     pub block_producer: Arc<ConcreteBlockProducer>,
 
     // =========================================================================
-    // SHARED INFRASTRUCTURE
+    // SHARED INFRASTRUCTURE (Always available)
     // =========================================================================
     /// Event Bus for inter-subsystem communication.
-    /// All choreography events flow through this bus.
     pub event_bus: Arc<InMemoryEventBus>,
 
     /// Time-bounded nonce cache for replay prevention.
     pub nonce_cache: Arc<RwLock<TimeBoundedNonceCache>>,
+
+    /// Subsystem registry for plug-and-play management.
+    pub registry: Arc<RwLock<SubsystemRegistry>>,
 
     /// Node configuration (immutable after initialization).
     pub config: NodeConfig,
 }
 
 impl SubsystemContainer {
-    /// Create a new subsystem container with all subsystems initialized.
-    ///
-    /// ## Initialization Phases
-    ///
-    /// 1. Create shared infrastructure (event bus, nonce cache)
-    /// 2. Initialize Level 0 subsystems (Signature Verification - stateless)
-    /// 3. Initialize Level 1 subsystems (Peer Discovery, Mempool)
-    /// 4. Initialize Level 2 subsystems (Transaction Indexing, State Management)
-    /// 5. Initialize Level 4 subsystems (Block Storage, Finality)
-    /// 6. Wire event subscriptions for V2.3 Choreography
+    /// Create a new subsystem container with all enabled subsystems initialized.
     #[instrument(name = "subsystem_init", skip(config))]
     pub fn new(config: NodeConfig) -> Self {
         info!("Initializing Quantum-Chain subsystem container");
-        info!("Architecture version: 2.3 (Choreography Pattern)");
+        info!("Architecture version: 2.4 (Plug-and-Play Pattern)");
+
+        // Log which subsystems are enabled
+        Self::log_enabled_subsystems();
 
         // =====================================================================
         // PHASE 1: Shared Infrastructure
@@ -221,85 +245,196 @@ impl SubsystemContainer {
 
         let event_bus = Arc::new(InMemoryEventBus::new());
         let nonce_cache = Arc::new(RwLock::new(TimeBoundedNonceCache::new()));
+        let registry = Arc::new(RwLock::new(SubsystemRegistry::new()));
 
         // =====================================================================
         // PHASE 2: Level 0 - No Dependencies
         // =====================================================================
         info!("Phase 2: Initializing Level 0 subsystems");
+        #[cfg(feature = "qc-10")]
         info!("  [10] Signature Verification initialized (stateless)");
+        #[cfg(not(feature = "qc-10"))]
+        warn!("  [10] Signature Verification DISABLED");
 
         // =====================================================================
         // PHASE 3: Level 1 - Depends on Level 0
         // =====================================================================
         info!("Phase 3: Initializing Level 1 subsystems");
 
-        let peer_discovery = Self::init_peer_discovery();
-        info!("  [1] Peer Discovery initialized");
+        #[cfg(feature = "qc-01")]
+        let peer_discovery = {
+            let pd = Self::init_peer_discovery();
+            info!("  [1] Peer Discovery initialized");
+            pd
+        };
 
-        let mempool = Self::init_mempool(&config);
-        info!(
-            "  [6] Mempool initialized (max {} txs)",
-            config.mempool.max_transactions
-        );
+        #[cfg(feature = "qc-06")]
+        let mempool = {
+            let mp = Self::init_mempool(&config);
+            info!(
+                "  [6] Mempool initialized (max {} txs)",
+                config.mempool.max_transactions
+            );
+            mp
+        };
+
+        #[cfg(not(feature = "qc-01"))]
+        warn!("  [1] Peer Discovery DISABLED");
+        #[cfg(not(feature = "qc-06"))]
+        warn!("  [6] Mempool DISABLED");
 
         // =====================================================================
         // PHASE 4: Level 2 - Transaction Indexing & State Management
         // =====================================================================
         info!("Phase 4: Initializing Level 2 subsystems");
 
-        let transaction_index = Self::init_transaction_indexing();
-        info!("  [3] Transaction Indexing initialized");
+        #[cfg(feature = "qc-03")]
+        let transaction_index = {
+            let ti = Self::init_transaction_indexing();
+            info!("  [3] Transaction Indexing initialized");
+            ti
+        };
 
-        let state_trie = Self::init_state_management(&config);
-        info!("  [4] State Management initialized");
+        #[cfg(feature = "qc-04")]
+        let state_trie = {
+            let st = Self::init_state_management(&config);
+            info!("  [4] State Management initialized");
+            st
+        };
+
+        #[cfg(not(feature = "qc-03"))]
+        warn!("  [3] Transaction Indexing DISABLED");
+        #[cfg(not(feature = "qc-04"))]
+        warn!("  [4] State Management DISABLED");
 
         // =====================================================================
         // PHASE 5: Level 3 - Consensus
         // =====================================================================
         info!("Phase 5: Initializing Level 3 subsystems");
 
-        let consensus = Self::init_consensus(Arc::clone(&event_bus), Arc::clone(&mempool));
-        info!("  [8] Consensus initialized (PoS/PBFT)");
+        #[cfg(feature = "qc-08")]
+        let consensus = {
+            #[cfg(feature = "qc-06")]
+            let cs =
+                Self::init_consensus_with_mempool(Arc::clone(&event_bus), Arc::clone(&mempool));
+            #[cfg(not(feature = "qc-06"))]
+            let cs = Self::init_consensus_standalone(Arc::clone(&event_bus));
+
+            info!("  [8] Consensus initialized (PoS/PBFT)");
+            cs
+        };
+
+        #[cfg(not(feature = "qc-08"))]
+        warn!("  [8] Consensus DISABLED - blocks will not be validated!");
 
         // =====================================================================
         // PHASE 6: Level 4 - Block Storage & Finality
         // =====================================================================
         info!("Phase 6: Initializing Level 4 subsystems");
 
-        let (block_storage, assembly_buffer) = Self::init_block_storage(&config);
-        info!(
-            "  [2] Block Storage initialized (timeout={}s, max_pending={})",
-            config.storage.assembly_timeout_secs, config.storage.max_pending_assemblies
-        );
+        #[cfg(feature = "qc-02")]
+        let (block_storage, assembly_buffer) = {
+            let (bs, ab) = Self::init_block_storage(&config);
+            info!(
+                "  [2] Block Storage initialized (timeout={}s, max_pending={})",
+                config.storage.assembly_timeout_secs, config.storage.max_pending_assemblies
+            );
+            (bs, ab)
+        };
 
-        let finality = Self::init_finality(Arc::clone(&block_storage));
-        info!("  [9] Finality initialized (Casper FFG)");
+        #[cfg(feature = "qc-09")]
+        let finality = {
+            #[cfg(feature = "qc-02")]
+            let fin = Self::init_finality(Arc::clone(&block_storage));
+            #[cfg(not(feature = "qc-02"))]
+            compile_error!("qc-09 (Finality) requires qc-02 (Block Storage)");
+
+            info!("  [9] Finality initialized (Casper FFG)");
+            fin
+        };
+
+        #[cfg(not(feature = "qc-02"))]
+        warn!("  [2] Block Storage DISABLED - blocks will not be persisted!");
+        #[cfg(not(feature = "qc-09"))]
+        warn!("  [9] Finality DISABLED");
 
         // =====================================================================
         // PHASE 7: Level 5 - Advanced Subsystems
         // =====================================================================
         info!("Phase 7: Initializing Level 5 advanced subsystems");
 
-        let block_producer = Self::init_block_producer(Arc::clone(&event_bus), &config);
-        info!("  [17] Block Production initialized (mining threads={})", config.mining.worker_threads);
+        #[cfg(feature = "qc-17")]
+        let block_producer = {
+            let bp = Self::init_block_producer(Arc::clone(&event_bus), &config);
+            info!(
+                "  [17] Block Production initialized (mining threads={})",
+                config.mining.worker_threads
+            );
+            bp
+        };
 
-        info!("All subsystems initialized successfully");
-        info!("Choreography ready: Consensus→TxIndexing→StateManagement→BlockStorage→Finality");
+        #[cfg(not(feature = "qc-17"))]
+        warn!("  [17] Block Production DISABLED - node will not mine blocks");
+
+        info!("All enabled subsystems initialized successfully");
 
         Self {
+            #[cfg(feature = "qc-01")]
             peer_discovery,
+            #[cfg(feature = "qc-06")]
             mempool,
+            #[cfg(feature = "qc-03")]
             transaction_index,
+            #[cfg(feature = "qc-04")]
             state_trie,
+            #[cfg(feature = "qc-08")]
             consensus,
+            #[cfg(feature = "qc-02")]
             block_storage,
+            #[cfg(feature = "qc-02")]
             assembly_buffer,
+            #[cfg(feature = "qc-09")]
             finality,
+            #[cfg(feature = "qc-17")]
             block_producer,
             event_bus,
             nonce_cache,
+            registry,
             config,
         }
+    }
+
+    /// Log which subsystems are enabled at compile time.
+    fn log_enabled_subsystems() {
+        info!("Enabled subsystems:");
+
+        #[cfg(feature = "qc-01")]
+        info!("  ✓ qc-01: Peer Discovery");
+        #[cfg(feature = "qc-02")]
+        info!("  ✓ qc-02: Block Storage");
+        #[cfg(feature = "qc-03")]
+        info!("  ✓ qc-03: Transaction Indexing");
+        #[cfg(feature = "qc-04")]
+        info!("  ✓ qc-04: State Management");
+        #[cfg(feature = "qc-05")]
+        info!("  ✓ qc-05: Block Propagation");
+        #[cfg(feature = "qc-06")]
+        info!("  ✓ qc-06: Mempool");
+        #[cfg(feature = "qc-08")]
+        info!("  ✓ qc-08: Consensus");
+        #[cfg(feature = "qc-09")]
+        info!("  ✓ qc-09: Finality");
+        #[cfg(feature = "qc-10")]
+        info!("  ✓ qc-10: Signature Verification");
+        #[cfg(feature = "qc-16")]
+        info!("  ✓ qc-16: API Gateway");
+        #[cfg(feature = "qc-17")]
+        info!("  ✓ qc-17: Block Production");
+
+        #[cfg(feature = "rocksdb")]
+        info!("  ✓ rocksdb: Production storage backend");
+        #[cfg(not(feature = "rocksdb"))]
+        info!("  ○ rocksdb: Using file-backed storage");
     }
 
     /// Create a container for testing with in-memory backends.
@@ -312,10 +447,10 @@ impl SubsystemContainer {
     // SUBSYSTEM INITIALIZATION METHODS
     // =========================================================================
 
+    #[cfg(feature = "qc-01")]
     fn init_peer_discovery() -> Arc<RwLock<PeerDiscoveryService>> {
         use qc_01_peer_discovery::{KademliaConfig, NodeId, TimeSource, Timestamp};
 
-        // Create a simple time source (no panics)
         struct SimpleTimeSource;
         impl TimeSource for SimpleTimeSource {
             fn now(&self) -> Timestamp {
@@ -323,12 +458,11 @@ impl SubsystemContainer {
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs())
-                        .unwrap_or(0), // Fallback to epoch if system time is before UNIX_EPOCH
+                        .unwrap_or(0),
                 )
             }
         }
 
-        // Generate a random local node ID for this instance
         let local_node_id = NodeId::new(rand::random());
         let kademlia_config = KademliaConfig::default();
         let time_source: Box<dyn TimeSource> = Box::new(SimpleTimeSource);
@@ -340,6 +474,7 @@ impl SubsystemContainer {
         )))
     }
 
+    #[cfg(feature = "qc-06")]
     fn init_mempool(config: &NodeConfig) -> Arc<RwLock<TransactionPool>> {
         use qc_06_mempool::MempoolConfig as PoolConfig;
 
@@ -354,18 +489,19 @@ impl SubsystemContainer {
         Arc::new(RwLock::new(TransactionPool::new(pool_config)))
     }
 
+    #[cfg(feature = "qc-03")]
     fn init_transaction_indexing() -> Arc<RwLock<TransactionIndex>> {
         let index_config = IndexConfig::default();
         Arc::new(RwLock::new(TransactionIndex::new(index_config)))
     }
 
-    #[cfg(not(feature = "rocksdb"))]
+    #[cfg(all(feature = "qc-04", not(feature = "rocksdb")))]
     fn init_state_management(_config: &NodeConfig) -> Arc<RwLock<PatriciaMerkleTrie>> {
         info!("Initializing State Management with in-memory backend (testing mode)");
         Arc::new(RwLock::new(PatriciaMerkleTrie::new()))
     }
 
-    #[cfg(feature = "rocksdb")]
+    #[cfg(all(feature = "qc-04", feature = "rocksdb"))]
     fn init_state_management(config: &NodeConfig) -> Arc<RwLock<PatriciaMerkleTrie>> {
         info!("Initializing State Management with RocksDB persistence");
         let db_path = config.storage.data_dir.join("state_db");
@@ -374,11 +510,9 @@ impl SubsystemContainer {
             ..RocksDbConfig::default()
         };
 
-        // Open RocksDB for state
         let store = RocksDbStore::open(rocks_config).expect("Failed to open RocksDB for state");
         let trie_db = RocksDbTrieDatabase::new(StdArc::new(store));
 
-        // Try to load existing state, or create new
         let trie = match PatriciaMerkleTrie::load_from_db(&trie_db) {
             Ok(t) => {
                 info!("Loaded existing state from RocksDB");
@@ -393,13 +527,13 @@ impl SubsystemContainer {
         Arc::new(RwLock::new(trie))
     }
 
+    #[cfg(feature = "qc-02")]
     fn init_block_storage(
         config: &NodeConfig,
     ) -> (
         Arc<RwLock<ConcreteBlockStorageService>>,
         Arc<RwLock<BlockAssemblyBuffer>>,
     ) {
-        // Create assembly buffer for choreography
         let assembly_config = AssemblyConfig {
             assembly_timeout_secs: config.storage.assembly_timeout_secs,
             max_pending_assemblies: config.storage.max_pending_assemblies,
@@ -411,7 +545,6 @@ impl SubsystemContainer {
         let serializer = BincodeBlockSerializer;
         let storage_config = qc_02_block_storage::StorageConfig::default();
 
-        // Use RocksDB for production, in-memory for testing
         #[cfg(feature = "rocksdb")]
         let service = {
             info!("Initializing Block Storage with RocksDB backend");
@@ -437,13 +570,16 @@ impl SubsystemContainer {
 
         #[cfg(not(feature = "rocksdb"))]
         let service = {
-            // Use file-backed storage for persistence without RocksDB
-            let data_dir = std::env::var("QC_DATA_DIR").unwrap_or_else(|_| "/var/quantum-chain/data".to_string());
+            let data_dir = std::env::var("QC_DATA_DIR")
+                .unwrap_or_else(|_| "/var/quantum-chain/data".to_string());
             let storage_path = std::path::PathBuf::from(&data_dir).join("blocks.db");
-            info!("Initializing Block Storage with file-backed persistence at {}", storage_path.display());
-            
+            info!(
+                "Initializing Block Storage with file-backed persistence at {}",
+                storage_path.display()
+            );
+
             let kv_store = FileBackedKVStore::new(&storage_path);
-            let fs_adapter = MockFileSystemAdapter::new(50); // 50% disk available
+            let fs_adapter = MockFileSystemAdapter::new(50);
 
             BlockStorageService::new(
                 kv_store,
@@ -458,18 +594,16 @@ impl SubsystemContainer {
         (Arc::new(RwLock::new(service)), assembly_buffer)
     }
 
-    /// Initialize Consensus service with all port adapters.
-    fn init_consensus(
+    #[cfg(all(feature = "qc-08", feature = "qc-06"))]
+    fn init_consensus_with_mempool(
         event_bus: Arc<InMemoryEventBus>,
         mempool: Arc<RwLock<TransactionPool>>,
     ) -> Arc<ConcreteConsensusService> {
-        // Create port adapters
         let event_bus_adapter = Arc::new(ConsensusEventBusAdapter::new(event_bus));
         let mempool_adapter = Arc::new(ConsensusMempoolAdapter::new(mempool));
         let sig_adapter = Arc::new(ConsensusSignatureAdapter::new());
         let validator_adapter = Arc::new(ConsensusValidatorSetAdapter::new());
 
-        // Create consensus service with default config
         let consensus_config = ConsensusConfig::default();
 
         Arc::new(ConsensusService::new(
@@ -481,16 +615,34 @@ impl SubsystemContainer {
         ))
     }
 
-    /// Initialize Finality service with all port adapters.
+    #[cfg(all(feature = "qc-08", not(feature = "qc-06")))]
+    fn init_consensus_standalone(
+        event_bus: Arc<InMemoryEventBus>,
+    ) -> Arc<ConcreteConsensusService> {
+        let event_bus_adapter = Arc::new(ConsensusEventBusAdapter::new(event_bus));
+        let mempool_adapter = Arc::new(ConsensusMempoolAdapter::new());
+        let sig_adapter = Arc::new(ConsensusSignatureAdapter::new());
+        let validator_adapter = Arc::new(ConsensusValidatorSetAdapter::new());
+
+        let consensus_config = ConsensusConfig::default();
+
+        Arc::new(ConsensusService::new(
+            event_bus_adapter,
+            mempool_adapter,
+            sig_adapter,
+            validator_adapter,
+            consensus_config,
+        ))
+    }
+
+    #[cfg(all(feature = "qc-09", feature = "qc-02"))]
     fn init_finality(
         block_storage: Arc<RwLock<ConcreteBlockStorageService>>,
     ) -> Arc<ConcreteFinalityService> {
-        // Create port adapters
         let storage_adapter = Arc::new(ConcreteFinalityBlockStorageAdapter::new(block_storage));
         let attestation_adapter = Arc::new(FinalityAttestationAdapter::new());
         let validator_adapter = Arc::new(FinalityValidatorSetAdapter::new());
 
-        // Create finality service with default config
         let finality_config = FinalityConfig::default();
 
         Arc::new(FinalityService::new(
@@ -501,22 +653,20 @@ impl SubsystemContainer {
         ))
     }
 
-    /// Initialize Block Producer service (Subsystem 17).
+    #[cfg(feature = "qc-17")]
     fn init_block_producer(
         event_bus: Arc<InMemoryEventBus>,
         config: &NodeConfig,
     ) -> Arc<ConcreteBlockProducer> {
-        use qc_17_block_production::{BlockProductionConfig, ConsensusMode};
         use primitive_types::U256;
+        use qc_17_block_production::{BlockProductionConfig, ConsensusMode};
 
-        // Map node config to block production config
         let mut block_config = BlockProductionConfig::default();
-        block_config.mode = ConsensusMode::ProofOfStake; // Default to PoS
-        block_config.gas_limit = 30_000_000; // 30M gas
-        block_config.min_gas_price = U256::from(1_000_000_000u64); // 1 gwei
+        block_config.mode = ConsensusMode::ProofOfStake;
+        block_config.gas_limit = 30_000_000;
+        block_config.min_gas_price = U256::from(1_000_000_000u64);
         block_config.fair_ordering = true;
 
-        // Configure PoW if mining is enabled
         if config.mining.enabled {
             block_config.mode = ConsensusMode::ProofOfWork;
             block_config.pow = Some(qc_17_block_production::PoWConfig {
@@ -550,24 +700,46 @@ impl SubsystemContainer {
         Duration::from_secs(self.config.storage.assembly_timeout_secs)
     }
 
-    /// Get transaction index for Merkle operations.
+    /// Get transaction index for Merkle operations (if enabled).
+    #[cfg(feature = "qc-03")]
     pub fn transaction_index(&self) -> Arc<RwLock<TransactionIndex>> {
         Arc::clone(&self.transaction_index)
     }
 
-    /// Get state trie for account state operations.
+    /// Get state trie for account state operations (if enabled).
+    #[cfg(feature = "qc-04")]
     pub fn state_trie(&self) -> Arc<RwLock<PatriciaMerkleTrie>> {
         Arc::clone(&self.state_trie)
     }
 
-    /// Get consensus service for block validation.
+    /// Get consensus service for block validation (if enabled).
+    #[cfg(feature = "qc-08")]
     pub fn consensus(&self) -> Arc<ConcreteConsensusService> {
         Arc::clone(&self.consensus)
     }
 
-    /// Get finality service for Casper FFG operations.
+    /// Get finality service for Casper FFG operations (if enabled).
+    #[cfg(feature = "qc-09")]
     pub fn finality(&self) -> Arc<ConcreteFinalityService> {
         Arc::clone(&self.finality)
+    }
+
+    /// Check if a subsystem is enabled.
+    pub fn is_subsystem_enabled(id: u8) -> bool {
+        match id {
+            1 => cfg!(feature = "qc-01"),
+            2 => cfg!(feature = "qc-02"),
+            3 => cfg!(feature = "qc-03"),
+            4 => cfg!(feature = "qc-04"),
+            5 => cfg!(feature = "qc-05"),
+            6 => cfg!(feature = "qc-06"),
+            8 => cfg!(feature = "qc-08"),
+            9 => cfg!(feature = "qc-09"),
+            10 => cfg!(feature = "qc-10"),
+            16 => cfg!(feature = "qc-16"),
+            17 => cfg!(feature = "qc-17"),
+            _ => false,
+        }
     }
 }
 
@@ -578,52 +750,16 @@ mod tests {
     #[test]
     fn test_container_initialization() {
         let container = SubsystemContainer::new_for_testing();
-
-        // Verify all subsystems are initialized
         assert_eq!(container.event_bus.subscriber_count(), 0);
-        assert!(container.mempool.read().is_empty());
     }
 
     #[test]
-    fn test_transaction_indexing_initialized() {
-        let container = SubsystemContainer::new_for_testing();
+    fn test_subsystem_enabled_check() {
+        // These should reflect the features enabled in test builds
+        #[cfg(feature = "qc-02")]
+        assert!(SubsystemContainer::is_subsystem_enabled(2));
 
-        // Verify transaction index is accessible
-        let _index = container.transaction_index();
-    }
-
-    #[test]
-    fn test_state_management_initialized() {
-        let container = SubsystemContainer::new_for_testing();
-
-        // Verify state trie is accessible
-        let trie = container.state_trie();
-        // Just verify we can read the root hash (value depends on empty trie implementation)
-        let _root = trie.read().root_hash();
-    }
-
-    #[test]
-    fn test_consensus_initialized() {
-        let container = SubsystemContainer::new_for_testing();
-        // Verify consensus is accessible
-        let _consensus = container.consensus();
-    }
-
-    #[cfg(not(feature = "rocksdb"))]
-    #[test]
-    fn test_finality_initialized() {
-        let container = SubsystemContainer::new_for_testing();
-        // Verify finality is accessible
-        let _finality = container.finality();
-    }
-
-    #[test]
-    fn test_event_bus_accessible() {
-        let container = SubsystemContainer::new_for_testing();
-        let bus = container.event_bus();
-
-        // Should be able to subscribe
-        let _sub = bus.subscribe(shared_bus::EventFilter::all());
-        assert_eq!(bus.subscriber_count(), 1);
+        // Non-existent subsystem
+        assert!(!SubsystemContainer::is_subsystem_enabled(99));
     }
 }

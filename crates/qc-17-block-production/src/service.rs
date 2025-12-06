@@ -5,9 +5,10 @@
 
 use crate::{
     config::BlockProductionConfig,
-    domain::{BlockTemplate, ConsensusMode, BlockHeader, PoWMiner, 
-             create_coinbase_transaction, calculate_block_reward, calculate_transaction_fees,
-             DifficultyAdjuster, DifficultyConfig},
+    domain::{
+        calculate_block_reward, calculate_transaction_fees, create_coinbase_transaction,
+        BlockHeader, BlockTemplate, ConsensusMode, DifficultyAdjuster, DifficultyConfig, PoWMiner,
+    },
     error::{BlockProductionError, Result},
     ports::{BlockProducerService, ProductionConfig, ProductionStatus},
     security::SecurityValidator,
@@ -17,7 +18,7 @@ use primitive_types::{H256, U256};
 use shared_bus::InMemoryEventBus;
 use shared_types::entities::{Address, ValidatedTransaction};
 use std::sync::Arc;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Concrete implementation of BlockProducerService
 ///
@@ -48,17 +49,14 @@ pub struct ConcreteBlockProducer {
 
     /// Mining thread handle
     mining_handle: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
-    
+
     /// Difficulty adjuster for PoW
     difficulty_adjuster: Option<DifficultyAdjuster>,
 }
 
 impl ConcreteBlockProducer {
     /// Create a new block producer service
-    pub fn new(
-        event_bus: Arc<InMemoryEventBus>,
-        config: BlockProductionConfig,
-    ) -> Self {
+    pub fn new(event_bus: Arc<InMemoryEventBus>, config: BlockProductionConfig) -> Self {
         info!("[qc-17] Initializing Block Producer Service");
         info!("  Consensus Mode: {:?}", config.mode);
         info!("  Gas Limit: {}", config.gas_limit);
@@ -88,9 +86,15 @@ impl ConcreteBlockProducer {
                 dgw_window: pow_config.and_then(|p| p.dgw_window).unwrap_or(24),
                 ..Default::default()
             };
-            info!("  Difficulty Adjustment: {} (target: {}s per block)", 
-                  if difficulty_config.use_dgw { "Dark Gravity Wave" } else { "Epoch-based" },
-                  difficulty_config.target_block_time);
+            info!(
+                "  Difficulty Adjustment: {} (target: {}s per block)",
+                if difficulty_config.use_dgw {
+                    "Dark Gravity Wave"
+                } else {
+                    "Epoch-based"
+                },
+                difficulty_config.target_block_time
+            );
             Some(DifficultyAdjuster::new(difficulty_config))
         } else {
             None
@@ -153,15 +157,25 @@ impl BlockProducerService for ConcreteBlockProducer {
         // Get starting height from config (resuming from persisted chain)
         let starting_height = config.starting_height;
         if starting_height > 0 {
-            info!("[qc-17] 💾 Resuming from height {} (loaded from storage)", starting_height);
+            info!(
+                "[qc-17] 💾 Resuming from height {} (loaded from storage)",
+                starting_height
+            );
         }
 
         match mode {
             ConsensusMode::ProofOfWork => {
                 info!("  Mode: PoW Mining");
-                let threads = self.config.read().unwrap().pow.as_ref().map(|p| p.threads).unwrap_or(4);
+                let threads = self
+                    .config
+                    .read()
+                    .unwrap()
+                    .pow
+                    .as_ref()
+                    .map(|p| p.threads)
+                    .unwrap_or(4);
                 info!("  Threads: {}", threads);
-                
+
                 // Start PoW mining in background task
                 let is_active = Arc::new(std::sync::atomic::AtomicBool::new(true));
                 let is_active_clone = Arc::clone(&is_active);
@@ -170,22 +184,22 @@ impl BlockProducerService for ConcreteBlockProducer {
                 let pow_miner = PoWMiner::new(threads);
                 let status = self.status.clone(); // Share the same RwLock, don't copy!
                 let difficulty_adjuster = self.difficulty_adjuster.clone();
-                
+
                 let mining_task = tokio::task::spawn(async move {
                     info!("[qc-17] PoW mining task started");
-                    
+
                     // Start from persisted chain height
                     let mut blocks_mined = starting_height;
                     let start_time = std::time::Instant::now();
-                    
+
                     // Track recent blocks for difficulty adjustment
                     let mut recent_blocks: Vec<crate::domain::difficulty::BlockInfo> = Vec::new();
-                    
+
                     while is_active_clone.load(std::sync::atomic::Ordering::Relaxed) {
                         // Step 1: Get pending transactions from mempool
                         // Mempool integration via qc-06 IPC (empty for coinbase-only blocks)
                         let pending_transactions: Vec<ValidatedTransaction> = vec![];
-                        
+
                         // Step 2: Calculate block number (resume from where we left off)
                         let parent_hash = H256::random(); // Chain tip placeholder
                         let block_number = 1 + blocks_mined; // Next block after persisted height
@@ -193,14 +207,14 @@ impl BlockProducerService for ConcreteBlockProducer {
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap()
                             .as_secs();
-                        
+
                         // Step 3: Calculate mining rewards
                         let base_reward = calculate_block_reward(block_number);
                         let transaction_fees = calculate_transaction_fees(&pending_transactions);
-                        
+
                         // Use beneficiary from config, fallback to zero address
                         let beneficiary: Address = [0u8; 20]; // Default beneficiary
-                        
+
                         // Step 4: Create coinbase transaction
                         let coinbase_tx = match create_coinbase_transaction(
                             block_number,
@@ -216,22 +230,23 @@ impl BlockProducerService for ConcreteBlockProducer {
                                 continue;
                             }
                         };
-                        
+
                         // Step 5: Build transaction list (coinbase first)
                         let mut validated_transactions = vec![coinbase_tx];
                         validated_transactions.extend(pending_transactions);
-                        
+
                         // Serialize transactions for BlockTemplate (simple encoding for now)
                         let transactions: Vec<Vec<u8>> = validated_transactions
                             .iter()
                             .map(|tx| serde_json::to_vec(&tx).unwrap_or_default())
                             .collect();
-                        
+
                         // Step 6: Calculate difficulty dynamically based on recent blocks
                         let difficulty = if let Some(ref adjuster) = difficulty_adjuster {
                             let calculated = adjuster.calculate_next_difficulty(&recent_blocks);
                             let desc = DifficultyAdjuster::describe_difficulty(calculated);
-                            if block_number % 10 == 1 { // Log every 10 blocks
+                            if block_number % 10 == 1 {
+                                // Log every 10 blocks
                                 info!("[qc-17] 📊 Difficulty adjusted: {}", desc);
                             }
                             calculated
@@ -239,7 +254,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                             // Fallback: static difficulty
                             U256::from(2).pow(U256::from(240))
                         };
-                        
+
                         let template = BlockTemplate {
                             header: BlockHeader {
                                 parent_hash,
@@ -260,37 +275,43 @@ impl BlockProducerService for ConcreteBlockProducer {
                             consensus_mode: ConsensusMode::ProofOfWork,
                             created_at: timestamp,
                         };
-                        
+
                         // Step 7: Mine with calculated difficulty
-                        
+
                         info!("[qc-17] Mining block #{} (reward: {} + fees: {}) with difficulty target: {:?}", 
                               block_number, base_reward, transaction_fees, difficulty);
-                        
+
                         let difficulty_for_log = format!("{}", difficulty);
                         match pow_miner.mine_block(template.clone(), difficulty) {
                             Some(nonce) => {
                                 blocks_mined += 1;
                                 let elapsed = start_time.elapsed().as_secs();
                                 let hashrate = if elapsed > 0 {
-                                    Some((blocks_mined as f64 / elapsed as f64) * 1_000_000.0) // Rough estimate
+                                    Some((blocks_mined as f64 / elapsed as f64) * 1_000_000.0)
+                                // Rough estimate
                                 } else {
                                     None
                                 };
-                                
-                                info!("[qc-17] ✓ Block #{} mined! Nonce: {}, Total blocks: {}", 
-                                    block_number, nonce, blocks_mined);
-                                
+
+                                info!(
+                                    "[qc-17] ✓ Block #{} mined! Nonce: {}, Total blocks: {}",
+                                    block_number, nonce, blocks_mined
+                                );
+
                                 // Track this block for difficulty adjustment
-                                recent_blocks.insert(0, crate::domain::difficulty::BlockInfo {
-                                    height: block_number,
-                                    timestamp,
-                                    difficulty,
-                                });
+                                recent_blocks.insert(
+                                    0,
+                                    crate::domain::difficulty::BlockInfo {
+                                        height: block_number,
+                                        timestamp,
+                                        difficulty,
+                                    },
+                                );
                                 // Keep only the last 50 blocks in memory
                                 if recent_blocks.len() > 50 {
                                     recent_blocks.truncate(50);
                                 }
-                                
+
                                 // JSON EVENT LOG
                                 let correlation_id = uuid::Uuid::new_v4().to_string();
                                 let block_hash_str = format!("{:016x}", nonce);
@@ -311,32 +332,41 @@ impl BlockProducerService for ConcreteBlockProducer {
                                     }
                                 });
                                 info!("EVENT_FLOW_JSON {}", event);
-                                
+
                                 // Update status
                                 {
                                     let mut status_guard = status.write().unwrap();
                                     status_guard.blocks_produced = blocks_mined;
                                     status_guard.hashrate = hashrate;
                                     status_guard.last_block_at = Some(timestamp);
-                                    info!("[qc-17] 📊 Status updated: blocks_produced={}", status_guard.blocks_produced);
+                                    info!(
+                                        "[qc-17] 📊 Status updated: blocks_produced={}",
+                                        status_guard.blocks_produced
+                                    );
                                 }
-                                
+
                                 // Block validation is triggered by the choreography bridge in node-runtime
                                 // which polls status and publishes BlockValidated events
-                                
+
                                 // Small delay before next block
                                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                             }
                             None => {
-                                error!("[qc-17] Failed to mine block #{} - no valid nonce found", block_number);
+                                error!(
+                                    "[qc-17] Failed to mine block #{} - no valid nonce found",
+                                    block_number
+                                );
                                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                             }
                         }
                     }
-                    
-                    info!("[qc-17] PoW mining task stopped. Total blocks mined: {}", blocks_mined);
+
+                    info!(
+                        "[qc-17] PoW mining task stopped. Total blocks mined: {}",
+                        blocks_mined
+                    );
                 });
-                
+
                 // Store handle
                 *self.mining_handle.lock().unwrap() = Some(mining_task);
             }
@@ -360,13 +390,13 @@ impl BlockProducerService for ConcreteBlockProducer {
 
         self.is_active
             .store(false, std::sync::atomic::Ordering::SeqCst);
-        
+
         // Stop mining task if running
         if let Some(handle) = self.mining_handle.lock().unwrap().take() {
             handle.abort();
             info!("[qc-17] Mining task aborted");
         }
-        
+
         {
             let mut status = self.status.write().unwrap();
             status.active = false;

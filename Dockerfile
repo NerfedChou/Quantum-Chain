@@ -45,7 +45,11 @@ FROM rust:slim-bookworm AS builder
 ARG BUILD_DATE
 ARG VCS_REF
 
+# Build argument for GPU support (default: CPU only)
+ARG ENABLE_GPU=false
+
 # Install build dependencies
+# OpenCL (for GPU) only requires runtime libs, not heavy compile-time deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
@@ -53,6 +57,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     libclang-dev \
     librocksdb-dev \
+    && if [ "$ENABLE_GPU" = "true" ]; then \
+        apt-get install -y --no-install-recommends \
+            ocl-icd-opencl-dev; \
+    fi \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -80,9 +88,15 @@ RUN cargo fetch
 COPY . .
 
 # Build the release binary with RocksDB and security flags
-# All 15 subsystems are compiled into a single binary
-RUN RUSTFLAGS="-D warnings" \
-    cargo build --release --bin node-runtime --features rocksdb
+# All 17 subsystems are compiled into a single binary
+# GPU features are optional and auto-detected at runtime
+RUN if [ "$ENABLE_GPU" = "true" ]; then \
+        echo "Building with OpenCL GPU support..." && \
+        RUSTFLAGS="-D warnings" cargo build --release --bin node-runtime --features "rocksdb,gpu"; \
+    else \
+        echo "Building CPU-only..." && \
+        RUSTFLAGS="-D warnings" cargo build --release --bin node-runtime --features rocksdb; \
+    fi
 
 # Strip debug symbols for smaller binary
 RUN strip --strip-all /usr/src/quantum-chain/target/release/node-runtime 2>/dev/null || true
@@ -95,13 +109,19 @@ FROM debian:bookworm-slim AS runtime
 # Build arguments
 ARG BUILD_DATE
 ARG VCS_REF
+ARG ENABLE_GPU=false
 
 # Install runtime dependencies (minimal)
+# OpenCL runtime for GPU acceleration (if enabled)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     librocksdb7.8 \
     libsnappy1v5 \
+    && if [ "$ENABLE_GPU" = "true" ]; then \
+        apt-get install -y --no-install-recommends \
+            ocl-icd-libopencl1; \
+    fi \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
     && rm -rf /var/cache/apt/archives/*

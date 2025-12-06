@@ -215,7 +215,7 @@ impl PendingRequestStore {
     /// Get metrics for IPC handler (admin panel support)
     pub fn get_metrics(&self) -> crate::ipc::handler::IpcHandlerMetrics {
         use crate::ipc::handler::IpcHandlerMetrics;
-        
+
         let stats = self.stats();
         let total_sent = stats.total_registered.load(Ordering::Relaxed);
         let total_received = stats.total_completed.load(Ordering::Relaxed);
@@ -229,7 +229,7 @@ impl PendingRequestStore {
             total_timeouts,
             requests_per_sec: 0.0, // Would need time-windowed tracking
             errors_per_sec: 0.0,
-            p50_latency_ms: 0,     // Would need latency histogram
+            p50_latency_ms: 0, // Would need latency histogram
             p99_latency_ms: 0,
             by_subsystem: std::collections::HashMap::new(),
         }

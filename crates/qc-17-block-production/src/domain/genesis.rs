@@ -3,11 +3,11 @@
 //! Handles the creation and validation of the genesis block that bootstraps
 //! the blockchain.
 
-use shared_types::entities::{
-    Address, BlockHeader, ConsensusProof, GenesisConfig, Hash, PublicKey,
-    Transaction, U256, ValidatedBlock, ValidatedTransaction,
-};
 use sha2::{Digest, Sha256};
+use shared_types::entities::{
+    Address, BlockHeader, ConsensusProof, GenesisConfig, Hash, PublicKey, Transaction,
+    ValidatedBlock, ValidatedTransaction, U256,
+};
 
 /// Creates the genesis block from configuration
 pub fn create_genesis_block(config: &GenesisConfig) -> Result<ValidatedBlock, GenesisError> {
@@ -26,7 +26,6 @@ pub fn create_genesis_block(config: &GenesisConfig) -> Result<ValidatedBlock, Ge
         calculate_merkle_root(&transactions)
     };
 
-    // Create genesis block header
     let header = BlockHeader {
         version: 1,
         height: 0,
@@ -69,10 +68,7 @@ fn create_genesis_transaction(
 
     let tx_hash = calculate_transaction_hash(&tx);
 
-    Ok(ValidatedTransaction {
-        inner: tx,
-        tx_hash,
-    })
+    Ok(ValidatedTransaction { inner: tx, tx_hash })
 }
 
 /// Creates a coinbase transaction for block mining reward
@@ -85,7 +81,6 @@ pub fn create_coinbase_transaction(
 ) -> Result<ValidatedTransaction, GenesisError> {
     let total_reward = base_reward + transaction_fees;
 
-    // Check if reward fits in u64 (Transaction struct limitation)
     if total_reward > U256::from(u64::MAX) {
         tracing::error!(
             "Coinbase reward overflow: base={}, fees={}, total={}, max={}",
@@ -109,10 +104,7 @@ pub fn create_coinbase_transaction(
 
     let tx_hash = calculate_transaction_hash(&tx);
 
-    Ok(ValidatedTransaction {
-        inner: tx,
-        tx_hash,
-    })
+    Ok(ValidatedTransaction { inner: tx, tx_hash })
 }
 
 /// Calculate the block reward for a given height
@@ -121,12 +113,11 @@ pub fn create_coinbase_transaction(
 pub fn calculate_block_reward(height: u64) -> U256 {
     const INITIAL_REWARD: u64 = 50;
     const HALVING_INTERVAL: u64 = 210_000;
-    const DECIMALS: u128 = 10u128.pow(8); // 1e8 base units keeps rewards within u64 range
+    const DECIMALS: u128 = 10u128.pow(8);
 
     let halvings = height / HALVING_INTERVAL;
 
     if halvings >= 64 {
-        // After 64 halvings, reward is effectively zero
         return U256::zero();
     }
 
@@ -252,17 +243,10 @@ mod tests {
 
         // After first halving
         let reward_halving = calculate_block_reward(210_000);
-        assert_eq!(
-            reward_halving,
-            U256::from(25) * U256::from(10u128.pow(8))
-        );
+        assert_eq!(reward_halving, U256::from(25) * U256::from(10u128.pow(8)));
 
-        // After second halving
         let reward_halving2 = calculate_block_reward(420_000);
-        assert_eq!(
-            reward_halving2,
-            U256::from(12) * U256::from(10u128.pow(8))
-        );
+        assert_eq!(reward_halving2, U256::from(12) * U256::from(10u128.pow(8)));
     }
 
     #[test]
