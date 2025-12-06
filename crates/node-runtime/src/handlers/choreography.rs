@@ -393,11 +393,15 @@ impl FinalityHandler {
                         warn!("[qc-09] Ignoring BlockStored from {:?}", sender_id);
                         continue;
                     }
+                    
+                    info!("[qc-09] 📥 Received BlockStored for block #{}", block_height);
 
                     // In real impl: check attestations, verify 2/3 threshold
-                    // For now, finalize every 32 blocks (epoch boundary)
-                    if block_height % 32 == 0 {
-                        let epoch = block_height / 32;
+                    // For demo: finalize every 4 blocks (epoch boundary)
+                    // In production this would be 32 blocks per epoch
+                    let epoch_size = 4;
+                    if block_height % epoch_size == 0 || block_height <= 10 {
+                        let epoch = block_height / epoch_size;
                         info!(
                             "[qc-09] 🔒 Block #{} at epoch {} boundary, finalizing...",
                             block_height, epoch

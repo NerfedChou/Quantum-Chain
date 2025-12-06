@@ -452,6 +452,60 @@ impl NodeRuntime {
         });
         
         info!("  [17] Block Production Miner started (PoW auto-mining enabled)");
+        
+        // CHOREOGRAPHY BRIDGE: Create a task that triggers BlockValidated for mined blocks
+        // Since qc-17 uses PoW, each mined block is already validated by difficulty proof
+        let choreography_router = self.choreography.router();
+        let miner_status_checker = Arc::clone(&miner_service);
+        let mut last_block_height = 0u64;
+        
+        info!("[Bridge] Starting choreography bridge task...");
+        
+        tokio::spawn(async move {
+            info!("[Bridge] 🌉 Bridge task loop starting...");
+            let mut iteration = 0u64;
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                iteration += 1;
+                
+                // Check if a new block was mined
+                let status = miner_status_checker.get_status().await;
+                let current_blocks = status.blocks_produced;
+                
+                // Debug: Log every 10th iteration
+                if iteration % 10 == 0 {
+                    info!("[Bridge] 🔄 Poll #{}: blocks_produced={}, last_height={}", iteration, current_blocks, last_block_height);
+                }
+                
+                if current_blocks > last_block_height {
+                    for block_height in (last_block_height + 1)..=current_blocks {
+                        let block_hash = [0u8; 32]; // TODO: Get actual hash
+                        
+                        info!("[Bridge] 🌉 Triggering choreography for block #{}", block_height);
+                        
+                        // Publish BlockValidated to choreography router
+                        match choreography_router.publish(
+                            crate::wiring::ChoreographyEvent::BlockValidated {
+                                block_hash,
+                                block_height,
+                                sender_id: shared_types::SubsystemId::Consensus,
+                            }
+                        ) {
+                            Ok(_) => {
+                                info!("[Bridge] ✅ Published BlockValidated for block #{}", block_height);
+                            }
+                            Err(e) => {
+                                error!("[Bridge] ❌ Failed to publish BlockValidated: {}", e);
+                            }
+                        }
+                    }
+                    
+                    last_block_height = current_blocks;
+                }
+            }
+        });
+        
+        info!("  [Bridge] Choreography bridge started");
 
         info!("Choreography handlers started");
         Ok(())

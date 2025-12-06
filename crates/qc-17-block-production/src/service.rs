@@ -35,7 +35,7 @@ pub struct ConcreteBlockProducer {
     security: SecurityValidator,
 
     /// Current production status
-    status: std::sync::RwLock<ProductionStatus>,
+    status: Arc<std::sync::RwLock<ProductionStatus>>,
 
     /// Whether production is active
     is_active: std::sync::atomic::AtomicBool,
@@ -77,7 +77,7 @@ impl ConcreteBlockProducer {
             event_bus,
             config: std::sync::RwLock::new(config),
             security,
-            status: std::sync::RwLock::new(initial_status),
+            status: Arc::new(std::sync::RwLock::new(initial_status)),
             is_active: std::sync::atomic::AtomicBool::new(false),
             pow_miner,
             mining_handle: std::sync::Mutex::new(None),
@@ -137,7 +137,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                 let event_bus = Arc::clone(&self.event_bus);
                 let config = self.config.read().unwrap().clone();
                 let pow_miner = PoWMiner::new(threads);
-                let status = Arc::new(std::sync::RwLock::new(self.status.read().unwrap().clone()));
+                let status = self.status.clone(); // Share the same RwLock, don't copy!
                 
                 let mining_task = tokio::task::spawn(async move {
                     info!("[qc-17] PoW mining task started");
@@ -262,6 +262,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                                     status_guard.blocks_produced = blocks_mined;
                                     status_guard.hashrate = hashrate;
                                     status_guard.last_block_at = Some(timestamp);
+                                    info!("[qc-17] 📊 Status updated: blocks_produced={}", status_guard.blocks_produced);
                                 }
                                 
                                 // TODO: Publish block to qc-08 for validation via event bus
