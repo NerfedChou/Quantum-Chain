@@ -2,6 +2,12 @@
 //!
 //! Implements Bitcoin-style and Dark Gravity Wave (DGW) difficulty adjustment algorithms
 //! to maintain consistent block times as network hashrate changes.
+//!
+//! **IMPORTANT**: In PoW, the "difficulty target" is actually a CEILING:
+//! - HIGHER target number = EASIER (more valid hashes below it)
+//! - LOWER target number = HARDER (fewer valid hashes below it)
+//!
+//! This is counterintuitive! When blocks are too fast, we LOWER the target.
 
 use primitive_types::U256;
 use std::time::Duration;
@@ -21,14 +27,20 @@ pub struct DifficultyConfig {
     /// Number of blocks to average for DGW (typically 24)
     pub dgw_window: usize,
     
-    /// Initial difficulty (genesis)
+    /// Initial difficulty target (genesis) - higher = easier
     pub initial_difficulty: U256,
     
-    /// Minimum difficulty (prevent too easy)
+    /// Minimum difficulty target (floor - hardest allowed)
+    /// Lower number = harder, so this is the HARD limit
     pub min_difficulty: U256,
     
-    /// Maximum difficulty (prevent too hard)
+    /// Maximum difficulty target (ceiling - easiest allowed)  
+    /// Higher number = easier, so this is the EASY limit
     pub max_difficulty: U256,
+    
+    /// Maximum adjustment factor per recalculation (Bitcoin uses 4x)
+    /// Prevents difficulty from changing too drastically in one step
+    pub max_adjustment_factor: u64,
 }
 
 impl Default for DifficultyConfig {
@@ -38,9 +50,15 @@ impl Default for DifficultyConfig {
             adjustment_period: 100, // Adjust every 100 blocks
             use_dgw: true, // Enable per-block adjustment
             dgw_window: 24, // Look at last 24 blocks
-            initial_difficulty: U256::from(2).pow(U256::from(240)), // ~2 leading zero bytes
-            min_difficulty: U256::from(2).pow(U256::from(248)), // ~1 leading zero byte (easy)
-            max_difficulty: U256::from(2).pow(U256::from(200)), // ~7 leading zero bytes (hard)
+            // Initial target: reasonably easy for single CPU mining
+            // 2^252 means ~4 leading zero bits required
+            initial_difficulty: U256::from(2).pow(U256::from(252)),
+            // Hardest allowed (lowest target): 2^200 (~7 leading zero bytes)
+            min_difficulty: U256::from(2).pow(U256::from(200)),
+            // Easiest allowed (highest target): 2^254 (~0.25 leading zero bytes)
+            max_difficulty: U256::from(2).pow(U256::from(254)),
+            // Bitcoin-style: max 4x change per adjustment
+            max_adjustment_factor: 4,
         }
     }
 }
@@ -96,6 +114,8 @@ impl DifficultyAdjuster {
     ///
     /// This algorithm looks at the last N blocks and adjusts difficulty based on
     /// the actual time taken vs expected time. It responds quickly to hashrate changes.
+    ///
+    /// REMEMBER: Target is a CEILING. Lower target = harder!
     fn calculate_dgw_difficulty(&self, recent_blocks: &[BlockInfo]) -> U256 {
         let window_size = self.config.dgw_window.min(recent_blocks.len());
         
@@ -119,7 +139,13 @@ impl DifficultyAdjuster {
         // Expected time for these blocks
         let expected_time = (window_size - 1) as u64 * self.config.target_block_time;
         
-        // Calculate average difficulty over the window
+        // Prevent extreme ratios - clamp actual_time to reasonable bounds
+        // This prevents the difficulty from changing too much in one step
+        let min_time = expected_time / self.config.max_adjustment_factor;
+        let max_time = expected_time * self.config.max_adjustment_factor;
+        let clamped_actual_time = actual_time.clamp(min_time.max(1), max_time);
+        
+        // Calculate average difficulty (target) over the window
         let mut sum_difficulty = U256::zero();
         for block in blocks {
             sum_difficulty = sum_difficulty.saturating_add(block.difficulty);
@@ -127,16 +153,21 @@ impl DifficultyAdjuster {
         let avg_difficulty = sum_difficulty / U256::from(window_size);
         
         // Adjust difficulty based on time ratio
-        // If blocks are too fast, increase difficulty (lower target)
-        // If blocks are too slow, decrease difficulty (higher target)
-        let new_difficulty = if actual_time < expected_time {
-            // Blocks too fast - increase difficulty
-            let ratio = U256::from(expected_time) / U256::from(actual_time.max(1));
-            avg_difficulty.saturating_mul(ratio)
+        // CRITICAL: Target is a CEILING, so:
+        // - Blocks too fast → LOWER the target (make it harder)
+        // - Blocks too slow → RAISE the target (make it easier)
+        let new_difficulty = if clamped_actual_time < expected_time {
+            // Blocks too fast - LOWER target to make it HARDER
+            // new_target = old_target * actual_time / expected_time
+            avg_difficulty
+                .saturating_mul(U256::from(clamped_actual_time))
+                / U256::from(expected_time)
         } else {
-            // Blocks too slow - decrease difficulty
-            let ratio = U256::from(actual_time) / U256::from(expected_time);
-            avg_difficulty / ratio.max(U256::one())
+            // Blocks too slow - RAISE target to make it EASIER
+            // new_target = old_target * actual_time / expected_time
+            avg_difficulty
+                .saturating_mul(U256::from(clamped_actual_time))
+                / U256::from(expected_time)
         };
         
         // Clamp to min/max bounds
@@ -147,6 +178,8 @@ impl DifficultyAdjuster {
     ///
     /// Adjusts difficulty every N blocks based on how long those N blocks took.
     /// More predictable but slower to respond to hashrate changes.
+    ///
+    /// REMEMBER: Target is a CEILING. Lower target = harder!
     fn calculate_epoch_difficulty(&self, recent_blocks: &[BlockInfo]) -> U256 {
         let current_height = recent_blocks[0].height;
         let current_difficulty = recent_blocks[0].difficulty;
@@ -177,24 +210,33 @@ impl DifficultyAdjuster {
         // Expected time for the epoch
         let expected_time = self.config.adjustment_period * self.config.target_block_time;
         
-        // Adjust difficulty
-        let new_difficulty = if actual_time < expected_time {
-            // Blocks too fast - increase difficulty
-            current_difficulty.saturating_mul(U256::from(expected_time)) / U256::from(actual_time.max(1))
-        } else {
-            // Blocks too slow - decrease difficulty
-            current_difficulty.saturating_mul(U256::from(expected_time)) / U256::from(actual_time)
-        };
+        // Bitcoin-style clamping: max 4x adjustment per epoch
+        let min_time = expected_time / self.config.max_adjustment_factor;
+        let max_time = expected_time * self.config.max_adjustment_factor;
+        let clamped_actual_time = actual_time.clamp(min_time.max(1), max_time);
+        
+        // Adjust difficulty (target)
+        // new_target = current_target * actual_time / expected_time
+        // - If actual < expected (too fast): target decreases (harder)
+        // - If actual > expected (too slow): target increases (easier)
+        let new_difficulty = current_difficulty
+            .saturating_mul(U256::from(clamped_actual_time))
+            / U256::from(expected_time);
         
         // Clamp to min/max bounds
         self.clamp_difficulty(new_difficulty)
     }
 
-    /// Clamp difficulty to configured bounds
+    /// Clamp difficulty target to configured bounds
+    /// 
+    /// Remember: min_difficulty is the HARDEST (lowest number)
+    ///           max_difficulty is the EASIEST (highest number)
     fn clamp_difficulty(&self, difficulty: U256) -> U256 {
         if difficulty < self.config.min_difficulty {
+            // Target too low (too hard) - clamp to hardest allowed
             self.config.min_difficulty
         } else if difficulty > self.config.max_difficulty {
+            // Target too high (too easy) - clamp to easiest allowed
             self.config.max_difficulty
         } else {
             difficulty
@@ -242,15 +284,17 @@ mod tests {
     }
 
     #[test]
-    fn test_dgw_increases_for_fast_blocks() {
+    fn test_dgw_lowers_target_for_fast_blocks() {
         let config = DifficultyConfig {
             target_block_time: 10,
             dgw_window: 3,
+            max_adjustment_factor: 4,
             ..Default::default()
         };
         let adjuster = DifficultyAdjuster::new(config.clone());
         
-        // Simulate blocks being mined too fast (5 seconds each)
+        // Simulate blocks being mined too fast (5 seconds each instead of 10)
+        // 3 blocks, 2 intervals, 10 seconds total (should be 20)
         let blocks = vec![
             BlockInfo { height: 3, timestamp: 30, difficulty: config.initial_difficulty },
             BlockInfo { height: 2, timestamp: 25, difficulty: config.initial_difficulty },
@@ -259,20 +303,25 @@ mod tests {
         
         let new_difficulty = adjuster.calculate_next_difficulty(&blocks);
         
-        // Difficulty should increase (blocks were too fast)
-        assert!(new_difficulty > config.initial_difficulty);
+        // Target should DECREASE (lower number = harder to hit)
+        // Because blocks were mined 2x too fast
+        assert!(new_difficulty < config.initial_difficulty, 
+            "Fast blocks should lower target. Got {} vs initial {}",
+            new_difficulty, config.initial_difficulty);
     }
 
     #[test]
-    fn test_dgw_decreases_for_slow_blocks() {
+    fn test_dgw_raises_target_for_slow_blocks() {
         let config = DifficultyConfig {
             target_block_time: 10,
             dgw_window: 3,
+            max_adjustment_factor: 4,
             ..Default::default()
         };
         let adjuster = DifficultyAdjuster::new(config.clone());
         
-        // Simulate blocks being mined too slow (20 seconds each)
+        // Simulate blocks being mined too slow (20 seconds each instead of 10)
+        // 3 blocks, 2 intervals, 40 seconds total (should be 20)
         let blocks = vec![
             BlockInfo { height: 3, timestamp: 60, difficulty: config.initial_difficulty },
             BlockInfo { height: 2, timestamp: 40, difficulty: config.initial_difficulty },
@@ -281,20 +330,51 @@ mod tests {
         
         let new_difficulty = adjuster.calculate_next_difficulty(&blocks);
         
-        // Difficulty should decrease (blocks were too slow)
-        assert!(new_difficulty < config.initial_difficulty);
+        // Target should INCREASE (higher number = easier to hit)
+        // Because blocks were mined 2x too slow
+        assert!(new_difficulty > config.initial_difficulty,
+            "Slow blocks should raise target. Got {} vs initial {}",
+            new_difficulty, config.initial_difficulty);
     }
 
     #[test]
-    fn test_clamping() {
+    fn test_max_adjustment_factor_limits_change() {
+        let config = DifficultyConfig {
+            target_block_time: 10,
+            dgw_window: 3,
+            max_adjustment_factor: 4,
+            ..Default::default()
+        };
+        let adjuster = DifficultyAdjuster::new(config.clone());
+        
+        // Simulate EXTREMELY fast blocks (0.1 seconds each - 100x too fast)
+        // Without clamping, this would make target 100x smaller
+        // With 4x clamp, it should only be 4x smaller
+        let blocks = vec![
+            BlockInfo { height: 3, timestamp: 1002, difficulty: config.initial_difficulty },
+            BlockInfo { height: 2, timestamp: 1001, difficulty: config.initial_difficulty },
+            BlockInfo { height: 1, timestamp: 1000, difficulty: config.initial_difficulty },
+        ];
+        
+        let new_difficulty = adjuster.calculate_next_difficulty(&blocks);
+        
+        // Should be clamped to at most 4x harder (target / 4)
+        let max_decrease = config.initial_difficulty / U256::from(4);
+        assert!(new_difficulty >= max_decrease,
+            "Adjustment should be clamped. Got {} but min should be {}",
+            new_difficulty, max_decrease);
+    }
+
+    #[test]
+    fn test_clamping_bounds() {
         let config = DifficultyConfig::default();
         let adjuster = DifficultyAdjuster::new(config.clone());
         
-        // Test min clamping
+        // Test min clamping (hardest allowed - lowest number)
         let too_low = config.min_difficulty / U256::from(2);
         assert_eq!(adjuster.clamp_difficulty(too_low), config.min_difficulty);
         
-        // Test max clamping
+        // Test max clamping (easiest allowed - highest number)
         let too_high = config.max_difficulty * U256::from(2);
         assert_eq!(adjuster.clamp_difficulty(too_high), config.max_difficulty);
     }
