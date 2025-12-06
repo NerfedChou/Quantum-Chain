@@ -1,0 +1,21 @@
+# ==============================================================================
+# Quantum-Chain Docker Compose - Local Data Override
+# ==============================================================================
+# Mounts the local ./data folder for blockchain persistence.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up
+#
+# This stores all blockchain data in the project's ./data folder:
+#   ./data/rocksdb/   - Block storage (RocksDB)
+#   ./data/state_db/  - State trie (RocksDB)
+#
+# The data persists across Docker restarts and is visible in your project.
+# ==============================================================================
+
+services:
+  quantum-chain:
+    volumes:
+      # Override named volume with local folder
+      - ../data:/var/quantum-chain/data
+      - ../config:/var/quantum-chain/config:ro

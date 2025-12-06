@@ -1,520 +1,579 @@
-# Quantum-Chain
+<div align="center">
 
-**A Production-Ready Modular Blockchain System with Quantum-Inspired Architecture**
+# ⚛️ Quantum-Chain
 
-[![Rust](https://img.shields.io/badge/rust-stable%20(1.85%2B)-orange.svg)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
-[![Architecture](https://img.shields.io/badge/architecture-v2.4-green.svg)](Documentation/Architecture.md)
-[![Tests](https://img.shields.io/badge/tests-1180%20passing-brightgreen.svg)](#test-coverage)
-[![CI](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/rust.yml/badge.svg)](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/rust.yml)
+### A Modular Blockchain Built from First Principles
 
----
+[![Rust](https://img.shields.io/badge/Rust-1.75+-orange?style=flat-square&logo=rust)](https://www.rust-lang.org/)
+[![License](https://img.shields.io/badge/License-Unlicense-blue?style=flat-square)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-1000+-brightgreen?style=flat-square)](#-test-results)
+[![Architecture](https://img.shields.io/badge/Architecture-V2.4-purple?style=flat-square)](Documentation/Architecture.md)
 
-## Table of Contents
+**Event-Driven • Hexagonal Architecture • Zero-Trust Security • RocksDB Persistence**
 
-1. [Overview](#overview)
-2. [Architecture](#architecture)
-3. [API Gateway](#api-gateway)
-4. [Subsystems](#subsystems)
-5. [Test Coverage](#test-coverage)
-6. [Quick Start](#quick-start)
-7. [Development](#development)
-8. [Security](#security)
-9. [Documentation](#documentation)
-10. [Contributing](#contributing)
+[Getting Started](#-quick-start) •
+[Architecture](#-architecture) •
+[Subsystems](#-subsystems) •
+[Docker](#-docker-deployment) •
+[Monitoring](#-monitoring)
+
+</div>
 
 ---
 
-## Overview
+## 📋 Table of Contents
 
-Quantum-Chain is a **production-ready modular blockchain system** built with Rust, implementing a hybrid architecture that combines:
-
-- **Domain-Driven Design (DDD)** - Business logic as first-class citizens
-- **Hexagonal Architecture** - Dependency inversion via Ports & Adapters
-- **Event-Driven Architecture (EDA)** - Asynchronous, decoupled communication
-- **Zero-Trust Security** - Independent signature re-verification at every layer
-
-### Key Design Principles
-
-```
-RULE #1: Libraries have ZERO knowledge of the binary/CLI/Docker
-RULE #2: Direct subsystem-to-subsystem calls are FORBIDDEN
-RULE #3: All inter-subsystem communication via Shared Bus ONLY
-RULE #4: Consensus-critical signatures are re-verified independently
-```
-
-### Production Readiness (December 2025)
-
-| Component | Status | Tests |
-|-----------|--------|-------|
-| Core Subsystems (1-10) | ✅ Production Ready | 531 |
-| Bloom Filters (7) | ✅ Production Ready | 61 |
-| API Gateway (16) | ✅ Production Ready | 111 |
-| Integration Tests | ✅ All Passing | 281 |
-| Node Runtime Wiring | ✅ Complete | 87 |
-| Infrastructure | ✅ Ready | 54 |
-| **Total** | **✅ Ready** | **1180** |
+- [Overview](#-overview)
+- [Key Features](#-key-features)
+- [Architecture](#-architecture)
+- [Subsystems](#-subsystems)
+- [Quick Start](#-quick-start)
+- [Docker Deployment](#-docker-deployment)
+- [Monitoring](#-monitoring)
+- [Data Persistence](#-data-persistence)
+- [Event Flow](#-event-flow)
+- [API Reference](#-api-reference)
+- [Development](#-development)
+- [Testing](#-testing)
+- [Security](#-security)
+- [Documentation](#-documentation)
+- [License](#-license)
 
 ---
 
-## Architecture
+## 🌟 Overview
 
-### System Topology
-
-Quantum-Chain is architected as a **fortress of isolated subsystems**, each representing a distinct business capability (Bounded Context):
+Quantum-Chain is a **ground-up blockchain implementation** written in Rust. It's not a fork—every line of code was written to understand and demonstrate how blockchains actually work.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           EXTERNAL WORLD                                    │
-│         (Wallets, dApps, Block Explorers, CLI Tools, Monitoring)           │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     SUBSYSTEM 16: API GATEWAY                               │
-│     ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐        │
-│     │JSON-RPC │  │WebSocket│  │  REST   │  │ Metrics │  │ Health  │        │
-│     │ :8545   │  │ :8546   │  │ :8080   │  │ :9090   │  │ :8081   │        │
-│     └─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────┘        │
-│         │             │            │            │            │              │
-│         └─────────────┴────────────┴────────────┴────────────┘              │
-│                                    │                                        │
-│              Tower Middleware: Rate Limit → Timeout → CORS                  │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         QUANTUM-CHAIN NODE RUNTIME                          │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                         SHARED EVENT BUS                             │    │
-│  │            (HMAC-authenticated, Time-bounded Nonces)                 │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│       │              │              │              │              │         │
-│       ▼              ▼              ▼              ▼              ▼         │
-│  ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐       │
-│  │ Peer    │   │ Block   │   │ Tx      │   │ State   │   │ Block   │       │
-│  │ Disc(1) │   │ Store(2)│   │ Index(3)│   │ Mgmt(4) │   │ Prop(5) │       │
-│  └─────────┘   └─────────┘   └─────────┘   └─────────┘   └─────────┘       │
-│       │              │              │              │              │         │
-│       ▼              ▼              ▼              ▼              ▼         │
-│  ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐       │
-│  │ Mempool │   │ Bloom   │   │Consensus│   │Finality │   │ Sig     │       │
-│  │   (6)   │   │Filters(7)│  │   (8)   │   │   (9)   │   │ Ver(10) │       │
-│  └─────────┘   └─────────┘   └─────────┘   └─────────┘   └─────────┘       │
-│                                                                             │
-│                           [ LGTM Telemetry ]                                │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    QUANTUM-CHAIN NODE                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐        │
+│   │  Block  │   │Consensus│   │ Mempool │   │  State  │        │
+│   │Producer │──▶│  (PoW)  │──▶│         │──▶│ Manager │        │
+│   │ (QC-17) │   │ (QC-08) │   │ (QC-06) │   │ (QC-04) │        │
+│   └─────────┘   └─────────┘   └─────────┘   └─────────┘        │
+│        │             │             │             │              │
+│        └─────────────┴─────────────┴─────────────┘              │
+│                          │                                      │
+│                    ┌─────▼─────┐                                │
+│                    │ Event Bus │  ◀── HMAC Authenticated        │
+│                    └─────┬─────┘                                │
+│                          │                                      │
+│   ┌─────────┐   ┌────────▼──┐   ┌─────────┐   ┌─────────┐      │
+│   │  Block  │   │   Block   │   │   Tx    │   │ Finality│      │
+│   │ Storage │◀──│  Indexing │   │  Index  │   │ (QC-09) │      │
+│   │ (QC-02) │   │  (QC-03)  │   │ (QC-03) │   └─────────┘      │
+│   └────┬────┘   └───────────┘   └─────────┘                    │
+│        │                                                        │
+│   ┌────▼────┐                                                   │
+│   │ RocksDB │  ◀── Persistent Storage                          │
+│   └─────────┘                                                   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
-
-### V2.4 Choreography Pattern
-
-The system uses **event-driven choreography** for block processing:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    BLOCK VALIDATION: CHOREOGRAPHY PATTERN                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   [Consensus (8)] ──BlockValidated──→ [Event Bus]                           │
-│                                            │                                │
-│          ┌─────────────────────────────────┼─────────────────────┐          │
-│          ↓                                 ↓                     ↓          │
-│   [Tx Indexing (3)]              [State Mgmt (4)]        [Block Storage (2)]│
-│          │                                 │              (Stateful Assembler)
-│          ↓                                 ↓                     ↑          │
-│   MerkleRootComputed              StateRootComputed              │          │
-│          └─────────────────────────────────┴─────────────────────┘          │
-│                                            │                                │
-│                                            ↓                                │
-│                              [Atomic Write + Finality (9)]                  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Security Model
-
-| Layer | Protection | Implementation |
-|-------|------------|----------------|
-| **API Security** | Rate limiting, method whitelists, CORS | `qc-16` Tower |
-| **IPC Security** | HMAC-SHA256 authenticated envelopes | `shared-bus` |
-| **Replay Prevention** | Time-bounded nonce cache (120s) | `TimeBoundedNonceCache` |
-| **Zero-Trust** | Signatures re-verified at Consensus & Finality | `qc-08`, `qc-09` |
-| **Side-Channel** | Constant-time cryptographic operations | `subtle` crate |
-| **Memory Safety** | Zeroization of sensitive data | `zeroize` crate |
-| **Malleability** | EIP-2 low-S enforcement | `qc-10` |
 
 ---
 
-## API Gateway
+## ✨ Key Features
 
-### Subsystem 16: External Interface
-
-The API Gateway (`qc-16-api-gateway`) is the **single entry point** for all external interactions:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         API GATEWAY INTERFACES                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   JSON-RPC 2.0 (:8545)        Ethereum-compatible API                       │
-│   ├─ eth_getBalance           → qc-04 State Management                      │
-│   ├─ eth_sendRawTransaction   → qc-06 Mempool                               │
-│   ├─ eth_getBlock*            → qc-02 Block Storage                         │
-│   ├─ eth_getTransaction*      → qc-03 Transaction Indexing                  │
-│   ├─ eth_call                 → qc-11 Smart Contracts                       │
-│   └─ eth_subscribe            → Event Bus                                   │
-│                                                                             │
-│   WebSocket (:8546)           Real-time subscriptions                       │
-│   ├─ newHeads                 Block notifications                           │
-│   ├─ logs                     Event log notifications                       │
-│   └─ pendingTransactions      Mempool notifications                         │
-│                                                                             │
-│   REST API (:8080)            Admin endpoints (protected)                   │
-│   ├─ /admin/peers             Node peer management                          │
-│   └─ /admin/status            Node status                                   │
-│                                                                             │
-│   Prometheus (:9090)          Metrics for Grafana/Mimir                     │
-│   └─ /metrics                 Request counts, latencies, errors             │
-│                                                                             │
-│   Health (:8081)              Kubernetes/Docker probes                      │
-│   ├─ /health/live             Liveness probe                                │
-│   └─ /health/ready            Readiness probe                               │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Method Security Tiers
-
-| Tier | Access | Examples |
-|------|--------|----------|
-| **Tier 1: Public** | No auth | `eth_getBalance`, `eth_sendRawTransaction`, `eth_call` |
-| **Tier 2: Protected** | API key or localhost | `admin_peers`, `txpool_status` |
-| **Tier 3: Admin** | Localhost + auth | `admin_addPeer`, `miner_start`, `debug_*` |
-
-### Stack
-
-- **Axum** - HTTP/WebSocket framework
-- **Tower** - Middleware (rate limiting, timeout, CORS)
-- **jsonrpsee** - JSON-RPC 2.0 protocol
+| Feature | Description |
+|---------|-------------|
+| **🧱 Modular Architecture** | 12 independent subsystems communicating via event bus |
+| **⛏️ Proof of Work Mining** | SHA-256 based mining with adjustable difficulty |
+| **💾 RocksDB Persistence** | Production-grade storage that survives restarts |
+| **🔐 Zero-Trust Security** | HMAC-authenticated IPC, replay prevention |
+| **📊 Real-Time Monitoring** | Grafana dashboards, Prometheus metrics, Loki logs |
+| **🐳 Docker Ready** | One command deployment with persistence |
+| **🔍 Event Flow Logging** | See exactly how blocks flow through the system |
 
 ---
 
-## Subsystems
+## 🏗 Architecture
 
-### Core Subsystems (Production Ready)
+### Design Principles
 
-| ID | Crate | Description | Tests | Status |
-|----|-------|-------------|-------|--------|
-| 1 | `qc-01-peer-discovery` | Kademlia DHT, DDoS defense | 86 | ✅ |
-| 2 | `qc-02-block-storage` | Choreography assembler, atomic writes | 66 | ✅ |
-| 3 | `qc-03-transaction-indexing` | Merkle trees, inclusion proofs | 40 | ✅ |
-| 4 | `qc-04-state-management` | Patricia Merkle Trie | 22 | ✅ |
-| 5 | `qc-05-block-propagation` | Gossip protocol, compact blocks | 37 | ✅ |
-| 6 | `qc-06-mempool` | Priority queue, two-phase commit | 95 | ✅ |
-| 7 | `qc-07-bloom-filters` | SPV filtering, O(1) membership tests | 61 | ✅ |
-| 8 | `qc-08-consensus` | PoS/PBFT, 2/3 attestation threshold | 30 | ✅ |
-| 9 | `qc-09-finality` | Casper FFG, slashing, circuit breaker | 33 | ✅ |
-| 10 | `qc-10-signature-verification` | ECDSA/BLS, batch verification | 61 | ✅ |
+```rust
+// The Four Laws of Quantum-Chain
+RULE #1: Subsystems have ZERO knowledge of each other
+RULE #2: Direct subsystem-to-subsystem calls are FORBIDDEN  
+RULE #3: ALL communication goes through the Event Bus
+RULE #4: Every message is HMAC-authenticated
+```
 
-### External Interface
+### Hexagonal Architecture
 
-| ID | Crate | Description | Tests | Status |
-|----|-------|-------------|-------|--------|
-| 16 | `qc-16-api-gateway` | JSON-RPC/WebSocket/REST API | 111 | ✅ |
+Each subsystem follows the **Ports & Adapters** pattern:
 
-### Infrastructure
-
-| Crate | Purpose | Tests | Status |
-|-------|---------|-------|--------|
-| `shared-types` | Common types (Hash, Address, Signature, SubsystemId) | 12 | ✅ |
-| `shared-bus` | HMAC-authenticated event bus, nonce cache | 26 | ✅ |
-| `quantum-telemetry` | LGTM observability (Loki, Grafana, Tempo, Mimir) | 16 | ✅ |
-| `node-runtime` | Application binary, subsystem wiring | 87 | ✅ |
-| `integration-tests` | End-to-end exploit & choreography tests | 281 | ✅ |
-
-### Future Subsystems
-
-| ID | Name | Status |
-|----|------|--------|
-| 11-15 | Advanced (Sharding, Cross-chain, etc.) | Planned |
+```
+┌──────────────────────────────────────────────────────────┐
+│                    SUBSYSTEM (e.g., QC-08)               │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│   ┌────────────────────────────────────────────────┐    │
+│   │              DOMAIN (Pure Logic)               │    │
+│   │  ┌──────────┐  ┌───────────┐  ┌────────────┐  │    │
+│   │  │ Entities │  │ Services  │  │   Errors   │  │    │
+│   │  └──────────┘  └───────────┘  └────────────┘  │    │
+│   └────────────────────────────────────────────────┘    │
+│                          │                               │
+│   ┌──────────────────────┴───────────────────────┐      │
+│   │              PORTS (Interfaces)               │      │
+│   │  ┌─────────────────┐  ┌───────────────────┐  │      │
+│   │  │  Inbound Port   │  │  Outbound Port    │  │      │
+│   │  │ (what I offer)  │  │ (what I need)     │  │      │
+│   │  └─────────────────┘  └───────────────────┘  │      │
+│   └──────────────────────────────────────────────┘      │
+│                          │                               │
+│   ┌──────────────────────┴───────────────────────┐      │
+│   │             ADAPTERS (Implementation)         │      │
+│   │  ┌─────────────────┐  ┌───────────────────┐  │      │
+│   │  │  IPC Adapter    │  │  Event Adapter    │  │      │
+│   │  │ (handles msgs)  │  │ (publishes events)│  │      │
+│   │  └─────────────────┘  └───────────────────┘  │      │
+│   └──────────────────────────────────────────────┘      │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Test Coverage
+## 🔧 Subsystems
 
-### Summary (December 2025)
+### Active Subsystems
+
+| ID | Name | Purpose | Status |
+|----|------|---------|--------|
+| **QC-01** | Peer Discovery | Kademlia DHT, node discovery | ✅ Active |
+| **QC-02** | Block Storage | RocksDB persistence, atomic writes | ✅ Active |
+| **QC-03** | Transaction Indexing | Merkle trees, tx lookups | ✅ Active |
+| **QC-04** | State Management | Account balances, state root | ✅ Active |
+| **QC-05** | Block Propagation | Gossip protocol | ✅ Active |
+| **QC-06** | Mempool | Transaction pool, priority queue | ✅ Active |
+| **QC-07** | Bloom Filters | SPV support, fast filtering | ✅ Active |
+| **QC-08** | Consensus | PoW validation, block verification | ✅ Active |
+| **QC-09** | Finality | Block finalization, checkpoints | ✅ Active |
+| **QC-10** | Signature Verification | ECDSA/BLS, batch verification | ✅ Active |
+| **QC-16** | API Gateway | JSON-RPC, REST, WebSocket | ✅ Active |
+| **QC-17** | Block Production | PoW mining, coinbase creation | ✅ Active |
+
+### Subsystem Communication Flow
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                    TEST RESULTS: 1180 PASSING                  │
-├────────────────────────────────────────────────────────────────┤
-│                                                                │
-│  Core Subsystems (Unit Tests)                                  │
-│  ├── qc-01-peer-discovery ................ 86 tests ✅        │
-│  ├── qc-02-block-storage ................. 66 tests ✅        │
-│  ├── qc-03-transaction-indexing .......... 40 tests ✅        │
-│  ├── qc-04-state-management .............. 22 tests ✅        │
-│  ├── qc-05-block-propagation ............. 37 tests ✅        │
-│  ├── qc-06-mempool ....................... 95 tests ✅        │
-│  ├── qc-07-bloom-filters ................. 61 tests ✅        │
-│  ├── qc-08-consensus ..................... 30 tests ✅        │
-│  ├── qc-09-finality ...................... 33 tests ✅        │
-│  └── qc-10-signature-verification ........ 61 tests ✅        │
-│                                                                │
-│  External Interface                                            │
-│  └── qc-16-api-gateway .................. 111 tests ✅        │
-│                                                                │
-│  Integration Tests                                             │
-│  └── integration-tests .................. 281 tests ✅        │
-│                                                                │
-│  Infrastructure                                                │
-│  ├── node-runtime ....................... 87 tests ✅         │
-│  ├── shared-types ....................... 12 tests ✅         │
-│  ├── shared-bus ......................... 26 tests ✅         │
-│  └── quantum-telemetry .................. 16 tests ✅         │
-│                                                                │
-│  TOTAL: 1180 tests passing                                     │
-│                                                                │
-└────────────────────────────────────────────────────────────────┘
+Block Lifecycle:
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │                                                             │
+  │   QC-17 ──▶ QC-08 ──▶ QC-03 ──▶ QC-04 ──▶ QC-02 ──▶ QC-09  │
+  │   Mine      Validate   Index     State     Store    Finalize│
+  │                                                             │
+  └─────────────────────────────────────────────────────────────┘
+
+  [17:32:01] 🔨 QC-17 BlockProduced     | block:#123 | hash:0x8a2c...
+  [17:32:01] ✅ QC-08 BlockValidated    | block:#123 | valid:true
+  [17:32:01] 🌳 QC-03 MerkleComputed    | block:#123 | root:0x7f3e...
+  [17:32:01] 💾 QC-04 StateUpdated      | block:#123 | accounts:42
+  [17:32:01] 📦 QC-02 BlockStored       | block:#123 | size:2.4KB
+  [17:32:01] 🔒 QC-09 BlockFinalized    | block:#123 | checkpoint:true
 ```
-
-### Test Categories
-
-| Category | Coverage | Description |
-|----------|----------|-------------|
-| **Unit Tests** | 531 | Domain logic, ports, services |
-| **API Gateway** | 111 | JSON-RPC, WebSocket, middleware |
-| **Integration Tests** | 281 | Cross-subsystem flows, exploit scenarios |
-| **Infrastructure Tests** | 141 | Wiring, event routing, shared components |
-| **Invariant Tests** | ✅ | Determinism, no false positives, no malleability |
-| **Security Tests** | ✅ | IPC auth, replay prevention, rate limiting |
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
 
-- **Rust** stable toolchain (1.85+)
-- **Cargo** (comes with Rust)
-- **Docker** (optional)
+- **Rust** 1.75+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+- **Docker** & Docker Compose (for containerized deployment)
+- **RocksDB** dependencies (auto-installed with Docker)
 
-### Build from Source
+### Option 1: Run with Docker (Recommended)
 
 ```bash
 # Clone the repository
 git clone https://github.com/NerfedChou/Quantum-Chain.git
 cd Quantum-Chain
 
-# Build all crates
-cargo build --release
+# Start the node (production mode with RocksDB)
+docker compose up --build
 
-# Run all tests (1180 tests)
-cargo test --all
+# Watch the event flow
+./tools/event-flow-logger.sh
+```
+
+### Option 2: Build from Source
+
+```bash
+# Clone and build
+git clone https://github.com/NerfedChou/Quantum-Chain.git
+cd Quantum-Chain
+
+# Build with RocksDB support
+cargo build --release --features rocksdb
 
 # Run the node
-cargo run --release --bin node-runtime
+./target/release/node-runtime --data-dir ./data
 ```
 
-### Docker Deployment with LGTM Monitoring
+### Option 3: Development Mode
 
 ```bash
-# Build the Docker image
-docker build -t quantum-chain:latest .
+# Build and run with hot reload
+cargo run --bin node-runtime
 
-# Run with full LGTM monitoring stack
-docker compose -f docker/docker-compose.yml --profile monitoring up
-
-# Access monitoring dashboards:
-# - Grafana: http://localhost:3000 (admin/admin)
-# - Prometheus: http://localhost:9090
-# - Tempo: http://localhost:3200
-# - Loki: http://localhost:3100
-```
-
-### Verify Installation
-
-```bash
-# Run core subsystem tests
-cargo test -p qc-01-peer-discovery -p qc-02-block-storage \
-           -p qc-03-transaction-indexing -p qc-04-state-management \
-           -p qc-05-block-propagation -p qc-06-mempool \
-           -p qc-07-bloom-filters -p qc-08-consensus \
-           -p qc-09-finality -p qc-10-signature-verification
-
-# Run integration tests
-cargo test -p integration-tests
-
-# Run node-runtime tests
-cargo test -p node-runtime
+# In another terminal, watch the logs
+./tools/event-flow-logger.sh
 ```
 
 ---
 
-## Development
+## 🐳 Docker Deployment
+
+### Production Deployment
+
+```bash
+# Build production image
+docker build -t quantum-chain:latest .
+
+# Run with persistent storage
+docker compose up -d
+
+# View logs
+docker logs -f quantum-chain-node
+```
+
+### Development Deployment
+
+```bash
+# Run with local code mounted (for development)
+docker compose -f docker-compose.yml -f docker/docker-compose.dev.yml up
+```
+
+### Docker Compose Configuration
+
+```yaml
+# docker-compose.yml
+services:
+  quantum-chain:
+    build: .
+    ports:
+      - "8545:8545"   # JSON-RPC
+      - "8546:8546"   # WebSocket
+      - "30303:30303" # P2P
+      - "9090:9090"   # Prometheus metrics
+    volumes:
+      - quantum-chain-data:/var/quantum-chain/data
+    environment:
+      - RUST_LOG=info
+      - QC_MINING_ENABLED=true
+
+volumes:
+  quantum-chain-data:
+```
+
+---
+
+## 📊 Monitoring
+
+### Event Flow Logger
+
+See exactly what's happening in your blockchain:
+
+```bash
+./tools/event-flow-logger.sh
+```
+
+**Output:**
+```
+═══════════════════════════════════════════════════════════════════════
+   🔗 QUANTUM-CHAIN EVENT FLOW LOGGER
+═══════════════════════════════════════════════════════════════════════
+
+[18:32:01.234] 🔨 [QC-17] BlockProduced | block:#123 | hash:0x8a2c3f...
+   └─ Nonce: 1847592 | Difficulty: 0x1d00ffff | Reward: 50 QC
+
+[18:32:01.289] ✅ [QC-08] BlockValidated | block:#123 | 45ms
+   └─ PoW: valid | Merkle: valid | Signatures: 0
+
+[18:32:01.301] 🌳 [QC-03] MerkleComputed | block:#123 | 12ms
+   └─ Transactions: 0 | Root: 0x7f3e4d2...
+
+[18:32:01.390] 💾 [QC-04] StateUpdated | block:#123 | 89ms
+   └─ Accounts modified: 1 | New balance: 50 QC
+
+[18:32:01.546] 📦 [QC-02] BlockStored | block:#123 | 156ms
+   └─ RocksDB write: success | Size: 847 bytes
+
+[18:32:01.548] 🔒 [QC-09] BlockFinalized | block:#123
+   └─ Checkpoint: #123 | Finality depth: 6
+───────────────────────────────────────────────────────────────────────
+Stats: Mining ⛏️  | Height: 123 | Hashrate: 1.2 KH/s | Peers: 0
+```
+
+### Grafana Dashboards
+
+```bash
+# Start with monitoring stack
+docker compose --profile monitoring up -d
+
+# Access dashboards:
+# - Grafana:    http://localhost:3000 (admin/admin)
+# - Prometheus: http://localhost:9090
+# - Loki:       http://localhost:3100
+```
+
+### Available Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `qc_blocks_mined_total` | Total blocks mined |
+| `qc_block_height` | Current chain height |
+| `qc_mempool_size` | Pending transactions |
+| `qc_peer_count` | Connected peers |
+| `qc_mining_hashrate` | Current hashrate |
+
+---
+
+## 💾 Data Persistence
+
+### How It Works
+
+Quantum-Chain uses **RocksDB** for persistent storage:
+
+```
+/var/quantum-chain/data/
+├── rocksdb/           # Block data, headers, indices
+│   ├── 000051.sst     # Sorted String Tables
+│   ├── MANIFEST-*     # Database manifest
+│   └── CURRENT        # Current manifest pointer
+└── state_db/          # Account state, balances
+    ├── 000040.log     # Write-ahead log
+    └── MANIFEST-*     # State manifest
+```
+
+### Persistence Behavior
+
+| Scenario | Behavior |
+|----------|----------|
+| `docker compose down` | Data **persists** in Docker volume |
+| `docker compose down -v` | Data **deleted** (removes volumes) |
+| Container restart | Chain **resumes** from last block |
+| Fresh start (no data) | Creates **genesis block** |
+
+### Check Your Data
+
+```bash
+# See what's stored
+sudo ls -la /var/lib/docker/volumes/quantum-chain-data/_data/
+
+# Output:
+# rocksdb/   <- Block storage
+# state_db/  <- Account state
+```
+
+### Backup & Restore
+
+```bash
+# Backup
+docker run --rm -v quantum-chain-data:/data -v $(pwd):/backup \
+  alpine tar czf /backup/qc-backup.tar.gz /data
+
+# Restore
+docker run --rm -v quantum-chain-data:/data -v $(pwd):/backup \
+  alpine tar xzf /backup/qc-backup.tar.gz -C /
+```
+
+---
+
+## 🔌 API Reference
+
+### JSON-RPC Endpoints (Port 8545)
+
+```bash
+# Get current block height
+curl -X POST http://localhost:8545 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+
+# Get block by number
+curl -X POST http://localhost:8545 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0x1", true],"id":1}'
+
+# Get account balance
+curl -X POST http://localhost:8545 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0x742d35Cc6634C0532925a3b844Bc9e7595f5bA21","latest"],"id":1}'
+```
+
+### Supported Methods
+
+| Method | Description |
+|--------|-------------|
+| `eth_blockNumber` | Current block height |
+| `eth_getBlockByNumber` | Get block by height |
+| `eth_getBlockByHash` | Get block by hash |
+| `eth_getBalance` | Account balance |
+| `eth_sendRawTransaction` | Submit transaction |
+| `eth_getTransactionByHash` | Get transaction |
+| `qc_getMiningStatus` | Mining statistics |
+| `qc_getSubsystemStatus` | Subsystem health |
+
+---
+
+## 🛠 Development
 
 ### Project Structure
 
 ```
 Quantum-Chain/
-├── Cargo.toml                    # Workspace root
-├── Documentation/                # Master architecture documents
-│   ├── Architecture.md          # V2.4 - Hybrid Architecture Spec
-│   ├── System.md                # V2.4 - Subsystem Definitions
-│   └── IPC-MATRIX.md            # V2.4 - Inter-Process Communication
-├── SPECS/                        # Micro-level specifications
-│   ├── SPEC-01-PEER-DISCOVERY.md
-│   ├── SPEC-02-BLOCK-STORAGE.md
-│   ├── SPEC-16-API-GATEWAY.md   # NEW: External API specification
+├── Cargo.toml              # Workspace manifest
+├── Dockerfile              # Production image
+├── docker-compose.yml      # Docker orchestration
+│
+├── crates/                 # Rust crates
+│   ├── node-runtime/       # Main binary
+│   ├── shared-types/       # Common types
+│   ├── shared-bus/         # Event bus
+│   ├── qc-01-*/            # Subsystem implementations
+│   ├── qc-02-*/
 │   └── ...
-└── crates/                       # Rust library crates
-    ├── node-runtime/            # Main binary (wiring layer)
-    ├── shared-types/            # Common types
-    ├── shared-bus/              # Event bus infrastructure
-    ├── quantum-telemetry/       # LGTM observability
-    ├── integration-tests/       # Cross-subsystem tests
-    └── qc-XX-*/                  # Subsystem implementations
+│
+├── Documentation/          # Architecture docs
+│   ├── Architecture.md     # System design
+│   ├── System.md           # Subsystem specs
+│   └── IPC-MATRIX.md       # Communication rules
+│
+├── tools/                  # Utilities
+│   └── event-flow-logger.sh
+│
+└── docker/                 # Docker configs
+    └── monitoring/         # Grafana/Prometheus
 ```
 
-### Subsystem Architecture (Hexagonal)
+### Adding a New Subsystem
 
+1. Create the crate:
+```bash
+cargo new --lib crates/qc-XX-my-subsystem
 ```
-crates/qc-XX-subsystem-name/
+
+2. Follow the hexagonal structure:
+```
+crates/qc-XX-my-subsystem/
 ├── Cargo.toml
-├── src/
-│   ├── lib.rs                   # Public API exports
-│   ├── domain/                  # Inner layer (pure logic)
-│   │   ├── entities.rs          # Core domain objects
-│   │   ├── services.rs          # Business logic
-│   │   └── errors.rs            # Domain errors
-│   ├── ports/                   # Middle layer (traits)
-│   │   ├── inbound.rs           # Driving ports (API)
-│   │   └── outbound.rs          # Driven ports (SPI)
-│   ├── adapters/                # Outer layer
-│   │   ├── ipc.rs               # IPC handler with auth
-│   │   └── bus.rs               # Event bus adapter
-│   ├── service.rs               # Application service
-│   └── events.rs                # Event definitions
-└── tests/
+└── src/
+    ├── lib.rs
+    ├── domain/
+    │   ├── entities.rs
+    │   ├── services.rs
+    │   └── errors.rs
+    ├── ports/
+    │   ├── inbound.rs
+    │   └── outbound.rs
+    └── adapters/
+        └── ipc.rs
 ```
 
-### Running Tests
+3. Register in `Cargo.toml` workspace
+4. Wire in `node-runtime`
+
+---
+
+## 🧪 Testing
+
+### Run All Tests
 
 ```bash
-# Run all tests
+# Full test suite (~1000 tests)
 cargo test --all
 
-# Run specific subsystem
-cargo test -p qc-10-signature-verification
-
-# Run with output
+# With output
 cargo test --all -- --nocapture
 
-# Run clippy lints
-cargo clippy --all -- -D warnings
+# Specific subsystem
+cargo test -p qc-08-consensus
+```
 
-# Check formatting
-cargo fmt -- --check
+### Test Results
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                  TEST RESULTS SUMMARY                      │
+├────────────────────────────────────────────────────────────┤
+│  integration-tests ..................... 281 tests ✅     │
+│  qc-16-api-gateway ..................... 110 tests ✅     │
+│  qc-06-mempool .......................... 91 tests ✅     │
+│  qc-01-peer-discovery ................... 80 tests ✅     │
+│  qc-02-block-storage .................... 66 tests ✅     │
+│  qc-10-signature-verification ........... 60 tests ✅     │
+│  qc-07-bloom-filters .................... 56 tests ✅     │
+│  qc-17-block-production ................. 46 tests ✅     │
+│  qc-03-transaction-indexing ............. 40 tests ✅     │
+│  qc-05-block-propagation ................ 37 tests ✅     │
+│  qc-09-finality ......................... 32 tests ✅     │
+│  qc-08-consensus ........................ 29 tests ✅     │
+│  qc-04-state-management ................. 22 tests ✅     │
+│  node-runtime ........................... 37 tests ✅     │
+│  shared-bus ............................. 13 tests ✅     │
+│  shared-types ........................... 11 tests ✅     │
+├────────────────────────────────────────────────────────────┤
+│  TOTAL: 1000+ tests passing                               │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Security
+## 🔐 Security
 
-### Defense in Depth
+### Security Model
 
 | Layer | Protection |
 |-------|------------|
-| **API Gateway** | Rate limiting, method whitelists, CORS |
-| **Cryptographic** | ECDSA/BLS with EIP-2 malleability protection |
-| **Constant-Time** | Side-channel resistant comparisons (`subtle`) |
-| **Memory Safety** | Zeroization of sensitive buffers (`zeroize`) |
-| **IPC Security** | HMAC-SHA256 authenticated messages |
-| **Replay Prevention** | Time-bounded nonce cache (120s window) |
-| **Rate Limiting** | Per-subsystem configurable limits |
-| **Zero-Trust** | Independent signature re-verification |
-| **Circuit Breaker** | Finality halt protection |
+| **IPC** | HMAC-SHA256 authentication |
+| **Replay** | Time-bounded nonce cache (120s) |
+| **Crypto** | Constant-time operations (`subtle`) |
+| **Memory** | Zeroization of secrets (`zeroize`) |
+| **API** | Rate limiting, method whitelists |
 
-### Security Features by Subsystem
+### Threat Mitigations
 
-| Subsystem | Security Features |
-|-----------|-------------------|
-| **qc-16** | Rate limiting, method tiers, CORS, request validation |
-| **qc-10** | Constant-time ops, EIP-2, zeroization, batch verification |
-| **qc-08** | Zero-trust re-verification, PBFT signature validation |
-| **qc-09** | Slashing detection, inactivity leak, circuit breaker |
-| **qc-07** | Privacy-preserving filters, false positive tuning, filter rotation |
-| **qc-05** | Signature verification at edge, rate limiting |
-| **qc-06** | Signature validation before pool admission |
-
-### Reporting Vulnerabilities
-
-Please report security vulnerabilities responsibly via GitHub Security Advisories.
+| Threat | Mitigation |
+|--------|------------|
+| Replay attacks | Nonce cache with 120s TTL |
+| Side-channel | Constant-time comparisons |
+| Memory leaks | Automatic zeroization |
+| DoS | Per-subsystem rate limits |
+| Signature malleability | EIP-2 low-S enforcement |
 
 ---
 
-## Documentation
-
-### Master Documents
+## 📚 Documentation
 
 | Document | Description |
 |----------|-------------|
-| [Architecture.md](Documentation/Architecture.md) | V2.4 Hybrid Architecture Specification |
-| [System.md](Documentation/System.md) | Subsystem Definitions & Algorithms |
-| [IPC-MATRIX.md](Documentation/IPC-MATRIX.md) | Inter-Process Communication Rules |
-
-### Specifications
-
-Each subsystem has a detailed specification in `SPECS/`:
-
-- `SPEC-01-PEER-DISCOVERY.md` - Kademlia DHT
-- `SPEC-02-BLOCK-STORAGE.md` - Storage engine
-- `SPEC-07-BLOOM-FILTERS.md` - SPV transaction filtering
-- `SPEC-08-CONSENSUS.md` - PoS/PBFT validation
-- `SPEC-09-FINALITY.md` - Casper FFG
-- `SPEC-10-SIGNATURE-VERIFICATION.md` - ECDSA/BLS
-- **`SPEC-16-API-GATEWAY.md`** - External API (NEW)
+| [Architecture.md](Documentation/Architecture.md) | System design & patterns |
+| [System.md](Documentation/System.md) | Subsystem specifications |
+| [IPC-MATRIX.md](Documentation/IPC-MATRIX.md) | Event bus communication |
+| [DATA-ARCHITECTURE.md](Documentation/DATA-ARCHITECTURE.md) | Storage design |
+| [TELEMETRY.md](Documentation/TELEMETRY.md) | Monitoring setup |
 
 ---
 
-## Contributing
+## 📄 License
 
-### Getting Started
+This project is released into the **public domain** under the [Unlicense](LICENSE).
 
-1. Read [Architecture.md](Documentation/Architecture.md)
-2. Review [IPC-MATRIX.md](Documentation/IPC-MATRIX.md)
-3. Pick a subsystem and read its SPEC
-4. Write tests first (TDD)
-5. Implement domain logic
-6. Submit PR
-
-### Pull Request Requirements
-
-- [ ] All tests pass: `cargo test --all`
-- [ ] No clippy warnings: `cargo clippy --all -- -D warnings`
-- [ ] Code formatted: `cargo fmt`
-- [ ] SPEC compliance verified
+You are free to copy, modify, publish, use, compile, sell, or distribute this software for any purpose, commercial or non-commercial.
 
 ---
 
-## License
+<div align="center">
 
-This project is licensed under the [Unlicense](LICENSE).
+**Built with ❤️ and Rust**
 
----
+[⬆ Back to Top](#-quantum-chain)
 
-## Acknowledgments
-
-- **Domain-Driven Design:** Eric Evans
-- **Hexagonal Architecture:** Alistair Cockburn
-- **Casper FFG:** Vitalik Buterin, Virgil Griffith
-- **Rust Ecosystem:** k256, blst, subtle, zeroize, axum, tower, jsonrpsee
-
----
-
-**Version:** 0.5.0 | **Architecture:** V2.4 | **Last Updated:** 2025-12-06
-
-**Status:** ✅ Production Ready (1180 tests passing)
+</div>
