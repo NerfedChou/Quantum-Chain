@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use qc_02_block_storage::ports::outbound::{
     BincodeBlockSerializer, ChecksumProvider, DefaultChecksumProvider, FileSystemAdapter,
-    InMemoryKVStore, KeyValueStore, MockFileSystemAdapter, SystemTimeSource, TimeSource,
+    FileBackedKVStore, KeyValueStore, MockFileSystemAdapter, SystemTimeSource, TimeSource,
 };
 use qc_02_block_storage::BlockStorageService;
 use qc_09_finality::domain::{AggregatedAttestations, Attestation, ValidatorId, ValidatorSet};
@@ -55,7 +55,7 @@ where
 
 /// Type alias for the concrete block storage adapter used in the container
 pub type ConcreteFinalityBlockStorageAdapter = FinalityBlockStorageAdapter<
-    InMemoryKVStore,
+    FileBackedKVStore,
     MockFileSystemAdapter,
     DefaultChecksumProvider,
     SystemTimeSource,

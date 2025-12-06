@@ -425,9 +425,21 @@ impl NodeRuntime {
             miner_config,
         ));
         
-        // Start production in PoW mode
+        // Get current chain height from storage to resume from
+        let chain_height = {
+            let storage = container.block_storage.read();
+            storage.get_latest_height().unwrap_or(0)
+        };
+        
+        if chain_height > 0 {
+            info!("[qc-17] 💾 Chain height loaded from storage: {}", chain_height);
+        }
+        
+        // Start production in PoW mode with the correct starting height
         let miner_clone = Arc::clone(&miner_service);
-        let production_config = qc_17_block_production::ProductionConfig::default();
+        let mut production_config = qc_17_block_production::ProductionConfig::default();
+        production_config.starting_height = chain_height;
+        
         tokio::spawn(async move {
             if let Err(e) = miner_clone
                 .start_production(
@@ -457,7 +469,54 @@ impl NodeRuntime {
         // Since qc-17 uses PoW, each mined block is already validated by difficulty proof
         let choreography_router = self.choreography.router();
         let miner_status_checker = Arc::clone(&miner_service);
-        let mut last_block_height = 0u64;
+        let block_storage_for_bridge = Arc::clone(&container.block_storage);
+        let mut last_block_height = chain_height; // Start from loaded height
+        
+        // Track the last block hash for parent linking
+        let mut last_block_hash: [u8; 32] = {
+            // Helper to compute block hash (must match qc-02 logic)
+            fn compute_block_hash(block: &shared_types::ValidatedBlock) -> [u8; 32] {
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(block.header.parent_hash);
+                hasher.update(block.header.height.to_le_bytes());
+                hasher.update(block.header.merkle_root);
+                hasher.update(block.header.state_root);
+                hasher.update(block.header.timestamp.to_le_bytes());
+                hasher.finalize().into()
+            }
+            
+            // Load the last block's hash from storage if we have blocks
+            if chain_height > 0 {
+                let storage = block_storage_for_bridge.read();
+                match storage.read_block_by_height(chain_height) {
+                    Ok(stored) => {
+                        let hash = compute_block_hash(&stored.block);
+                        info!("[Bridge] 📖 Loaded last block hash from height {} ({:02x}{:02x}...)", 
+                            chain_height, hash[0], hash[1]);
+                        hash
+                    }
+                    Err(_) => {
+                        info!("[Bridge] ⚠️ Could not load last block, using genesis parent");
+                        [0u8; 32] // Genesis parent hash (all zeros)
+                    }
+                }
+            } else {
+                // For first block after genesis, get genesis hash
+                let storage = block_storage_for_bridge.read();
+                match storage.read_block_by_height(0) {
+                    Ok(genesis) => {
+                        let hash = compute_block_hash(&genesis.block);
+                        info!("[Bridge] 📖 Loaded genesis block hash ({:02x}{:02x}...)", hash[0], hash[1]);
+                        hash
+                    }
+                    Err(_) => {
+                        info!("[Bridge] ⚠️ No genesis found, using zeros");
+                        [0u8; 32]
+                    }
+                }
+            }
+        };
         
         info!("[Bridge] Starting choreography bridge task...");
         
@@ -479,23 +538,77 @@ impl NodeRuntime {
                 
                 if current_blocks > last_block_height {
                     for block_height in (last_block_height + 1)..=current_blocks {
-                        let block_hash = [0u8; 32]; // TODO: Get actual hash
+                        // Create a minimal ValidatedBlock for storage
+                        use shared_types::{ValidatedBlock, BlockHeader, ConsensusProof, Hash, PublicKey};
                         
-                        info!("[Bridge] 🌉 Triggering choreography for block #{}", block_height);
+                        // Compute block hash (deterministic from height + parent)
+                        let block_hash: [u8; 32] = {
+                            use sha2::{Sha256, Digest};
+                            let mut hasher = Sha256::new();
+                            hasher.update(&block_height.to_be_bytes());
+                            hasher.update(&last_block_hash);
+                            let result = hasher.finalize();
+                            let mut hash = [0u8; 32];
+                            hash.copy_from_slice(&result);
+                            hash
+                        };
                         
-                        // Publish BlockValidated to choreography router
-                        match choreography_router.publish(
-                            crate::wiring::ChoreographyEvent::BlockValidated {
-                                block_hash,
-                                block_height,
-                                sender_id: shared_types::SubsystemId::Consensus,
+                        let block = ValidatedBlock {
+                            header: BlockHeader {
+                                version: 1,
+                                height: block_height,
+                                parent_hash: last_block_hash, // Link to parent!
+                                merkle_root: Hash::default(),
+                                state_root: Hash::default(),
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs(),
+                                proposer: PublicKey::default(),
+                            },
+                            transactions: vec![],
+                            consensus_proof: ConsensusProof::default(),
+                        };
+                        
+                        info!("[Bridge] 🌉 Storing block #{} (parent: {:02x}{:02x}...) to storage", 
+                            block_height, last_block_hash[0], last_block_hash[1]);
+                        
+                        // Store block directly to qc-02
+                        let stored_ok = {
+                            use qc_02_block_storage::ports::inbound::BlockStorageApi;
+                            let mut storage = block_storage_for_bridge.write();
+                            let merkle_root = shared_types::Hash::default();
+                            let state_root = shared_types::Hash::default();
+                            match (*storage).write_block(block, merkle_root, state_root) {
+                                Ok(stored_hash) => {
+                                    info!("[Bridge] 💾 Block #{} stored successfully (hash: {:02x}{:02x}...)", 
+                                        block_height, stored_hash[0], stored_hash[1]);
+                                    // Update last_block_hash for next iteration
+                                    last_block_hash = stored_hash;
+                                    true
+                                }
+                                Err(e) => {
+                                    error!("[Bridge] ❌ Failed to store block #{}: {}", block_height, e);
+                                    false
+                                }
                             }
-                        ) {
-                            Ok(_) => {
-                                info!("[Bridge] ✅ Published BlockValidated for block #{}", block_height);
-                            }
-                            Err(e) => {
-                                error!("[Bridge] ❌ Failed to publish BlockValidated: {}", e);
+                        };
+                        
+                        if stored_ok {
+                            // Publish BlockValidated to choreography router
+                            match choreography_router.publish(
+                                crate::wiring::ChoreographyEvent::BlockValidated {
+                                    block_hash: last_block_hash,
+                                    block_height,
+                                    sender_id: shared_types::SubsystemId::Consensus,
+                                }
+                            ) {
+                                Ok(_) => {
+                                    info!("[Bridge] ✅ Published BlockValidated for block #{}", block_height);
+                                }
+                                Err(e) => {
+                                    error!("[Bridge] ❌ Failed to publish BlockValidated: {}", e);
+                                }
                             }
                         }
                     }

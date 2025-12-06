@@ -22,8 +22,8 @@ services:
       - ../target/release/node-runtime:/usr/local/bin/quantum-chain:ro
       # Mount config for live changes
       - ../config:/var/quantum-chain/config:ro
-      # Persistent data
-      - qc-data:/var/quantum-chain/data
+      # Persistent blockchain data (local folder - visible in project)
+      - ../data:/var/quantum-chain/data
     environment:
       QC_LOG_LEVEL: info
       RUST_BACKTRACE: full

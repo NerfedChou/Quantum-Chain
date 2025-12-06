@@ -1,4 +1,4 @@
 //! PBFT leader adapter
-
-// TODO: Implement PBFT leader adapter
-// See TODO.md for implementation details
+//!
+//! Reserved for PBFT consensus mode.
+//! Will implement rotating leader selection for permissioned networks.

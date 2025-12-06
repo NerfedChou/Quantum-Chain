@@ -82,7 +82,7 @@ where
     ) -> Self {
         let assembly_buffer = BlockAssemblyBuffer::new(config.assembly_config.clone());
 
-        Self {
+        let mut service = Self {
             kv_store,
             fs_adapter,
             checksum,
@@ -93,7 +93,77 @@ where
             block_index: BlockIndex::new(),
             metadata: StorageMetadata::default(),
             tx_index: HashMap::new(),
+        };
+
+        // Load existing index from persistent storage
+        if let Err(e) = service.load_index_from_storage() {
+            tracing::warn!("[qc-02] Failed to load index from storage: {:?}", e);
         }
+
+        service
+    }
+
+    /// Load the block index from persistent storage.
+    ///
+    /// This rebuilds the in-memory index from the persisted height->hash mappings.
+    fn load_index_from_storage(&mut self) -> Result<(), StorageError> {
+        // Scan all height keys (prefix "h:")
+        let height_prefix = KeyPrefix::BlockByHeight.as_bytes();
+        let entries = self
+            .kv_store
+            .prefix_scan(height_prefix)
+            .map_err(StorageError::from)?;
+
+        if entries.is_empty() {
+            tracing::info!("[qc-02] No existing blocks found in storage");
+            return Ok(());
+        }
+
+        let mut loaded_count = 0u64;
+        let mut max_height = 0u64;
+
+        for (key, value) in entries {
+            // Key format: "h:" + 8-byte big-endian height
+            if key.len() != 10 {
+                continue; // Skip malformed keys
+            }
+
+            // Parse height from key
+            let height_bytes: [u8; 8] = key[2..10]
+                .try_into()
+                .map_err(|_| StorageError::DatabaseError {
+                    message: "Invalid height key format".to_string(),
+                })?;
+            let height = u64::from_be_bytes(height_bytes);
+
+            // Parse block hash from value
+            if value.len() != 32 {
+                continue; // Skip malformed values
+            }
+            let block_hash: Hash = value
+                .try_into()
+                .map_err(|_| StorageError::DatabaseError {
+                    message: "Invalid block hash format".to_string(),
+                })?;
+
+            // Insert into in-memory index
+            self.block_index.insert(height, block_hash);
+            loaded_count += 1;
+            max_height = max_height.max(height);
+        }
+
+        if loaded_count > 0 {
+            tracing::info!(
+                "[qc-02] 💾 Loaded {} blocks from storage (height 0 to {})",
+                loaded_count,
+                max_height
+            );
+
+            // Update metadata with loaded state
+            self.metadata.on_block_stored(max_height, self.block_index.get(max_height).unwrap_or([0u8; 32]));
+        }
+
+        Ok(())
     }
 
     /// Check disk space (INVARIANT-2).

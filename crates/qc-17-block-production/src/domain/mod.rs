@@ -26,11 +26,12 @@
 //! 4. No duplicate transactions
 //! 5. Timestamp monotonicity
 //! 6. Fee profitability (greedy selection)
-
-// TODO: Implement domain entities
-// TODO: Implement TransactionSelector service
-// TODO: Implement StatePrefetchCache
-// TODO: Implement invariant checkers
+//!
+//! ## Implementation Status
+//! - Domain entities: ✅ Implemented
+//! - TransactionSelector service: ✅ Basic implementation
+//! - StatePrefetchCache: Planned for Phase 2
+//! - Invariant checkers: ✅ Core invariants implemented
 
 mod entities;
 pub mod invariants;

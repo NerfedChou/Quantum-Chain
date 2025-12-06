@@ -1,6 +1,6 @@
 //! IPC Handler with centralized security
 //!
-//! Reference: SPEC-08-CONSENSUS.md TODO Phase 6
+//! Reference: SPEC-08-CONSENSUS.md Section 6
 //! Uses shared-types security for all IPC validation
 
 use crate::domain::{ConsensusError, ValidatedBlock};

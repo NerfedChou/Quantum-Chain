@@ -10,7 +10,7 @@ pub struct BlockTemplate {
     pub header: BlockHeader,
 
     /// Selected transactions in optimal order
-    pub transactions: Vec<Vec<u8>>, // TODO: Replace with SignedTransaction type
+    pub transactions: Vec<Vec<u8>>, // Raw transaction bytes (RLP encoded)
 
     /// Total gas used by all transactions
     pub total_gas_used: u64,
@@ -142,7 +142,7 @@ impl VRFProof {
 #[derive(Clone, Debug)]
 pub struct TransactionCandidate {
     /// The signed transaction (raw bytes for now)
-    pub transaction: Vec<u8>, // TODO: Replace with SignedTransaction type
+    pub transaction: Vec<u8>, // Raw transaction bytes (RLP encoded)
 
     /// Recovered sender address
     pub from: [u8; 20],
@@ -199,7 +199,7 @@ pub struct StateChange {
 #[derive(Clone, Debug)]
 pub struct TransactionBundle {
     /// Transactions in bundle (must be executed sequentially)
-    pub transactions: Vec<Vec<u8>>, // TODO: Replace with SignedTransaction type
+    pub transactions: Vec<Vec<u8>>, // Raw transaction bytes (RLP encoded)
 
     /// Bundle profitability
     pub profit: U256,

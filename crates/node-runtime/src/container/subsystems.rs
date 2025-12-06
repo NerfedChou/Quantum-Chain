@@ -33,7 +33,7 @@ use crate::container::config::NodeConfig;
 // Import subsystem services
 use qc_01_peer_discovery::PeerDiscoveryService;
 #[cfg(not(feature = "rocksdb"))]
-use qc_02_block_storage::ports::outbound::{InMemoryKVStore, MockFileSystemAdapter};
+use qc_02_block_storage::ports::outbound::{FileBackedKVStore, MockFileSystemAdapter};
 use qc_02_block_storage::{
     ports::outbound::{
         BincodeBlockSerializer, DefaultChecksumProvider, SystemTimeSource as StorageTimeSource,
@@ -72,10 +72,10 @@ use crate::adapters::storage::{
 #[cfg(feature = "rocksdb")]
 use std::sync::Arc as StdArc;
 
-/// Concrete type for Block Storage Service with in-memory backends (default).
+/// Concrete type for Block Storage Service with file-backed storage (default).
 #[cfg(not(feature = "rocksdb"))]
 pub type ConcreteBlockStorageService = BlockStorageService<
-    InMemoryKVStore,
+    FileBackedKVStore,
     MockFileSystemAdapter,
     DefaultChecksumProvider,
     StorageTimeSource,
@@ -433,8 +433,12 @@ impl SubsystemContainer {
 
         #[cfg(not(feature = "rocksdb"))]
         let service = {
-            info!("Initializing Block Storage with in-memory backend (testing mode)");
-            let kv_store = InMemoryKVStore::new();
+            // Use file-backed storage for persistence without RocksDB
+            let data_dir = std::env::var("QC_DATA_DIR").unwrap_or_else(|_| "/var/quantum-chain/data".to_string());
+            let storage_path = std::path::PathBuf::from(&data_dir).join("blocks.db");
+            info!("Initializing Block Storage with file-backed persistence at {}", storage_path.display());
+            
+            let kv_store = FileBackedKVStore::new(&storage_path);
             let fs_adapter = MockFileSystemAdapter::new(50); // 50% disk available
 
             BlockStorageService::new(

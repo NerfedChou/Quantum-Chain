@@ -1,4 +1,4 @@
 //! PoS proposer adapter (VRF-based selection)
-
-// TODO: Implement PoS proposer adapter
-// See TODO.md for implementation details
+//!
+//! Reserved for Proof-of-Stake consensus mode.
+//! Will implement VRF-based proposer selection when PoS is enabled.

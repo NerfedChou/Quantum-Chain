@@ -1,6 +1,6 @@
 //! Adapters layer (Hexagonal Architecture)
 //!
-//! Reference: SPEC-08-CONSENSUS.md TODO Phase 7
+//! Reference: SPEC-08-CONSENSUS.md Section 7
 
 mod event_bus;
 

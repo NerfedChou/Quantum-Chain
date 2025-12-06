@@ -5,7 +5,6 @@
 
 use super::entities::*;
 use crate::error::{BlockProductionError, Result};
-use primitive_types::U256;
 use std::collections::HashSet;
 
 /// INVARIANT-1: Gas Limit Enforcement
@@ -146,6 +145,7 @@ pub fn validate_block_template(template: &BlockTemplate) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use primitive_types::U256;
 
     #[test]
     fn test_gas_limit_enforcement() {

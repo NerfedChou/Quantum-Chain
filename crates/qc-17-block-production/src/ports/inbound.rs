@@ -51,6 +51,9 @@ pub struct ProductionConfig {
 
     /// Enable MEV protection
     pub fair_ordering: bool,
+
+    /// Starting block height (for resuming from existing chain)
+    pub starting_height: u64,
 }
 
 impl Default for ProductionConfig {
@@ -62,6 +65,7 @@ impl Default for ProductionConfig {
             gas_limit: crate::DEFAULT_GAS_LIMIT,
             min_gas_price: U256::from(crate::DEFAULT_MIN_GAS_PRICE),
             fair_ordering: true,
+            starting_height: 0,
         }
     }
 }

@@ -103,6 +103,7 @@ enum StateData {
     },
     Confirmed {
         block_height: u64,
+        #[allow(dead_code)]
         confirmed_at: Timestamp,
     },
 }

@@ -1843,6 +1843,7 @@ dependencies = [
  "rand 0.8.5",
  "rocksdb",
  "serde_json",
+ "sha2",
  "sha3",
  "shared-bus",
  "shared-types",

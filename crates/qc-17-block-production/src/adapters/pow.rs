@@ -1,4 +1,4 @@
 //! PoW mining adapter (parallel nonce search)
-
-// TODO: Implement PoW mining adapter
-// See TODO.md for implementation details
+//!
+//! Implementation is in the main service.rs file using PoWMiner.
+//! This module reserved for future specialized PoW adapters.

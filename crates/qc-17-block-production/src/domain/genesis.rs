@@ -136,8 +136,8 @@ pub fn calculate_block_reward(height: u64) -> U256 {
 
 /// Calculate transaction fees from a list of transactions
 pub fn calculate_transaction_fees(transactions: &[ValidatedTransaction]) -> U256 {
-    // For now, simple fee model: each transaction pays a fixed fee
-    // TODO: Implement gas-based fee calculation
+    // Simple fee model: each transaction pays a base fee
+    // Production: gas_used * gas_price per transaction
     const BASE_FEE: u64 = 1_000_000; // 0.000001 coin per tx
 
     let total_fees = transactions.len() as u64 * BASE_FEE;

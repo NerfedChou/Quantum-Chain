@@ -759,8 +759,7 @@ impl ApiQueryHandler {
             }
             // qc-17: Block Production (Miner)
             17 => {
-                // Return mining metrics
-                // TODO: Get actual metrics from miner service
+                // Return mining metrics (placeholder - actual metrics from miner service)
                 Ok(serde_json::json!({
                     "mode": "PoW",
                     "algorithm": "Keccak256",
