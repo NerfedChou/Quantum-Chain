@@ -5,7 +5,7 @@
 [![Rust](https://img.shields.io/badge/rust-stable%20(1.85%2B)-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
 [![Architecture](https://img.shields.io/badge/architecture-v2.4-green.svg)](Documentation/Architecture.md)
-[![Tests](https://img.shields.io/badge/tests-731%20passing-brightgreen.svg)](#test-coverage)
+[![Tests](https://img.shields.io/badge/tests-1180%20passing-brightgreen.svg)](#test-coverage)
 [![CI](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/rust.yml/badge.svg)](https://github.com/NerfedChou/Quantum-Chain/actions/workflows/rust.yml)
 
 ---
@@ -47,12 +47,13 @@ RULE #4: Consensus-critical signatures are re-verified independently
 
 | Component | Status | Tests |
 |-----------|--------|-------|
-| Core Subsystems (1-6, 8-10) | ✅ Production Ready | 432 |
-| Integration Tests | ✅ All Passing | 219 |
-| Node Runtime Wiring | ✅ Complete | 34 |
-| API Gateway (Spec) | ✅ Designed | - |
-| LGTM Telemetry | ✅ Ready | - |
-| **Total** | **✅ Ready** | **731** |
+| Core Subsystems (1-10) | ✅ Production Ready | 531 |
+| Bloom Filters (7) | ✅ Production Ready | 61 |
+| API Gateway (16) | ✅ Production Ready | 111 |
+| Integration Tests | ✅ All Passing | 281 |
+| Node Runtime Wiring | ✅ Complete | 87 |
+| Infrastructure | ✅ Ready | 54 |
+| **Total** | **✅ Ready** | **1180** |
 
 ---
 
@@ -99,9 +100,11 @@ Quantum-Chain is architected as a **fortress of isolated subsystems**, each repr
 │       │              │              │              │              │         │
 │       ▼              ▼              ▼              ▼              ▼         │
 │  ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐       │
-│  │ Mempool │   │Consensus│   │Finality │   │ Sig     │   │Telemetry│       │
-│  │   (6)   │   │   (8)   │   │   (9)   │   │ Ver(10) │   │  LGTM   │       │
+│  │ Mempool │   │ Bloom   │   │Consensus│   │Finality │   │ Sig     │       │
+│  │   (6)   │   │Filters(7)│  │   (8)   │   │   (9)   │   │ Ver(10) │       │
 │  └─────────┘   └─────────┘   └─────────┘   └─────────┘   └─────────┘       │
+│                                                                             │
+│                           [ LGTM Telemetry ]                                │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -205,37 +208,37 @@ The API Gateway (`qc-16-api-gateway`) is the **single entry point** for all exte
 
 | ID | Crate | Description | Tests | Status |
 |----|-------|-------------|-------|--------|
-| 1 | `qc-01-peer-discovery` | Kademlia DHT, DDoS defense | 74 | ✅ |
-| 2 | `qc-02-block-storage` | Choreography assembler, atomic writes | 62 | ✅ |
-| 3 | `qc-03-transaction-indexing` | Merkle trees, inclusion proofs | 36 | ✅ |
+| 1 | `qc-01-peer-discovery` | Kademlia DHT, DDoS defense | 86 | ✅ |
+| 2 | `qc-02-block-storage` | Choreography assembler, atomic writes | 66 | ✅ |
+| 3 | `qc-03-transaction-indexing` | Merkle trees, inclusion proofs | 40 | ✅ |
 | 4 | `qc-04-state-management` | Patricia Merkle Trie | 22 | ✅ |
-| 5 | `qc-05-block-propagation` | Gossip protocol, compact blocks | 33 | ✅ |
-| 6 | `qc-06-mempool` | Priority queue, two-phase commit | 84 | ✅ |
-| 8 | `qc-08-consensus` | PoS/PBFT, 2/3 attestation threshold | 29 | ✅ |
-| 9 | `qc-09-finality` | Casper FFG, slashing, circuit breaker | 32 | ✅ |
-| 10 | `qc-10-signature-verification` | ECDSA/BLS, batch verification | 60 | ✅ |
+| 5 | `qc-05-block-propagation` | Gossip protocol, compact blocks | 37 | ✅ |
+| 6 | `qc-06-mempool` | Priority queue, two-phase commit | 95 | ✅ |
+| 7 | `qc-07-bloom-filters` | SPV filtering, O(1) membership tests | 61 | ✅ |
+| 8 | `qc-08-consensus` | PoS/PBFT, 2/3 attestation threshold | 30 | ✅ |
+| 9 | `qc-09-finality` | Casper FFG, slashing, circuit breaker | 33 | ✅ |
+| 10 | `qc-10-signature-verification` | ECDSA/BLS, batch verification | 61 | ✅ |
 
-### External Interface (New)
+### External Interface
 
-| ID | Crate | Description | Status |
-|----|-------|-------------|--------|
-| 16 | `qc-16-api-gateway` | JSON-RPC/WebSocket/REST API | 📐 Spec Complete |
+| ID | Crate | Description | Tests | Status |
+|----|-------|-------------|-------|--------|
+| 16 | `qc-16-api-gateway` | JSON-RPC/WebSocket/REST API | 111 | ✅ |
 
 ### Infrastructure
 
-| Crate | Purpose | Status |
-|-------|---------|--------|
-| `shared-types` | Common types (Hash, Address, Signature, SubsystemId) | ✅ |
-| `shared-bus` | HMAC-authenticated event bus, nonce cache | ✅ |
-| `quantum-telemetry` | LGTM observability (Loki, Grafana, Tempo, Mimir) | ✅ |
-| `node-runtime` | Application binary, subsystem wiring | ✅ |
-| `integration-tests` | End-to-end exploit & choreography tests | ✅ |
+| Crate | Purpose | Tests | Status |
+|-------|---------|-------|--------|
+| `shared-types` | Common types (Hash, Address, Signature, SubsystemId) | 12 | ✅ |
+| `shared-bus` | HMAC-authenticated event bus, nonce cache | 26 | ✅ |
+| `quantum-telemetry` | LGTM observability (Loki, Grafana, Tempo, Mimir) | 16 | ✅ |
+| `node-runtime` | Application binary, subsystem wiring | 87 | ✅ |
+| `integration-tests` | End-to-end exploit & choreography tests | 281 | ✅ |
 
 ### Future Subsystems
 
 | ID | Name | Status |
 |----|------|--------|
-| 7 | Bloom Filters | Planned |
 | 11-15 | Advanced (Sharding, Cross-chain, etc.) | Planned |
 
 ---
@@ -246,30 +249,34 @@ The API Gateway (`qc-16-api-gateway`) is the **single entry point** for all exte
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                    TEST RESULTS: 731 PASSING                   │
+│                    TEST RESULTS: 1180 PASSING                  │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
 │  Core Subsystems (Unit Tests)                                  │
-│  ├── qc-01-peer-discovery ................ 74 tests ✅        │
-│  ├── qc-02-block-storage ................. 62 tests ✅        │
-│  ├── qc-03-transaction-indexing .......... 36 tests ✅        │
+│  ├── qc-01-peer-discovery ................ 86 tests ✅        │
+│  ├── qc-02-block-storage ................. 66 tests ✅        │
+│  ├── qc-03-transaction-indexing .......... 40 tests ✅        │
 │  ├── qc-04-state-management .............. 22 tests ✅        │
-│  ├── qc-05-block-propagation ............. 33 tests ✅        │
-│  ├── qc-06-mempool ....................... 84 tests ✅        │
-│  ├── qc-08-consensus ..................... 29 tests ✅        │
-│  ├── qc-09-finality ...................... 32 tests ✅        │
-│  └── qc-10-signature-verification ........ 60 tests ✅        │
+│  ├── qc-05-block-propagation ............. 37 tests ✅        │
+│  ├── qc-06-mempool ....................... 95 tests ✅        │
+│  ├── qc-07-bloom-filters ................. 61 tests ✅        │
+│  ├── qc-08-consensus ..................... 30 tests ✅        │
+│  ├── qc-09-finality ...................... 33 tests ✅        │
+│  └── qc-10-signature-verification ........ 61 tests ✅        │
+│                                                                │
+│  External Interface                                            │
+│  └── qc-16-api-gateway .................. 111 tests ✅        │
 │                                                                │
 │  Integration Tests                                             │
-│  └── integration-tests .................. 219 tests ✅        │
+│  └── integration-tests .................. 281 tests ✅        │
 │                                                                │
-│  Infrastructure & Doc Tests                                    │
-│  ├── node-runtime ....................... 34 tests ✅         │
-│  ├── shared-types ....................... 26 tests ✅         │
-│  ├── shared-bus ......................... 10 tests ✅         │
-│  └── doc-tests .......................... 10 tests ✅         │
+│  Infrastructure                                                │
+│  ├── node-runtime ....................... 87 tests ✅         │
+│  ├── shared-types ....................... 12 tests ✅         │
+│  ├── shared-bus ......................... 26 tests ✅         │
+│  └── quantum-telemetry .................. 16 tests ✅         │
 │                                                                │
-│  TOTAL: 731 tests passing                                      │
+│  TOTAL: 1180 tests passing                                     │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -278,9 +285,10 @@ The API Gateway (`qc-16-api-gateway`) is the **single entry point** for all exte
 
 | Category | Coverage | Description |
 |----------|----------|-------------|
-| **Unit Tests** | 472 | Domain logic, ports, services |
-| **Integration Tests** | 219 | Cross-subsystem flows, exploit scenarios |
-| **Infrastructure Tests** | 40 | Wiring, event routing, shared components |
+| **Unit Tests** | 531 | Domain logic, ports, services |
+| **API Gateway** | 111 | JSON-RPC, WebSocket, middleware |
+| **Integration Tests** | 281 | Cross-subsystem flows, exploit scenarios |
+| **Infrastructure Tests** | 141 | Wiring, event routing, shared components |
 | **Invariant Tests** | ✅ | Determinism, no false positives, no malleability |
 | **Security Tests** | ✅ | IPC auth, replay prevention, rate limiting |
 
@@ -304,7 +312,7 @@ cd Quantum-Chain
 # Build all crates
 cargo build --release
 
-# Run all tests (731 tests)
+# Run all tests (1180 tests)
 cargo test --all
 
 # Run the node
@@ -334,7 +342,8 @@ docker compose -f docker/docker-compose.yml --profile monitoring up
 cargo test -p qc-01-peer-discovery -p qc-02-block-storage \
            -p qc-03-transaction-indexing -p qc-04-state-management \
            -p qc-05-block-propagation -p qc-06-mempool \
-           -p qc-08-consensus -p qc-09-finality -p qc-10-signature-verification
+           -p qc-07-bloom-filters -p qc-08-consensus \
+           -p qc-09-finality -p qc-10-signature-verification
 
 # Run integration tests
 cargo test -p integration-tests
@@ -437,6 +446,7 @@ cargo fmt -- --check
 | **qc-10** | Constant-time ops, EIP-2, zeroization, batch verification |
 | **qc-08** | Zero-trust re-verification, PBFT signature validation |
 | **qc-09** | Slashing detection, inactivity leak, circuit breaker |
+| **qc-07** | Privacy-preserving filters, false positive tuning, filter rotation |
 | **qc-05** | Signature verification at edge, rate limiting |
 | **qc-06** | Signature validation before pool admission |
 
@@ -462,6 +472,7 @@ Each subsystem has a detailed specification in `SPECS/`:
 
 - `SPEC-01-PEER-DISCOVERY.md` - Kademlia DHT
 - `SPEC-02-BLOCK-STORAGE.md` - Storage engine
+- `SPEC-07-BLOOM-FILTERS.md` - SPV transaction filtering
 - `SPEC-08-CONSENSUS.md` - PoS/PBFT validation
 - `SPEC-09-FINALITY.md` - Casper FFG
 - `SPEC-10-SIGNATURE-VERIFICATION.md` - ECDSA/BLS
@@ -504,6 +515,6 @@ This project is licensed under the [Unlicense](LICENSE).
 
 ---
 
-**Version:** 0.4.0 | **Architecture:** V2.4 | **Last Updated:** 2025-12-04
+**Version:** 0.5.0 | **Architecture:** V2.4 | **Last Updated:** 2025-12-06
 
-**Status:** ✅ Production Ready (731 tests passing)
+**Status:** ✅ Production Ready (1180 tests passing)

@@ -26,6 +26,8 @@ pub struct NodeConfig {
     pub finality: FinalityConfig,
     /// API Gateway configuration.
     pub api_gateway: ApiGatewayConfig,
+    /// Mining/Block Production configuration.
+    pub mining: MiningConfig,
 }
 
 impl NodeConfig {
@@ -246,6 +248,39 @@ impl Default for ApiGatewayConfig {
             rate_limit_per_second: 100,
             max_batch_size: 100,
             chain_id: 1,
+        }
+    }
+}
+
+/// Mining/Block Production configuration.
+#[derive(Debug, Clone)]
+pub struct MiningConfig {
+    /// Enable mining (block production).
+    pub enabled: bool,
+    /// Number of worker threads for mining.
+    pub worker_threads: usize,
+    /// Target block time in milliseconds.
+    pub target_block_time_ms: u64,
+    /// Initial difficulty (number of leading zero bits).
+    pub initial_difficulty: u32,
+    /// Number of blocks between difficulty adjustments.
+    pub difficulty_adjustment_interval: u64,
+    /// Maximum difficulty adjustment factor (e.g., 4.0 = can change by 4x).
+    pub max_adjustment_factor: f64,
+    /// Mempool refresh interval in milliseconds.
+    pub pool_refresh_interval_ms: u64,
+}
+
+impl Default for MiningConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            worker_threads: num_cpus::get().max(1),
+            target_block_time_ms: 12000, // 12 seconds
+            initial_difficulty: 20, // 20 leading zero bits
+            difficulty_adjustment_interval: 100, // Every 100 blocks
+            max_adjustment_factor: 4.0,
+            pool_refresh_interval_ms: 1000, // 1 second
         }
     }
 }

@@ -219,6 +219,9 @@ where
         merkle_root: Hash,
         state_root: Hash,
     ) -> Result<Hash, StorageError> {
+        let height = block.header.height;
+        tracing::info!("[qc-02] 📦 Writing block #{} to storage", height);
+        
         // INVARIANT-2: Check disk space
         self.check_disk_space()?;
 
@@ -226,7 +229,6 @@ where
         self.check_parent_exists(&block)?;
 
         let block_hash = self.compute_block_hash(&block);
-        let height = block.header.height;
 
         // Check block doesn't already exist
         if self.block_exists(&block_hash) {
@@ -269,6 +271,13 @@ where
         self.block_index.insert(height, block_hash);
         self.metadata.on_block_stored(height, block_hash);
         self.index_transactions(&block, block_hash);
+
+        tracing::info!(
+            "[qc-02] ✓ Block #{} stored! Hash: 0x{}, Txs: {}",
+            height,
+            hex::encode(&block_hash[..8]),
+            block.transactions.len()
+        );
 
         Ok(block_hash)
     }

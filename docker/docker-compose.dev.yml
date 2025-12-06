@@ -25,6 +25,6 @@ services:
       # Persistent data
       - qc-data:/var/quantum-chain/data
     environment:
-      QC_LOG_LEVEL: debug
+      QC_LOG_LEVEL: info
       RUST_BACKTRACE: full
-      RUST_LOG: "quantum_chain=debug,qc_16=debug,qc_01=debug"
+      RUST_LOG: "info,qc_17_block_production=info,qc_02_block_storage=info,qc_08_consensus=info,qc_09_finality=info,qc_06_mempool=info,node_runtime=info,event_flow=info"

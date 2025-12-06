@@ -60,6 +60,9 @@ use crate::adapters::ports::finality::{
 #[allow(unused_imports)]
 use qc_09_finality::service::{FinalityConfig, FinalityService};
 
+// Block Production service (Subsystem 17)
+use qc_17_block_production::ConcreteBlockProducer;
+
 // RocksDB imports (when feature is enabled)
 #[cfg(feature = "rocksdb")]
 use crate::adapters::storage::{
@@ -168,6 +171,13 @@ pub struct SubsystemContainer {
     pub finality: Arc<ConcreteFinalityService>,
 
     // =========================================================================
+    // LEVEL 5: Advanced Subsystems
+    // =========================================================================
+    /// Block Production (Subsystem 17)
+    /// Multi-threaded miner with ASIC-resistant PoW.
+    pub block_producer: Arc<ConcreteBlockProducer>,
+
+    // =========================================================================
     // SHARED INFRASTRUCTURE
     // =========================================================================
     /// Event Bus for inter-subsystem communication.
@@ -260,6 +270,14 @@ impl SubsystemContainer {
         #[cfg(not(feature = "rocksdb"))]
         info!("  [9] Finality initialized (Casper FFG)");
 
+        // =====================================================================
+        // PHASE 7: Level 5 - Advanced Subsystems
+        // =====================================================================
+        info!("Phase 7: Initializing Level 5 advanced subsystems");
+
+        let block_producer = Self::init_block_producer(Arc::clone(&event_bus), &config);
+        info!("  [17] Block Production initialized (mining threads={})", config.mining.worker_threads);
+
         info!("All subsystems initialized successfully");
         info!("Choreography ready: Consensus→TxIndexing→StateManagement→BlockStorage→Finality");
 
@@ -273,6 +291,7 @@ impl SubsystemContainer {
             assembly_buffer,
             #[cfg(not(feature = "rocksdb"))]
             finality,
+            block_producer,
             event_bus,
             nonce_cache,
             config,
@@ -473,6 +492,33 @@ impl SubsystemContainer {
             attestation_adapter,
             validator_adapter,
         ))
+    }
+
+    /// Initialize Block Producer service (Subsystem 17).
+    fn init_block_producer(
+        event_bus: Arc<InMemoryEventBus>,
+        config: &NodeConfig,
+    ) -> Arc<ConcreteBlockProducer> {
+        use qc_17_block_production::{BlockProductionConfig, ConsensusMode};
+        use primitive_types::U256;
+
+        // Map node config to block production config
+        let mut block_config = BlockProductionConfig::default();
+        block_config.mode = ConsensusMode::ProofOfStake; // Default to PoS
+        block_config.gas_limit = 30_000_000; // 30M gas
+        block_config.min_gas_price = U256::from(1_000_000_000u64); // 1 gwei
+        block_config.fair_ordering = true;
+
+        // Configure PoW if mining is enabled
+        if config.mining.enabled {
+            block_config.mode = ConsensusMode::ProofOfWork;
+            block_config.pow = Some(qc_17_block_production::PoWConfig {
+                threads: config.mining.worker_threads as u8,
+                algorithm: qc_17_block_production::HashAlgorithm::Keccak256,
+            });
+        }
+
+        Arc::new(ConcreteBlockProducer::new(event_bus, block_config))
     }
 
     // =========================================================================

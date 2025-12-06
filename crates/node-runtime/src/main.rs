@@ -50,7 +50,7 @@
 //! 5. Start event handlers (spawn async tasks)
 //! 6. Signal ready
 //!
-//! ## Core Subsystems (10 of 15)
+//! ## Core Subsystems (11 of 17)
 //!
 //! 1. Peer Discovery (qc-01) - Network topology
 //! 2. Block Storage (qc-02) - Stateful Assembler
@@ -61,6 +61,8 @@
 //! 8. Consensus (qc-08) - Block validation
 //! 9. Finality (qc-09) - Casper-FFG
 //! 10. Signature Verification (qc-10) - ECDSA
+//! 16. API Gateway (qc-16) - REST/WebSocket interface
+//! 17. Block Production (qc-17) - Quantum-resistant mining
 
 pub mod adapters;
 pub mod container;
@@ -72,6 +74,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use primitive_types::U256;
 use tracing::{error, info, warn};
 
 use crate::adapters::BlockStorageAdapter;
@@ -81,6 +84,7 @@ use crate::handlers::{ApiQueryHandler, BlockStorageHandler, FinalityHandler, Sta
 use crate::wiring::ChoreographyCoordinator;
 use qc_02_block_storage::BlockStorageApi;
 use qc_16_api_gateway::{ApiGatewayService, GatewayConfig};
+use qc_17_block_production::BlockProducerService;
 use quantum_telemetry::{init_telemetry, TelemetryConfig};
 
 /// The main node runtime orchestrating all subsystems.
@@ -396,6 +400,59 @@ impl NodeRuntime {
             }
         });
 
+        // Start Block Production Miner (qc-17) - auto-start on node initialization
+        info!("Starting Block Production Miner (qc-17)...");
+        
+        // Create miner configuration (PoW mode by default)
+        let miner_config = qc_17_block_production::BlockProductionConfig {
+            mode: qc_17_block_production::ConsensusMode::ProofOfWork,
+            gas_limit: container.config.consensus.max_block_gas,
+            min_gas_price: U256::from(container.config.mempool.min_gas_price),
+            fair_ordering: true,
+            min_transactions: 1,
+            pow: Some(qc_17_block_production::PoWConfig {
+                threads: num_cpus::get() as u8,
+                algorithm: qc_17_block_production::HashAlgorithm::Keccak256,
+            }),
+            pos: None,
+            pbft: None,
+            performance: qc_17_block_production::PerformanceConfig::default(),
+        };
+        
+        // Create the block producer service
+        let miner_service = Arc::new(qc_17_block_production::ConcreteBlockProducer::new(
+            Arc::clone(&container.event_bus),
+            miner_config,
+        ));
+        
+        // Start production in PoW mode
+        let miner_clone = Arc::clone(&miner_service);
+        let production_config = qc_17_block_production::ProductionConfig::default();
+        tokio::spawn(async move {
+            if let Err(e) = miner_clone
+                .start_production(
+                    qc_17_block_production::ConsensusMode::ProofOfWork,
+                    production_config,
+                )
+                .await
+            {
+                error!("[qc-17] Failed to start production: {}", e);
+            }
+        });
+        
+        // Monitor shutdown signal
+        let miner_shutdown_clone = Arc::clone(&miner_service);
+        let mut miner_shutdown = self.shutdown_rx.clone();
+        tokio::spawn(async move {
+            let _ = miner_shutdown.changed().await;
+            info!("[qc-17] Shutdown signal received");
+            if let Err(e) = miner_shutdown_clone.stop_production().await {
+                error!("[qc-17] Error during shutdown: {}", e);
+            }
+        });
+        
+        info!("  [17] Block Production Miner started (PoW auto-mining enabled)");
+
         info!("Choreography handlers started");
         Ok(())
     }
@@ -469,7 +526,7 @@ async fn main() -> Result<()> {
             "--version" | "-V" => {
                 println!("quantum-chain {}", env!("CARGO_PKG_VERSION"));
                 println!("Architecture: V2.3 Choreography Pattern");
-                println!("Subsystems: 15 (all compiled into single binary)");
+                println!("Subsystems: 17 (all compiled into single binary)");
                 return Ok(());
             }
             "health" => {

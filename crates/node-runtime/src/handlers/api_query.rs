@@ -138,10 +138,17 @@ impl ApiQueryHandler {
         params: &serde_json::Value,
     ) -> Result<serde_json::Value, ApiQueryError> {
         match target {
-            "qc-02-block-storage" => self.handle_block_storage_query(method, params).await,
-            "qc-06-mempool" => self.handle_mempool_query(method, params).await,
             "qc-01-peer-discovery" => self.handle_peer_discovery_query(method, params).await,
+            "qc-02-block-storage" => self.handle_block_storage_query(method, params).await,
+            "qc-03-transaction-indexing" => self.handle_generic_subsystem_query(method).await,
             "qc-04-state-management" => self.handle_state_management_query(method, params).await,
+            "qc-05-block-propagation" => self.handle_generic_subsystem_query(method).await,
+            "qc-06-mempool" => self.handle_mempool_query(method, params).await,
+            "qc-08-consensus" => self.handle_generic_subsystem_query(method).await,
+            "qc-09-finality" => self.handle_generic_subsystem_query(method).await,
+            "qc-10-signature-verification" => self.handle_generic_subsystem_query(method).await,
+            "qc-16-api-gateway" => self.handle_generic_subsystem_query(method).await,
+            "qc-17-block-production" => self.handle_generic_subsystem_query(method).await,
             "node-runtime" => self.handle_node_runtime_query(method, params).await,
             "admin" => self.handle_admin_query(method, params).await,
             _ => {
@@ -442,6 +449,21 @@ impl ApiQueryHandler {
         }
     }
 
+    /// Handle queries for subsystems that don't have specific query endpoints.
+    /// These subsystems expose their data through debug_subsystemHealth only.
+    async fn handle_generic_subsystem_query(
+        &self,
+        method: &str,
+    ) -> Result<serde_json::Value, ApiQueryError> {
+        // Most subsystems don't expose direct query methods
+        // All their metrics are available via debug_subsystemHealth
+        debug!(method = %method, "Subsystem query not implemented");
+        Err(ApiQueryError {
+            code: -32601,
+            message: format!("Method not supported: {}", method),
+        })
+    }
+
     /// Handle queries for node-runtime (sync status, node info).
     async fn handle_node_runtime_query(
         &self,
@@ -735,6 +757,24 @@ impl ApiQueryHandler {
                     "websocket_messages": 0
                 }))
             }
+            // qc-17: Block Production (Miner)
+            17 => {
+                // Return mining metrics
+                // TODO: Get actual metrics from miner service
+                Ok(serde_json::json!({
+                    "mode": "PoW",
+                    "algorithm": "Keccak256",
+                    "threads": num_cpus::get(),
+                    "hashrate": 0, // Hashes per second
+                    "blocks_mined": 0, // Total blocks produced
+                    "last_block_time_ms": 0, // Time to mine last block
+                    "avg_block_time_ms": 0, // Average time per block
+                    "template_updates": 0, // Times template was refreshed
+                    "active": true, // Mining is active
+                    "current_difficulty": 0, // Current PoW difficulty
+                    "pending_template": true // Has active template
+                }))
+            }
             // Unimplemented subsystems
             7 | 11 | 12 | 13 | 14 | 15 => {
                 Ok(serde_json::json!({
@@ -761,6 +801,7 @@ impl ApiQueryHandler {
             "qc-09-finality" => 9,
             "qc-10-signature-verification" => 10,
             "qc-16-api-gateway" => 16,
+            "qc-17-block-production" => 17,
             _ => 0,
         }
     }

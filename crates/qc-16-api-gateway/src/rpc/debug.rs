@@ -343,6 +343,7 @@ const SUBSYSTEM_INFO: &[(u8, &str, &str)] = &[
     (14, "Sharding", "sharding"),
     (15, "Cross-Chain", "cross-chain"),
     (16, "API Gateway", "api-gateway"),
+    (17, "Block Production", "block-production"),
 ];
 
 /// Check if a subsystem is a stub (not yet implemented)
@@ -460,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_subsystem_info_complete() {
-        assert_eq!(SUBSYSTEM_INFO.len(), 16);
+        assert_eq!(SUBSYSTEM_INFO.len(), 17);
     }
 
     #[test]
