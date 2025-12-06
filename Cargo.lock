@@ -1464,6 +1464,7 @@ dependencies = [
  "qc-03-transaction-indexing",
  "qc-04-state-management",
  "qc-06-mempool",
+ "qc-07-bloom-filters",
  "qc-08-consensus",
  "qc-09-finality",
  "qc-10-signature-verification",
@@ -1784,6 +1785,12 @@ dependencies = [
  "wasi",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "murmur3"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9252111cf132ba0929b6f8e030cac2a24b507f3a4d6db6fb2896f27b354c714b"
 
 [[package]]
 name = "native-tls"
@@ -2361,6 +2368,29 @@ dependencies = [
 [[package]]
 name = "qc-07-bloom-filters"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bincode",
+ "bitvec",
+ "criterion",
+ "futures",
+ "hex",
+ "lru",
+ "murmur3",
+ "proptest",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sha2",
+ "shared-bus",
+ "shared-types",
+ "siphasher",
+ "thiserror",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "qc-08-consensus"
@@ -2494,6 +2524,7 @@ dependencies = [
  "qc-03-transaction-indexing",
  "qc-04-state-management",
  "qc-06-mempool",
+ "qc-07-bloom-filters",
  "qc-08-consensus",
  "qc-10-signature-verification",
  "rand 0.8.5",
