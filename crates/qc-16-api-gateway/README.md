@@ -195,7 +195,8 @@ The API Gateway communicates with other subsystems via the Event Bus:
 | `eth_getTransaction*`, `eth_getLogs` | qc-03-transaction-indexing |
 | `eth_sendRawTransaction`, `eth_gasPrice` | qc-06-mempool |
 | `eth_call`, `eth_estimateGas` | qc-11-smart-contracts |
-| `admin_peers`, `net_*` | qc-07-network |
+| `admin_peers`, `net_*` | qc-01-peer-discovery |
+| `eth_syncing` | node-runtime |
 
 ### Async-to-Sync Bridge
 
@@ -281,7 +282,7 @@ See [SPEC-16-API-GATEWAY.md](../../SPECS/SPEC-16-API-GATEWAY.md) for full specif
 Per [IPC-MATRIX.md](../../Documentation/IPC-MATRIX.md):
 - **Subsystem ID**: 16
 - **Isolation Level**: CRITICAL (exposed to public)
-- **Allowed Communications**: qc-02, qc-03, qc-04, qc-06, qc-07, qc-11
+- **Allowed Communications**: qc-01, qc-02, qc-03, qc-04, qc-06, qc-11, node-runtime
 
 ## License
 

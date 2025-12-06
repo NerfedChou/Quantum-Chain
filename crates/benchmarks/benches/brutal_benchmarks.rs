@@ -25,6 +25,7 @@
 //! | qc-03 | Transaction Indexing | O(log n) proof, tree build O(n) |
 //! | qc-04 | State Management | State root < 10s, O(log n) lookup |
 //! | qc-06 | Mempool | O(1) lookup, 2PC < 1ms/tx |
+//! | qc-07 | Bloom Filters | Insert O(k), FPR validation, privacy rotation |
 //! | qc-08 | Consensus | Block validation < 100ms, fork choice O(log n) |
 //! | qc-10 | Signature Verification | ECDSA < 1ms, batch 2x faster |
 
@@ -52,6 +53,10 @@ fn bench_qc_06_mempool(c: &mut Criterion) {
     brutal::qc_06_mempool::register_benchmarks(c);
 }
 
+fn bench_qc_07_bloom_filters(c: &mut Criterion) {
+    brutal::qc_07_bloom_filters::register_benchmarks(c);
+}
+
 fn bench_qc_08_consensus(c: &mut Criterion) {
     brutal::qc_08_consensus::register_benchmarks(c);
 }
@@ -71,6 +76,7 @@ criterion_group!(
         bench_qc_03_tx_indexing,
         bench_qc_04_state_mgmt,
         bench_qc_06_mempool,
+        bench_qc_07_bloom_filters,
         bench_qc_08_consensus,
         bench_qc_10_signature,
 );

@@ -11,7 +11,7 @@ use opentelemetry_sdk::{
     trace::{self, RandomIdGenerator, Sampler},
     Resource,
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use crate::{TelemetryConfig, TelemetryError};
 

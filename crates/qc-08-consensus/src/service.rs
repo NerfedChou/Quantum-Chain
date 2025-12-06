@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 /// Consensus Service
 ///
-/// Reference: SPEC-08 TODO Phase 5
+/// Reference: SPEC-08 Section 5
 pub struct ConsensusService<E, M, S, V>
 where
     E: EventBus,

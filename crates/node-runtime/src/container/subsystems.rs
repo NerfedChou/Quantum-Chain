@@ -33,7 +33,7 @@ use crate::container::config::NodeConfig;
 // Import subsystem services
 use qc_01_peer_discovery::PeerDiscoveryService;
 #[cfg(not(feature = "rocksdb"))]
-use qc_02_block_storage::ports::outbound::{InMemoryKVStore, MockFileSystemAdapter};
+use qc_02_block_storage::ports::outbound::{FileBackedKVStore, MockFileSystemAdapter};
 use qc_02_block_storage::{
     ports::outbound::{
         BincodeBlockSerializer, DefaultChecksumProvider, SystemTimeSource as StorageTimeSource,
@@ -52,11 +52,16 @@ use crate::adapters::ports::consensus::{
 };
 use qc_08_consensus::{ConsensusConfig, ConsensusService};
 
-// Finality service and adapters
+// Finality service and adapters (used in handlers)
+#[allow(unused_imports)]
 use crate::adapters::ports::finality::{
     ConcreteFinalityBlockStorageAdapter, FinalityAttestationAdapter, FinalityValidatorSetAdapter,
 };
+#[allow(unused_imports)]
 use qc_09_finality::service::{FinalityConfig, FinalityService};
+
+// Block Production service (Subsystem 17)
+use qc_17_block_production::ConcreteBlockProducer;
 
 // RocksDB imports (when feature is enabled)
 #[cfg(feature = "rocksdb")]
@@ -67,10 +72,10 @@ use crate::adapters::storage::{
 #[cfg(feature = "rocksdb")]
 use std::sync::Arc as StdArc;
 
-/// Concrete type for Block Storage Service with in-memory backends (default).
+/// Concrete type for Block Storage Service with file-backed storage (default).
 #[cfg(not(feature = "rocksdb"))]
 pub type ConcreteBlockStorageService = BlockStorageService<
-    InMemoryKVStore,
+    FileBackedKVStore,
     MockFileSystemAdapter,
     DefaultChecksumProvider,
     StorageTimeSource,
@@ -97,6 +102,14 @@ pub type ConcreteConsensusService = ConsensusService<
 
 /// Concrete type for Finality Service with all adapters wired (in-memory backends).
 #[cfg(not(feature = "rocksdb"))]
+pub type ConcreteFinalityService = FinalityService<
+    ConcreteFinalityBlockStorageAdapter,
+    FinalityAttestationAdapter,
+    FinalityValidatorSetAdapter,
+>;
+
+/// Concrete type for Finality Service with RocksDB backend (production).
+#[cfg(feature = "rocksdb")]
 pub type ConcreteFinalityService = FinalityService<
     ConcreteFinalityBlockStorageAdapter,
     FinalityAttestationAdapter,
@@ -162,8 +175,14 @@ pub struct SubsystemContainer {
 
     /// Finality (Subsystem 9)
     /// Casper FFG finalization gadget.
-    #[cfg(not(feature = "rocksdb"))]
     pub finality: Arc<ConcreteFinalityService>,
+
+    // =========================================================================
+    // LEVEL 5: Advanced Subsystems
+    // =========================================================================
+    /// Block Production (Subsystem 17)
+    /// Multi-threaded miner with ASIC-resistant PoW.
+    pub block_producer: Arc<ConcreteBlockProducer>,
 
     // =========================================================================
     // SHARED INFRASTRUCTURE
@@ -253,10 +272,16 @@ impl SubsystemContainer {
             config.storage.assembly_timeout_secs, config.storage.max_pending_assemblies
         );
 
-        #[cfg(not(feature = "rocksdb"))]
         let finality = Self::init_finality(Arc::clone(&block_storage));
-        #[cfg(not(feature = "rocksdb"))]
         info!("  [9] Finality initialized (Casper FFG)");
+
+        // =====================================================================
+        // PHASE 7: Level 5 - Advanced Subsystems
+        // =====================================================================
+        info!("Phase 7: Initializing Level 5 advanced subsystems");
+
+        let block_producer = Self::init_block_producer(Arc::clone(&event_bus), &config);
+        info!("  [17] Block Production initialized (mining threads={})", config.mining.worker_threads);
 
         info!("All subsystems initialized successfully");
         info!("Choreography ready: Consensus→TxIndexing→StateManagement→BlockStorage→Finality");
@@ -269,8 +294,8 @@ impl SubsystemContainer {
             consensus,
             block_storage,
             assembly_buffer,
-            #[cfg(not(feature = "rocksdb"))]
             finality,
+            block_producer,
             event_bus,
             nonce_cache,
             config,
@@ -412,8 +437,12 @@ impl SubsystemContainer {
 
         #[cfg(not(feature = "rocksdb"))]
         let service = {
-            info!("Initializing Block Storage with in-memory backend (testing mode)");
-            let kv_store = InMemoryKVStore::new();
+            // Use file-backed storage for persistence without RocksDB
+            let data_dir = std::env::var("QC_DATA_DIR").unwrap_or_else(|_| "/var/quantum-chain/data".to_string());
+            let storage_path = std::path::PathBuf::from(&data_dir).join("blocks.db");
+            info!("Initializing Block Storage with file-backed persistence at {}", storage_path.display());
+            
+            let kv_store = FileBackedKVStore::new(&storage_path);
             let fs_adapter = MockFileSystemAdapter::new(50); // 50% disk available
 
             BlockStorageService::new(
@@ -453,7 +482,6 @@ impl SubsystemContainer {
     }
 
     /// Initialize Finality service with all port adapters.
-    #[cfg(not(feature = "rocksdb"))]
     fn init_finality(
         block_storage: Arc<RwLock<ConcreteBlockStorageService>>,
     ) -> Arc<ConcreteFinalityService> {
@@ -471,6 +499,36 @@ impl SubsystemContainer {
             attestation_adapter,
             validator_adapter,
         ))
+    }
+
+    /// Initialize Block Producer service (Subsystem 17).
+    fn init_block_producer(
+        event_bus: Arc<InMemoryEventBus>,
+        config: &NodeConfig,
+    ) -> Arc<ConcreteBlockProducer> {
+        use qc_17_block_production::{BlockProductionConfig, ConsensusMode};
+        use primitive_types::U256;
+
+        // Map node config to block production config
+        let mut block_config = BlockProductionConfig::default();
+        block_config.mode = ConsensusMode::ProofOfStake; // Default to PoS
+        block_config.gas_limit = 30_000_000; // 30M gas
+        block_config.min_gas_price = U256::from(1_000_000_000u64); // 1 gwei
+        block_config.fair_ordering = true;
+
+        // Configure PoW if mining is enabled
+        if config.mining.enabled {
+            block_config.mode = ConsensusMode::ProofOfWork;
+            block_config.pow = Some(qc_17_block_production::PoWConfig {
+                threads: config.mining.worker_threads as u8,
+                algorithm: qc_17_block_production::HashAlgorithm::Keccak256,
+                target_block_time: Some(10),
+                use_dgw: Some(true),
+                dgw_window: Some(24),
+            });
+        }
+
+        Arc::new(ConcreteBlockProducer::new(event_bus, block_config))
     }
 
     // =========================================================================
@@ -508,7 +566,6 @@ impl SubsystemContainer {
     }
 
     /// Get finality service for Casper FFG operations.
-    #[cfg(not(feature = "rocksdb"))]
     pub fn finality(&self) -> Arc<ConcreteFinalityService> {
         Arc::clone(&self.finality)
     }

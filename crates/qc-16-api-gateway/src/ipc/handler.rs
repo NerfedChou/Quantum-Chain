@@ -121,6 +121,56 @@ impl IpcHandler {
     pub fn pending_count(&self) -> usize {
         self.pending.pending_count()
     }
+
+    /// Health check a subsystem (ping with short timeout)
+    pub async fn health_check(&self, target: &str) -> Result<u64, IpcError> {
+        use crate::domain::correlation::CorrelationId;
+        
+        let start = std::time::Instant::now();
+        let timeout = Duration::from_millis(500);
+        
+        // Try to send a lightweight ping
+        let request = IpcRequest::with_correlation_id(
+            CorrelationId::new(),
+            target,
+            RequestPayload::Ping,
+        );
+
+        match tokio::time::timeout(timeout, self.sender.send(request)).await {
+            Ok(Ok(_)) => Ok(start.elapsed().as_millis() as u64),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(IpcError::Timeout),
+        }
+    }
+
+    /// Get IPC metrics (aggregated stats)
+    pub fn get_metrics(&self) -> IpcHandlerMetrics {
+        self.pending.get_metrics()
+    }
+}
+
+/// Aggregated IPC metrics
+#[derive(Debug, Clone, Default)]
+pub struct IpcHandlerMetrics {
+    pub total_sent: u64,
+    pub total_received: u64,
+    pub total_errors: u64,
+    pub total_timeouts: u64,
+    pub requests_per_sec: f64,
+    pub errors_per_sec: f64,
+    pub p50_latency_ms: u32,
+    pub p99_latency_ms: u32,
+    pub by_subsystem: std::collections::HashMap<String, SubsystemMetrics>,
+}
+
+/// Per-subsystem metrics
+#[derive(Debug, Clone, Default)]
+pub struct SubsystemMetrics {
+    pub sent: u64,
+    pub received: u64,
+    pub errors: u64,
+    pub timeouts: u64,
+    pub avg_latency_ms: u32,
 }
 
 /// Response listener that processes incoming IPC responses
@@ -193,6 +243,7 @@ fn success_to_json(data: SuccessData) -> serde_json::Value {
         SuccessData::NodeInfo(v) => serde_json::to_value(v).unwrap_or_default(),
         SuccessData::Bool(v) => serde_json::json!(v),
         SuccessData::Null => serde_json::Value::Null,
+        SuccessData::Json(v) => v,
     }
 }
 
@@ -223,6 +274,8 @@ fn payload_method_name(payload: &RequestPayload) -> &'static str {
         RequestPayload::GetSyncStatus(_) => "eth_syncing",
         RequestPayload::AddPeer(_) => "admin_addPeer",
         RequestPayload::RemovePeer(_) => "admin_removePeer",
+        RequestPayload::Ping => "ping",
+        RequestPayload::GetSubsystemMetrics(_) => "debug_subsystemMetrics",
     }
 }
 

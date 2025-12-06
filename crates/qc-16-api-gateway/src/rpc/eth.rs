@@ -428,12 +428,13 @@ impl EthRpc {
     // ═══════════════════════════════════════════════════════════════════════
 
     /// eth_syncing - Returns sync status
+    /// Routes to Node Runtime per SPEC-16 Section 3.1
     #[instrument(skip(self))]
     pub async fn syncing(&self) -> ApiResult<SyncStatus> {
         let result = self
             .ipc
             .request(
-                "qc-07-network",
+                "node-runtime",
                 RequestPayload::GetSyncStatus(GetSyncStatusRequest),
                 None,
             )

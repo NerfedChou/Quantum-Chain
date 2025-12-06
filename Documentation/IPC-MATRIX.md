@@ -1909,6 +1909,7 @@ enum CrossChainMessageType {
 | 14 (Sharding) | 8 | 4, 8 | Minimum validator count |
 | 15 (Cross-Chain) | 9, 11, External | 8, 11 | Finality proofs, timelock enforcement |
 | **16 (API Gateway)** | **External HTTP/WS, Event Bus** | **1, 2, 3, 4, 6, 8, 10, 11, Event Bus** | **Rate limiting, method whitelist, timeout protection** |
+| **17 (Block Production)** | **6, 4, 9, 8 (events), Admin CLI** | **6, 4, 8, 10, Event Bus** | **Gas limit enforcement, nonce ordering, state validity, censorship detection** |
 
 ---
 
@@ -2036,6 +2037,280 @@ struct SubscriptionNotification {
 | **V2.3 Transaction Lookup** | Subsystem 3 can query Subsystem 2 for tx locations | Merkle proof generation requires knowing transaction position in block |
 | **DDoS Defense Fix** | Subsystem 1 can now access Subsystem 10 | Network edge protection: Verify signatures before accepting data into system |
 | **Finality Fix** | See Architecture.md DLQ section | Circuit breaker: Don't retry mathematical impossibilities |
+
+---
+
+## SUBSYSTEM 17: BLOCK PRODUCTION ENGINE
+
+### I Am Allowed To Talk To:
+- **Subsystem 6 (Mempool)** - Request pending transactions
+- **Subsystem 4 (State Management)** - State prefetch for transaction simulation
+- **Subsystem 8 (Consensus)** - Submit produced blocks
+- **Subsystem 10 (Signature Verification)** - Sign blocks (PoS validator key)
+- **Event Bus** - Publish `BlockProduced`, `MiningMetrics` events
+
+### Who Is Allowed To Talk To Me:
+- **Subsystem 9 (Finality)** - `BlockFinalized` event (triggers next block)
+- **Subsystem 8 (Consensus)** - `SlotAssigned` event (PoS proposer duty)
+- **Admin CLI** - Start/stop mining, change settings (localhost only)
+
+### Strict Message Types:
+
+**OUTGOING:**
+```rust
+/// Request to Mempool for pending transactions
+struct GetPendingTransactionsRequest {
+    version: u16,
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    max_count: u32,              // Maximum transactions to return
+    min_gas_price: u256,         // Minimum acceptable gas price
+    signature: Signature,
+}
+
+/// Request to State Management for state prefetch
+struct StatePrefetchRequest {
+    version: u16,
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    parent_state_root: [u8; 32],
+    transactions: Vec<SignedTransaction>,
+    signature: Signature,
+}
+
+/// Produced block submitted to Consensus
+struct ProduceBlockRequest {
+    version: u16,
+    sender_id: SubsystemId,      // Must be 17
+    correlation_id: [u8; 16],
+    reply_to: Topic,
+    
+    // Block data
+    block_template: BlockTemplate,
+    consensus_mode: ConsensusMode,  // PoW, PoS, or PBFT
+    
+    // PoW specific
+    nonce: Option<u64>,          // Only for PoW
+    
+    // PoS specific
+    vrf_proof: Option<VRFProof>, // Only for PoS
+    validator_signature: Option<Signature>,
+    
+    signature: Signature,
+}
+
+struct BlockTemplate {
+    header: BlockHeader,
+    transactions: Vec<SignedTransaction>,
+    total_gas_used: u64,
+    total_fees: u256,
+}
+
+enum ConsensusMode {
+    ProofOfWork,
+    ProofOfStake,
+    PBFT,
+}
+
+/// Metrics published to Event Bus
+struct MiningMetrics {
+    version: u16,
+    
+    // Transaction selection metrics
+    transactions_considered: u32,
+    transactions_selected: u32,
+    total_gas_used: u64,
+    total_fees: u256,
+    selection_time_ms: u64,
+    
+    // PoW specific
+    hashrate: Option<f64>,       // H/s
+    mining_time_ms: Option<u64>,
+    
+    // PoS specific
+    slot_number: Option<u64>,
+    
+    // Profitability
+    expected_reward: u256,
+    mev_profit: u256,
+    
+    timestamp: u64,
+}
+
+/// Event published when block is produced
+struct BlockProducedEvent {
+    version: u16,
+    sender_id: SubsystemId,      // Always 17
+    
+    block_hash: [u8; 32],
+    block_number: u64,
+    transaction_count: u32,
+    total_gas_used: u64,
+    total_fees: u256,
+    production_time_ms: u64,
+    
+    consensus_mode: ConsensusMode,
+    timestamp: u64,
+}
+```
+
+**INCOMING:**
+```rust
+/// Response from Mempool with pending transactions
+struct PendingTransactionsResponse {
+    version: u16,
+    correlation_id: [u8; 16],
+    
+    transactions: Vec<VerifiedTransaction>,
+    total_count: u32,            // Total in mempool
+    returned_count: u32,         // Number returned
+    signature: Signature,
+}
+
+struct VerifiedTransaction {
+    transaction: SignedTransaction,
+    from: [u8; 20],              // Recovered sender
+    nonce: u64,
+    gas_price: u256,
+    gas_limit: u64,
+    signature_valid: bool,       // Pre-verified by Subsystem 10
+}
+
+/// Response from State Management with simulation results
+struct StatePrefetchResponse {
+    version: u16,
+    correlation_id: [u8; 16],
+    
+    simulations: Vec<TransactionSimulation>,
+    state_cache: Vec<u8>,        // Serialized cache for reuse
+    signature: Signature,
+}
+
+struct TransactionSimulation {
+    tx_hash: [u8; 32],
+    success: bool,
+    gas_used: u64,
+    state_changes: Vec<StateChange>,
+    error: Option<String>,
+}
+
+struct StateChange {
+    address: [u8; 20],
+    storage_key: Option<[u8; 32]>,
+    old_value: Vec<u8>,
+    new_value: Vec<u8>,
+}
+
+/// Event from Finality: Block finalized, produce next
+struct BlockFinalizedEvent {
+    version: u16,
+    sender_id: SubsystemId,      // Must be 9
+    
+    block_hash: [u8; 32],
+    block_number: u64,
+    finalized_at: u64,
+}
+
+/// Event from Consensus: PoS proposer duty assigned
+struct SlotAssignedEvent {
+    version: u16,
+    sender_id: SubsystemId,      // Must be 8
+    
+    slot: u64,
+    epoch: u64,
+    validator_index: u32,
+    vrf_proof: VRFProof,
+}
+
+struct VRFProof {
+    output: [u8; 32],
+    proof: [u8; 80],
+}
+
+/// Admin command to start/stop mining
+struct MiningControlCommand {
+    version: u16,
+    requester_id: SubsystemId,   // Must be Admin CLI (localhost)
+    correlation_id: [u8; 16],
+    
+    command: MiningCommand,
+    signature: Signature,
+}
+
+enum MiningCommand {
+    Start {
+        mode: ConsensusMode,
+        threads: u8,             // For PoW
+        validator_key: Option<[u8; 32]>,  // For PoS
+    },
+    Stop,
+    UpdateGasLimit(u64),
+    UpdateMinGasPrice(u256),
+}
+```
+
+### Security Boundaries:
+- ✅ Accept: `PendingTransactionsResponse` from Subsystem 6 only
+- ✅ Accept: `StatePrefetchResponse` from Subsystem 4 only
+- ✅ Accept: `BlockFinalizedEvent` from Subsystem 9 only
+- ✅ Accept: `SlotAssignedEvent` from Subsystem 8 only
+- ✅ Accept: `MiningControlCommand` from Admin CLI (localhost) only
+- ✅ Send: `ProduceBlockRequest` to Subsystem 8 only
+- ✅ Publish: `BlockProducedEvent` to Event Bus
+- ✅ Publish: `MiningMetrics` to Event Bus
+- ❌ Reject: Block production requests from external sources
+- ❌ Reject: Transactions without valid signatures
+- ❌ Reject: Blocks exceeding gas limit
+- ❌ Reject: Duplicate transaction hashes
+- ❌ Reject: Admin commands from non-localhost
+
+### Rate Limiting:
+- Block production: Max 1 block per slot (PoS) or per difficulty target (PoW)
+- Transaction queries: Max 100 req/s to Mempool
+- State prefetch: Max 50 req/s to State Management
+- Admin commands: Max 10 req/s (localhost only)
+
+### Invariants:
+```rust
+// Gas limit enforcement
+invariant!(block.total_gas_used <= BLOCK_GAS_LIMIT);
+
+// Nonce ordering
+invariant!(all_transactions_have_sequential_nonces_per_sender());
+
+// State validity
+invariant!(all_transactions_simulate_successfully());
+
+// Timestamp monotonicity
+invariant!(block.timestamp >= parent_block.timestamp);
+invariant!(block.timestamp <= current_time + 15);  // Max 15s into future
+
+// No duplicates
+invariant!(no_duplicate_transaction_hashes());
+
+// Fee profitability
+invariant!(selected_txs_sorted_by_gas_price_descending());
+```
+
+### Attack Scenario: Compromised Block Producer
+
+**Attack:** Attacker gains control of Subsystem 17
+
+**Attempt 1:** Produce blocks with invalid transactions
+- ❌ BLOCKED: Consensus (8) re-validates all transactions
+- ❌ BLOCKED: Invalid blocks rejected
+
+**Attempt 2:** Censor specific transactions
+- ⚠️ PARTIAL SUCCESS: Can exclude transactions
+- ✅ MITIGATED: Cryptographic inclusion proofs reveal censorship
+- ✅ MITIGATED: Community can detect and penalize
+
+**Attempt 3:** Front-run transactions (MEV exploitation)
+- ⚠️ PARTIAL SUCCESS: Can reorder within gas price tier
+- ✅ MITIGATED: Fair ordering enforcement (FIFO within tier)
+- ✅ MITIGATED: MEV metrics publicly visible
+
+**Result:** Attack limited; cannot produce invalid blocks, censorship detectable
 
 ---
 

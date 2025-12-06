@@ -342,7 +342,7 @@ impl TransactionIndex {
     /// Index a transaction location.
     pub fn put_location(&mut self, tx_hash: Hash, location: TransactionLocation) {
         self.locations.insert(tx_hash, location);
-        self.stats.total_indexed += 1;
+        self.stats.total_indexed_txs += 1;
     }
 
     /// Get a transaction location by hash.
@@ -383,12 +383,42 @@ impl TransactionIndex {
     /// Get indexing statistics.
     pub fn stats(&self) -> IndexingStats {
         IndexingStats {
-            total_indexed: self.stats.total_indexed,
+            total_indexed_txs: self.stats.total_indexed_txs,
             cached_trees: self.trees.len(),
             max_cached_trees: self.config.max_cached_trees,
             proofs_generated: self.stats.proofs_generated,
             proofs_verified: self.stats.proofs_verified,
+            last_indexed_height: self.stats.last_indexed_height,
+            avg_tree_depth: self.stats.avg_tree_depth,
+            blocks_per_second: self.stats.blocks_per_second,
+            e2e_latency_ms: self.stats.e2e_latency_ms,
+            last_merkle_root: self.stats.last_merkle_root,
         }
+    }
+
+    /// Get transaction count for a specific block.
+    pub fn get_tx_count_for_block(&self, block_height: u64) -> Option<u64> {
+        // Count transactions at this block height
+        let count = self.locations.values()
+            .filter(|loc| loc.block_height == block_height)
+            .count() as u64;
+        if count > 0 { Some(count) } else { None }
+    }
+
+    /// Update last indexed height.
+    pub fn set_last_indexed_height(&mut self, height: u64) {
+        self.stats.last_indexed_height = height;
+    }
+
+    /// Update sync metrics.
+    pub fn update_sync_metrics(&mut self, blocks_per_second: f64, e2e_latency_ms: u64) {
+        self.stats.blocks_per_second = blocks_per_second;
+        self.stats.e2e_latency_ms = e2e_latency_ms;
+    }
+
+    /// Set the last merkle root.
+    pub fn set_last_merkle_root(&mut self, root: Hash) {
+        self.stats.last_merkle_root = Some(root);
     }
 
     /// Increment proof generation counter.
@@ -406,7 +436,7 @@ impl TransactionIndex {
 #[derive(Debug, Clone, Default)]
 pub struct IndexingStats {
     /// Total transactions indexed.
-    pub total_indexed: u64,
+    pub total_indexed_txs: u64,
     /// Number of Merkle trees cached.
     pub cached_trees: usize,
     /// Maximum cached trees allowed.
@@ -415,6 +445,16 @@ pub struct IndexingStats {
     pub proofs_generated: u64,
     /// Number of proofs verified.
     pub proofs_verified: u64,
+    /// Last indexed block height.
+    pub last_indexed_height: u64,
+    /// Average tree depth.
+    pub avg_tree_depth: u8,
+    /// Blocks processed per second (sync speed).
+    pub blocks_per_second: f64,
+    /// End-to-end latency in milliseconds.
+    pub e2e_latency_ms: u64,
+    /// Last computed merkle root.
+    pub last_merkle_root: Option<Hash>,
 }
 
 #[cfg(test)]

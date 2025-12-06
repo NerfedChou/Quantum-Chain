@@ -18,8 +18,10 @@ qc-02-block-storage = { path = "../qc-02-block-storage" }
 qc-03-transaction-indexing = { path = "../qc-03-transaction-indexing" }
 qc-04-state-management = { path = "../qc-04-state-management" }
 qc-06-mempool = { path = "../qc-06-mempool" }
+qc-07-bloom-filters = { path = "../qc-07-bloom-filters" }
 qc-08-consensus = { path = "../qc-08-consensus" }
 qc-10-signature-verification = { path = "../qc-10-signature-verification" }
+qc-17-block-production = { path = "../qc-17-block-production" }
 shared-types = { path = "../shared-types" }
 criterion = { version = "0.5", features = ["html_reports"] }
 rand = "0.8"

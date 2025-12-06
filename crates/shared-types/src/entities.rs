@@ -58,6 +58,10 @@ pub enum SubsystemId {
     Sharding = 14,
     /// Subsystem 15: Cross-Chain Communication (HTLC)
     CrossChain = 15,
+    /// Subsystem 16: API Gateway
+    ApiGateway = 16,
+    /// Subsystem 17: Block Production (Mining)
+    BlockProduction = 17,
 }
 
 impl SubsystemId {
@@ -84,6 +88,8 @@ impl SubsystemId {
             13 => Some(Self::LightClient),
             14 => Some(Self::Sharding),
             15 => Some(Self::CrossChain),
+            16 => Some(Self::ApiGateway),
+            17 => Some(Self::BlockProduction),
             _ => None,
         }
     }
@@ -236,6 +242,32 @@ pub struct ValidatedTransaction {
     pub tx_hash: Hash,
 }
 
+/// Type of transaction for special handling
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TransactionType {
+    /// Regular user transaction
+    Regular,
+    /// Genesis block initial allocation
+    Genesis,
+    /// Mining reward (coinbase)
+    Coinbase,
+}
+
+/// A coinbase transaction that mints new coins for the block miner
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoinbaseTransaction {
+    /// Block height this reward is for
+    pub block_height: u64,
+    /// Miner's address receiving the reward
+    pub miner_address: Address,
+    /// Total block reward (base + fees)
+    pub reward: U256,
+    /// Transaction fees collected from block transactions
+    pub fees: U256,
+    /// Timestamp of the block
+    pub timestamp: u64,
+}
+
 // =============================================================================
 // CLUSTER B: CONSENSUS & FINALITY
 // =============================================================================
@@ -329,6 +361,46 @@ pub struct StorageMetadata {
     pub finalized_height: u64,
     /// Height of the chain tip.
     pub chain_tip_height: u64,
+}
+
+/// Genesis block configuration for chain bootstrap
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenesisConfig {
+    /// Chain ID
+    pub chain_id: u64,
+    /// Genesis timestamp
+    pub timestamp: u64,
+    /// Initial coin allocations (address -> balance)
+    pub allocations: Vec<(Address, U256)>,
+    /// Initial validators
+    pub validators: Vec<Validator>,
+    /// Total supply of coins
+    pub total_supply: U256,
+}
+
+impl GenesisConfig {
+    /// Create a default genesis configuration for development
+    pub fn default_dev() -> Self {
+        Self {
+            chain_id: 1,
+            timestamp: 1733494800, // Dec 6, 2024
+            allocations: vec![],
+            validators: vec![],
+            total_supply: U256::from(21_000_000) * U256::from(10u128.pow(18)), // 21M coins with 18 decimals
+        }
+    }
+
+    /// Calculate the genesis block hash
+    pub fn genesis_hash(&self) -> Hash {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(self.chain_id.to_le_bytes());
+        hasher.update(self.timestamp.to_le_bytes());
+        let mut supply_bytes = [0u8; 32];
+        self.total_supply.to_big_endian(&mut supply_bytes);
+        hasher.update(supply_bytes);
+        hasher.finalize().into()
+    }
 }
 
 // =============================================================================

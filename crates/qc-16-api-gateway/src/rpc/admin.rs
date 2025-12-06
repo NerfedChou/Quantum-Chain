@@ -23,12 +23,13 @@ impl AdminRpc {
     // ═══════════════════════════════════════════════════════════════════════
 
     /// admin_nodeInfo - Returns node info
+    /// Routes to qc-01 Peer Discovery per SPEC-16 Section 3.2
     #[instrument(skip(self))]
     pub async fn node_info(&self) -> ApiResult<serde_json::Value> {
         let result = self
             .ipc
             .request(
-                "qc-07-network",
+                "qc-01-peer-discovery",
                 RequestPayload::GetNodeInfo(GetNodeInfoRequest),
                 None,
             )
@@ -39,12 +40,13 @@ impl AdminRpc {
     }
 
     /// admin_peers - Returns connected peers
+    /// Routes to qc-01 Peer Discovery per SPEC-16 Section 3.2
     #[instrument(skip(self))]
     pub async fn peers(&self) -> ApiResult<serde_json::Value> {
         let result = self
             .ipc
             .request(
-                "qc-07-network",
+                "qc-01-peer-discovery",
                 RequestPayload::GetPeers(GetPeersRequest),
                 None,
             )
@@ -77,7 +79,7 @@ impl AdminRpc {
         let result = self
             .ipc
             .request(
-                "qc-07-network",
+                "qc-01-peer-discovery",
                 RequestPayload::AddPeer(AddPeerRequest { enode_url: enode }),
                 None,
             )
@@ -88,12 +90,13 @@ impl AdminRpc {
     }
 
     /// admin_removePeer - Remove a peer
+    /// Routes to qc-01 Peer Discovery per SPEC-16 Section 3.3
     #[instrument(skip(self))]
     pub async fn remove_peer(&self, enode: String) -> ApiResult<bool> {
         let result = self
             .ipc
             .request(
-                "qc-07-network",
+                "qc-01-peer-discovery",
                 RequestPayload::RemovePeer(RemovePeerRequest { enode_url: enode }),
                 None,
             )

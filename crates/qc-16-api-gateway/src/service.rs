@@ -169,6 +169,11 @@ impl ApiGatewayService {
         Arc::clone(&self.metrics)
     }
 
+    /// Get pending request store (for EventBusIpcReceiver integration)
+    pub fn pending_store(&self) -> Arc<PendingRequestStore> {
+        Arc::clone(&self.pending_store)
+    }
+
     /// Build HTTP router for JSON-RPC
     fn build_http_router(&self) -> Router {
         let state = AppState {
@@ -356,40 +361,11 @@ async fn process_single_request(
     }
 
     let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
-    let _params = request.get("params");
+    let params = request.get("params");
 
-    // Route to appropriate handler
-    // This is a simplified dispatcher - production would use method registry
-    let result: Result<serde_json::Value, crate::domain::error::ApiError> = match method {
-        "eth_chainId" => state
-            .rpc_handlers
-            .eth
-            .chain_id()
-            .await
-            .map(|v| serde_json::to_value(v).unwrap()),
-        "eth_accounts" => state
-            .rpc_handlers
-            .eth
-            .accounts()
-            .await
-            .map(|v| serde_json::to_value(v).unwrap()),
-        "web3_clientVersion" => state
-            .rpc_handlers
-            .web3
-            .client_version()
-            .await
-            .map(|v| serde_json::json!(v)),
-        "net_version" => state
-            .rpc_handlers
-            .net
-            .version()
-            .await
-            .map(|v| serde_json::json!(v)),
-        _ => {
-            // Method not found or requires IPC (which needs full setup)
-            Err(crate::domain::error::ApiError::method_not_found(method))
-        }
-    };
+    // Route to appropriate handler per SPEC-16 method registry
+    let result: Result<serde_json::Value, crate::domain::error::ApiError> =
+        route_method(state, method, params).await;
 
     match result {
         Ok(value) => {
@@ -412,6 +388,480 @@ async fn process_single_request(
             })
         }
     }
+}
+
+/// Route JSON-RPC method to appropriate handler.
+///
+/// Per SPEC-16 Section 3, methods are organized by tier:
+/// - Tier 1 (Public): eth_*, web3_*, net_version
+/// - Tier 2 (Protected): txpool_*, net_peerCount, net_listening
+/// - Tier 3 (Admin): admin_*, miner_*, debug_*
+async fn route_method(
+    state: &AppState,
+    method: &str,
+    params: Option<&serde_json::Value>,
+) -> Result<serde_json::Value, crate::domain::error::ApiError> {
+    use crate::domain::error::ApiError;
+    use crate::domain::types::{Address, BlockId, Hash, U256};
+
+    match method {
+        // ═══════════════════════════════════════════════════════════════════
+        // WEB3 NAMESPACE
+        // ═══════════════════════════════════════════════════════════════════
+        "web3_clientVersion" => state
+            .rpc_handlers
+            .web3
+            .client_version()
+            .await
+            .map(|v| serde_json::json!(v)),
+
+        "web3_sha3" => {
+            let data: crate::domain::types::Bytes = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .web3
+                .sha3(data)
+                .await
+                .map(|v| serde_json::json!(v))
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // NET NAMESPACE
+        // ═══════════════════════════════════════════════════════════════════
+        "net_version" => state
+            .rpc_handlers
+            .net
+            .version()
+            .await
+            .map(|v| serde_json::json!(v)),
+
+        "net_listening" => state
+            .rpc_handlers
+            .net
+            .listening()
+            .await
+            .map(|v| serde_json::json!(v)),
+
+        "net_peerCount" => state
+            .rpc_handlers
+            .net
+            .peer_count()
+            .await
+            .map(|v| serde_json::json!(v)),
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ETH NAMESPACE - Chain Info
+        // ═══════════════════════════════════════════════════════════════════
+        "eth_chainId" => state
+            .rpc_handlers
+            .eth
+            .chain_id()
+            .await
+            .map(|v| serde_json::to_value(v).unwrap_or_default()),
+
+        "eth_blockNumber" => state
+            .rpc_handlers
+            .eth
+            .block_number()
+            .await
+            .map(|v| serde_json::to_value(v).unwrap_or_default()),
+
+        "eth_gasPrice" => state
+            .rpc_handlers
+            .eth
+            .gas_price()
+            .await
+            .map(|v| serde_json::to_value(v).unwrap_or_default()),
+
+        "eth_syncing" => state
+            .rpc_handlers
+            .eth
+            .syncing()
+            .await
+            .map(|v| serde_json::to_value(v).unwrap_or_default()),
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ETH NAMESPACE - Account State
+        // ═══════════════════════════════════════════════════════════════════
+        "eth_accounts" => state
+            .rpc_handlers
+            .eth
+            .accounts()
+            .await
+            .map(|v| serde_json::to_value(v).unwrap_or_default()),
+
+        "eth_getBalance" => {
+            let address: Address = parse_param(params, 0)?;
+            let block_id: Option<BlockId> = parse_param_optional(params, 1);
+            state
+                .rpc_handlers
+                .eth
+                .get_balance(address, block_id)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        "eth_getCode" => {
+            let address: Address = parse_param(params, 0)?;
+            let block_id: Option<BlockId> = parse_param_optional(params, 1);
+            state
+                .rpc_handlers
+                .eth
+                .get_code(address, block_id)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        "eth_getStorageAt" => {
+            let address: Address = parse_param(params, 0)?;
+            let position: U256 = parse_param(params, 1)?;
+            let block_id: Option<BlockId> = parse_param_optional(params, 2);
+            state
+                .rpc_handlers
+                .eth
+                .get_storage_at(address, position, block_id)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        "eth_getTransactionCount" => {
+            let address: Address = parse_param(params, 0)?;
+            let block_id: Option<BlockId> = parse_param_optional(params, 1);
+            state
+                .rpc_handlers
+                .eth
+                .get_transaction_count(address, block_id)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ETH NAMESPACE - Block Data
+        // ═══════════════════════════════════════════════════════════════════
+        "eth_getBlockByHash" => {
+            let hash: Hash = parse_param(params, 0)?;
+            let full_tx: bool = parse_param_optional(params, 1).unwrap_or(false);
+            state
+                .rpc_handlers
+                .eth
+                .get_block_by_hash(hash, full_tx)
+                .await
+                .map(|v| v.unwrap_or(serde_json::Value::Null))
+        }
+
+        "eth_getBlockByNumber" => {
+            let block_id: BlockId = parse_param(params, 0)?;
+            let full_tx: bool = parse_param_optional(params, 1).unwrap_or(false);
+            state
+                .rpc_handlers
+                .eth
+                .get_block_by_number(block_id, full_tx)
+                .await
+                .map(|v| v.unwrap_or(serde_json::Value::Null))
+        }
+
+        "eth_getBlockTransactionCountByHash" => {
+            let hash: Hash = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .eth
+                .get_block_transaction_count_by_hash(hash)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+        }
+
+        "eth_getBlockTransactionCountByNumber" => {
+            let block_id: BlockId = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .eth
+                .get_block_transaction_count_by_number(block_id)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+        }
+
+        "eth_getUncleCountByBlockHash" => {
+            let hash: Hash = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .eth
+                .get_uncle_count_by_block_hash(hash)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        "eth_getUncleCountByBlockNumber" => {
+            let block_id: BlockId = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .eth
+                .get_uncle_count_by_block_number(block_id)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ETH NAMESPACE - Transaction Data
+        // ═══════════════════════════════════════════════════════════════════
+        "eth_getTransactionByHash" => {
+            let hash: Hash = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .eth
+                .get_transaction_by_hash(hash)
+                .await
+                .map(|v| v.unwrap_or(serde_json::Value::Null))
+        }
+
+        "eth_getTransactionReceipt" => {
+            let hash: Hash = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .eth
+                .get_transaction_receipt(hash)
+                .await
+                .map(|v| v.unwrap_or(serde_json::Value::Null))
+        }
+
+        "eth_getBlockReceipts" => {
+            let block_id: BlockId = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .eth
+                .get_block_receipts(block_id)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ETH NAMESPACE - Execution
+        // ═══════════════════════════════════════════════════════════════════
+        "eth_call" => {
+            let call: crate::domain::types::CallRequest = parse_param(params, 0)?;
+            let block_id: Option<BlockId> = parse_param_optional(params, 1);
+            state
+                .rpc_handlers
+                .eth
+                .call(call, block_id)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        "eth_estimateGas" => {
+            let call: crate::domain::types::CallRequest = parse_param(params, 0)?;
+            let block_id: Option<BlockId> = parse_param_optional(params, 1);
+            state
+                .rpc_handlers
+                .eth
+                .estimate_gas(call, block_id)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ETH NAMESPACE - Transaction Submission
+        // ═══════════════════════════════════════════════════════════════════
+        "eth_sendRawTransaction" => {
+            let raw_tx: crate::domain::types::Bytes = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .eth
+                .send_raw_transaction(raw_tx)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ETH NAMESPACE - Logs
+        // ═══════════════════════════════════════════════════════════════════
+        "eth_getLogs" => {
+            let filter: crate::domain::types::Filter = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .eth
+                .get_logs(filter)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ETH NAMESPACE - Fee Market (EIP-1559)
+        // ═══════════════════════════════════════════════════════════════════
+        "eth_maxPriorityFeePerGas" => state
+            .rpc_handlers
+            .eth
+            .max_priority_fee_per_gas()
+            .await
+            .map(|v| serde_json::to_value(v).unwrap_or_default()),
+
+        "eth_feeHistory" => {
+            let block_count: U256 = parse_param(params, 0)?;
+            let newest_block: BlockId = parse_param(params, 1)?;
+            let percentiles: Option<Vec<f64>> = parse_param_optional(params, 2);
+            state
+                .rpc_handlers
+                .eth
+                .fee_history(block_count, newest_block, percentiles)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // TXPOOL NAMESPACE (Tier 2 - Protected)
+        // ═══════════════════════════════════════════════════════════════════
+        "txpool_status" => state.rpc_handlers.txpool.status().await,
+
+        "txpool_content" => state.rpc_handlers.txpool.content().await,
+
+        "txpool_inspect" => state.rpc_handlers.txpool.inspect().await,
+
+        "txpool_contentFrom" => {
+            let address: Address = parse_param(params, 0)?;
+            state.rpc_handlers.txpool.content_from(address).await
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ADMIN NAMESPACE (Tier 3 - Admin Only)
+        // ═══════════════════════════════════════════════════════════════════
+        "admin_peers" => state.rpc_handlers.admin.peers().await,
+
+        "admin_nodeInfo" => state.rpc_handlers.admin.node_info().await,
+
+        "admin_addPeer" => {
+            let enode: String = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .admin
+                .add_peer(enode)
+                .await
+                .map(|v| serde_json::json!(v))
+        }
+
+        "admin_removePeer" => {
+            let enode: String = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .admin
+                .remove_peer(enode)
+                .await
+                .map(|v| serde_json::json!(v))
+        }
+
+        "admin_datadir" => state
+            .rpc_handlers
+            .admin
+            .datadir()
+            .await
+            .map(|v| serde_json::json!(v)),
+
+        // ═══════════════════════════════════════════════════════════════════
+        // DEBUG NAMESPACE (Tier 3 - Admin Only)
+        // ═══════════════════════════════════════════════════════════════════
+        "debug_traceBlockByNumber" => {
+            let block_id: BlockId = parse_param(params, 0)?;
+            let options: Option<crate::rpc::debug::TraceOptions> = parse_param_optional(params, 1);
+            state
+                .rpc_handlers
+                .debug
+                .trace_block_by_number(block_id, options)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        "debug_traceBlockByHash" => {
+            let hash: Hash = parse_param(params, 0)?;
+            let options: Option<crate::rpc::debug::TraceOptions> = parse_param_optional(params, 1);
+            state
+                .rpc_handlers
+                .debug
+                .trace_block_by_hash(hash, options)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        "debug_traceTransaction" => {
+            let hash: Hash = parse_param(params, 0)?;
+            let options: Option<crate::rpc::debug::TraceOptions> = parse_param_optional(params, 1);
+            state
+                .rpc_handlers
+                .debug
+                .trace_transaction(hash, options)
+                .await
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ADMIN PANEL DEBUG METHODS (Tier 3 - Admin Only)
+        // ═══════════════════════════════════════════════════════════════════
+        "debug_subsystemHealth" => state
+            .rpc_handlers
+            .debug
+            .subsystem_health()
+            .await
+            .map(|v| serde_json::to_value(v).unwrap_or_default()),
+
+        "debug_ipcMetrics" => state
+            .rpc_handlers
+            .debug
+            .ipc_metrics()
+            .await
+            .map(|v| serde_json::to_value(v).unwrap_or_default()),
+
+        "debug_subsystemStatus" => {
+            let subsystem_id: String = parse_param(params, 0)?;
+            state
+                .rpc_handlers
+                .debug
+                .subsystem_status(subsystem_id)
+                .await
+                .map(|v| serde_json::to_value(v).unwrap_or_default())
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // UNKNOWN METHOD
+        // ═══════════════════════════════════════════════════════════════════
+        _ => Err(ApiError::method_not_found(method)),
+    }
+}
+
+/// Parse a required parameter from JSON-RPC params array.
+fn parse_param<T: serde::de::DeserializeOwned>(
+    params: Option<&serde_json::Value>,
+    index: usize,
+) -> Result<T, crate::domain::error::ApiError> {
+    use crate::domain::error::ApiError;
+
+    let param = params
+        .and_then(|p| {
+            if p.is_array() {
+                p.get(index)
+            } else if index == 0 {
+                Some(p)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| ApiError::invalid_params(format!("missing parameter at index {}", index)))?;
+
+    serde_json::from_value(param.clone())
+        .map_err(|e| ApiError::invalid_params(format!("invalid parameter at index {}: {}", index, e)))
+}
+
+/// Parse an optional parameter from JSON-RPC params array.
+fn parse_param_optional<T: serde::de::DeserializeOwned>(
+    params: Option<&serde_json::Value>,
+    index: usize,
+) -> Option<T> {
+    params
+        .and_then(|p| {
+            if p.is_array() {
+                p.get(index)
+            } else if index == 0 {
+                Some(p)
+            } else {
+                None
+            }
+        })
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
 }
 
 /// Health check endpoint

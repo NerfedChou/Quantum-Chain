@@ -108,6 +108,41 @@ pub enum BlockchainEvent {
         /// Error description.
         error: String,
     },
+
+    // =========================================================================
+    // API GATEWAY QUERIES (qc-16)
+    // =========================================================================
+    /// Query from API Gateway to a subsystem.
+    /// The target subsystem should respond with ApiQueryResponse.
+    ApiQuery {
+        /// Unique correlation ID to match request/response.
+        correlation_id: String,
+        /// Target subsystem (e.g., "qc-02-block-storage").
+        target: String,
+        /// Query method name (e.g., "get_block_number").
+        method: String,
+        /// Query parameters as JSON.
+        params: serde_json::Value,
+    },
+
+    /// Response from a subsystem to an API Gateway query.
+    ApiQueryResponse {
+        /// Correlation ID matching the original query.
+        correlation_id: String,
+        /// Source subsystem ID.
+        source: u8,
+        /// Result (Ok data or Err with code/message).
+        result: Result<serde_json::Value, ApiQueryError>,
+    },
+}
+
+/// Error type for API query responses.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiQueryError {
+    /// JSON-RPC error code.
+    pub code: i32,
+    /// Error message.
+    pub message: String,
 }
 
 impl BlockchainEvent {
@@ -125,6 +160,7 @@ impl BlockchainEvent {
             }
             Self::BlockFinalized { .. } => EventTopic::Finality,
             Self::CriticalError { .. } => EventTopic::DeadLetterQueue,
+            Self::ApiQuery { .. } | Self::ApiQueryResponse { .. } => EventTopic::ApiGateway,
         }
     }
 
@@ -140,6 +176,8 @@ impl BlockchainEvent {
             Self::BlockFinalized { .. } => 9,
             Self::TransactionVerified(_) | Self::TransactionInvalid { .. } => 10,
             Self::CriticalError { subsystem_id, .. } => *subsystem_id,
+            Self::ApiQuery { .. } => 16,
+            Self::ApiQueryResponse { source, .. } => *source,
         }
     }
 }
@@ -165,6 +203,8 @@ pub enum EventTopic {
     Finality,
     /// Subsystem 10 events.
     SignatureVerification,
+    /// Subsystem 16 events (API Gateway queries).
+    ApiGateway,
     /// Dead Letter Queue for critical errors.
     DeadLetterQueue,
     /// All events (no filtering).

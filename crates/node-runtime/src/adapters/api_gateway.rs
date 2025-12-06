@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use qc_16_api_gateway::ipc::{IpcError, IpcRequest, IpcSender};
-use shared_bus::InMemoryEventBus;
+use shared_bus::{BlockchainEvent, EventPublisher, InMemoryEventBus};
 use std::sync::Arc;
 use tracing::debug;
 
@@ -15,7 +15,6 @@ use tracing::debug;
 /// them to the shared event bus.
 pub struct EventBusIpcSender {
     /// Reference to the event bus
-    #[allow(dead_code)]
     bus: Arc<InMemoryEventBus>,
 }
 
@@ -35,16 +34,28 @@ impl IpcSender for EventBusIpcSender {
             "Forwarding API request to event bus"
         );
 
-        // In a full implementation, we'd publish a QueryRequest event
-        // and the target subsystem would respond with a QueryResponse event.
-        // For now, this is a placeholder that logs the request.
-        //
-        // The actual query protocol requires:
-        // 1. A QueryRequest event type in shared-bus
-        // 2. Subsystem handlers that respond to queries
-        // 3. A QueryResponse event that carries the correlation_id
-        //
-        // This will be implemented when the query protocol is added to shared-bus.
+        // Convert IPC request to ApiQuery blockchain event
+        let event = BlockchainEvent::ApiQuery {
+            correlation_id: request.correlation_id.to_string(),
+            target: request.target.clone(),
+            method: request.method_name(),
+            params: request.payload_as_json(),
+        };
+
+        // Publish to event bus
+        let receivers = self.bus.publish(event).await;
+
+        debug!(
+            correlation_id = %request.correlation_id,
+            receivers = receivers,
+            "ApiQuery published to event bus"
+        );
+
+        if receivers == 0 {
+            // No subscribers - this is a warning but not an error
+            // The pending request store will timeout if no response comes
+            debug!("No subscribers received the ApiQuery event");
+        }
 
         Ok(())
     }

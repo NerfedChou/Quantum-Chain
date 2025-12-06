@@ -24,29 +24,31 @@ impl NetRpc {
     }
 
     /// net_listening - Returns true if node is listening for connections
+    /// Routes to qc-01 Peer Discovery per SPEC-16 Section 3.1
     #[instrument(skip(self))]
     pub async fn listening(&self) -> ApiResult<bool> {
-        // Query network subsystem
+        // Query peer discovery subsystem per SPEC-16
         let result = self
             .ipc
             .request(
-                "qc-07-network",
+                "qc-01-peer-discovery",
                 RequestPayload::GetNodeInfo(GetNodeInfoRequest),
                 None,
             )
             .await;
 
-        // If we can query network subsystem, we're listening
+        // If peer discovery subsystem responds, we're listening
         Ok(result.is_ok())
     }
 
     /// net_peerCount - Returns number of connected peers
+    /// Routes to qc-01 Peer Discovery per SPEC-16 Section 3.1
     #[instrument(skip(self))]
     pub async fn peer_count(&self) -> ApiResult<String> {
         let result = self
             .ipc
             .request(
-                "qc-07-network",
+                "qc-01-peer-discovery",
                 RequestPayload::GetPeers(GetPeersRequest),
                 None,
             )

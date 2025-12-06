@@ -1464,10 +1464,12 @@ dependencies = [
  "qc-03-transaction-indexing",
  "qc-04-state-management",
  "qc-06-mempool",
+ "qc-07-bloom-filters",
  "qc-08-consensus",
  "qc-09-finality",
  "qc-10-signature-verification",
  "qc-16-api-gateway",
+ "qc-17-block-production",
  "rand 0.8.5",
  "rlp",
  "secp256k1",
@@ -1572,7 +1574,7 @@ dependencies = [
  "rustc-hash 2.1.1",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
 ]
@@ -1609,7 +1611,7 @@ dependencies = [
  "serde",
  "serde_json",
  "soketto",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -1626,7 +1628,7 @@ dependencies = [
  "http",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -1786,6 +1788,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "murmur3"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9252111cf132ba0929b6f8e030cac2a24b507f3a4d6db6fb2896f27b354c714b"
+
+[[package]]
 name = "native-tls"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1814,9 +1822,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "chrono",
  "fs2",
  "hex",
+ "num_cpus",
  "parking_lot",
+ "primitive-types",
  "qc-01-peer-discovery",
  "qc-02-block-storage",
  "qc-03-transaction-indexing",
@@ -1827,13 +1838,16 @@ dependencies = [
  "qc-09-finality",
  "qc-10-signature-verification",
  "qc-16-api-gateway",
+ "qc-17-block-production",
  "quantum-telemetry",
  "rand 0.8.5",
  "rocksdb",
+ "serde_json",
+ "sha2",
  "sha3",
  "shared-bus",
  "shared-types",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1956,7 +1970,7 @@ dependencies = [
  "js-sys",
  "once_cell",
  "pin-project-lite",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -1972,7 +1986,7 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prost",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tonic",
 ]
@@ -2005,7 +2019,7 @@ dependencies = [
  "percent-encoding",
  "rand 0.8.5",
  "serde_json",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
 ]
@@ -2216,7 +2230,7 @@ dependencies = [
  "memchr",
  "parking_lot",
  "protobuf",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2271,7 +2285,10 @@ checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 name = "qc-01-peer-discovery"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "hmac",
+ "serde",
+ "serde_json",
  "sha2",
  "shared-types",
  "uuid",
@@ -2284,11 +2301,14 @@ dependencies = [
  "bincode",
  "chrono",
  "crc32fast",
+ "hex",
  "hmac",
  "serde",
+ "serde_json",
  "sha2",
  "shared-types",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -2303,6 +2323,7 @@ dependencies = [
  "log",
  "lru",
  "serde",
+ "serde_json",
  "sha2",
  "sha3",
  "shared-types",
@@ -2318,7 +2339,7 @@ dependencies = [
  "serde",
  "sha3",
  "shared-types",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "uuid",
 ]
@@ -2330,7 +2351,7 @@ dependencies = [
  "parking_lot",
  "shared-types",
  "siphasher",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "uuid",
 ]
@@ -2354,6 +2375,29 @@ dependencies = [
 [[package]]
 name = "qc-07-bloom-filters"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bincode",
+ "bitvec",
+ "criterion",
+ "futures",
+ "hex",
+ "lru",
+ "murmur3",
+ "proptest",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sha2",
+ "shared-bus",
+ "shared-types",
+ "siphasher",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "qc-08-consensus"
@@ -2368,7 +2412,7 @@ dependencies = [
  "serde_with",
  "sha3",
  "shared-types",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
 ]
@@ -2387,7 +2431,7 @@ dependencies = [
  "serde_with",
  "sha3",
  "shared-types",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "uuid",
@@ -2408,7 +2452,7 @@ dependencies = [
  "shared-bus",
  "shared-types",
  "subtle",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "zeroize",
@@ -2465,7 +2509,7 @@ dependencies = [
  "shared-types",
  "subtle",
  "tempfile",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-test",
  "tower 0.5.2",
@@ -2473,6 +2517,33 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "qc-17-block-production"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dashmap 6.1.0",
+ "hex",
+ "hmac",
+ "num_cpus",
+ "primitive-types",
+ "proptest",
+ "rand 0.8.5",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "sha2",
+ "sha3",
+ "shared-bus",
+ "shared-types",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-test",
+ "tracing",
  "uuid",
 ]
 
@@ -2487,8 +2558,10 @@ dependencies = [
  "qc-03-transaction-indexing",
  "qc-04-state-management",
  "qc-06-mempool",
+ "qc-07-bloom-filters",
  "qc-08-consensus",
  "qc-10-signature-verification",
+ "qc-17-block-production",
  "rand 0.8.5",
  "sha3",
  "shared-types",
@@ -2522,7 +2595,7 @@ dependencies = [
  "prometheus",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "tracing-opentelemetry",
@@ -3004,6 +3077,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3137,8 +3220,9 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "serde",
+ "serde_json",
  "shared-types",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -3154,7 +3238,7 @@ dependencies = [
  "serde",
  "serde_with",
  "sha2",
- "thiserror",
+ "thiserror 1.0.69",
  "uuid",
 ]
 
@@ -3357,7 +3441,16 @@ version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 1.0.69",
+]
+
+[[package]]
+name = "thiserror"
+version = "2.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
+dependencies = [
+ "thiserror-impl 2.0.17",
 ]
 
 [[package]]
@@ -3365,6 +3458,17 @@ name = "thiserror-impl"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ff15c8ecd7de3849db632e14d18d2571fa09dfc5ed93479bc4485c7a517c913"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3809,7 +3913,7 @@ dependencies = [
  "log",
  "rand 0.8.5",
  "sha1",
- "thiserror",
+ "thiserror 1.0.69",
  "utf-8",
 ]
 

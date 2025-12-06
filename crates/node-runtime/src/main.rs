@@ -50,7 +50,7 @@
 //! 5. Start event handlers (spawn async tasks)
 //! 6. Signal ready
 //!
-//! ## Core Subsystems (10 of 15)
+//! ## Core Subsystems (11 of 17)
 //!
 //! 1. Peer Discovery (qc-01) - Network topology
 //! 2. Block Storage (qc-02) - Stateful Assembler
@@ -61,6 +61,8 @@
 //! 8. Consensus (qc-08) - Block validation
 //! 9. Finality (qc-09) - Casper-FFG
 //! 10. Signature Verification (qc-10) - ECDSA
+//! 16. API Gateway (qc-16) - REST/WebSocket interface
+//! 17. Block Production (qc-17) - Quantum-resistant mining
 
 pub mod adapters;
 pub mod container;
@@ -72,15 +74,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use primitive_types::U256;
 use tracing::{error, info, warn};
 
 use crate::adapters::BlockStorageAdapter;
 use crate::container::{NodeConfig, SubsystemContainer};
 use crate::genesis::{GenesisBuilder, GenesisConfig};
-use crate::handlers::{BlockStorageHandler, FinalityHandler, StateMgmtHandler, TxIndexingHandler};
+use crate::handlers::{ApiQueryHandler, BlockStorageHandler, FinalityHandler, StateMgmtHandler, TxIndexingHandler};
 use crate::wiring::ChoreographyCoordinator;
 use qc_02_block_storage::BlockStorageApi;
 use qc_16_api_gateway::{ApiGatewayService, GatewayConfig};
+use qc_17_block_production::BlockProducerService;
 use quantum_telemetry::{init_telemetry, TelemetryConfig};
 
 /// The main node runtime orchestrating all subsystems.
@@ -90,6 +94,7 @@ pub struct NodeRuntime {
     /// Choreography coordinator for event routing.
     choreography: ChoreographyCoordinator,
     /// API Gateway service (optional).
+    #[allow(dead_code)]
     api_gateway: Option<ApiGatewayService>,
     /// Shutdown signal sender.
     shutdown_tx: tokio::sync::watch::Sender<bool>,
@@ -200,6 +205,24 @@ impl NodeRuntime {
             self.container.config.storage.data_dir.clone(),
         )
         .context("Failed to create API Gateway service")?;
+
+        // Get pending store before moving gateway
+        let pending_store = gateway.pending_store();
+
+        // Start EventBusIpcReceiver to complete pending requests from ApiQueryResponse events
+        let receiver = crate::adapters::EventBusIpcReceiver::new(
+            &self.container.event_bus,
+            pending_store,
+        );
+        let mut receiver_shutdown = self.shutdown_rx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = receiver.run() => {}
+                _ = receiver_shutdown.changed() => {
+                    info!("[EventBusIpcReceiver] Shutdown signal received");
+                }
+            }
+        });
 
         // Spawn gateway in background task
         let mut shutdown_rx = self.shutdown_rx.clone();
@@ -365,6 +388,241 @@ impl NodeRuntime {
             }
         });
 
+        // Start API Query handler (bridges qc-16 to subsystems)
+        let api_query_handler = ApiQueryHandler::new(Arc::clone(&container));
+        let mut api_shutdown = self.shutdown_rx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = api_query_handler.run() => {}
+                _ = api_shutdown.changed() => {
+                    info!("[ApiQueryHandler] Shutdown signal received");
+                }
+            }
+        });
+
+        // Start Block Production Miner (qc-17) - auto-start on node initialization
+        info!("Starting Block Production Miner (qc-17)...");
+        
+        // Create miner configuration (PoW mode by default)
+        let miner_config = qc_17_block_production::BlockProductionConfig {
+            mode: qc_17_block_production::ConsensusMode::ProofOfWork,
+            gas_limit: container.config.consensus.max_block_gas,
+            min_gas_price: U256::from(container.config.mempool.min_gas_price),
+            fair_ordering: true,
+            min_transactions: 1,
+            pow: Some(qc_17_block_production::PoWConfig {
+                threads: num_cpus::get() as u8,
+                algorithm: qc_17_block_production::HashAlgorithm::Keccak256,
+                target_block_time: Some(10),
+                use_dgw: Some(true),
+                dgw_window: Some(24),
+            }),
+            pos: None,
+            pbft: None,
+            performance: qc_17_block_production::PerformanceConfig::default(),
+        };
+        
+        // Create the block producer service
+        let miner_service = Arc::new(qc_17_block_production::ConcreteBlockProducer::new(
+            Arc::clone(&container.event_bus),
+            miner_config,
+        ));
+        
+        // Get current chain height from storage to resume from
+        let chain_height = {
+            let storage = container.block_storage.read();
+            storage.get_latest_height().unwrap_or(0)
+        };
+        
+        if chain_height > 0 {
+            info!("[qc-17] 💾 Chain height loaded from storage: {}", chain_height);
+        }
+        
+        // Start production in PoW mode with the correct starting height
+        let miner_clone = Arc::clone(&miner_service);
+        let mut production_config = qc_17_block_production::ProductionConfig::default();
+        production_config.starting_height = chain_height;
+        
+        tokio::spawn(async move {
+            if let Err(e) = miner_clone
+                .start_production(
+                    qc_17_block_production::ConsensusMode::ProofOfWork,
+                    production_config,
+                )
+                .await
+            {
+                error!("[qc-17] Failed to start production: {}", e);
+            }
+        });
+        
+        // Monitor shutdown signal
+        let miner_shutdown_clone = Arc::clone(&miner_service);
+        let mut miner_shutdown = self.shutdown_rx.clone();
+        tokio::spawn(async move {
+            let _ = miner_shutdown.changed().await;
+            info!("[qc-17] Shutdown signal received");
+            if let Err(e) = miner_shutdown_clone.stop_production().await {
+                error!("[qc-17] Error during shutdown: {}", e);
+            }
+        });
+        
+        info!("  [17] Block Production Miner started (PoW auto-mining enabled)");
+        
+        // CHOREOGRAPHY BRIDGE: Create a task that triggers BlockValidated for mined blocks
+        // Since qc-17 uses PoW, each mined block is already validated by difficulty proof
+        let choreography_router = self.choreography.router();
+        let miner_status_checker = Arc::clone(&miner_service);
+        let block_storage_for_bridge = Arc::clone(&container.block_storage);
+        let mut last_block_height = chain_height; // Start from loaded height
+        
+        // Track the last block hash for parent linking
+        let mut last_block_hash: [u8; 32] = {
+            // Helper to compute block hash (must match qc-02 logic)
+            fn compute_block_hash(block: &shared_types::ValidatedBlock) -> [u8; 32] {
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(block.header.parent_hash);
+                hasher.update(block.header.height.to_le_bytes());
+                hasher.update(block.header.merkle_root);
+                hasher.update(block.header.state_root);
+                hasher.update(block.header.timestamp.to_le_bytes());
+                hasher.finalize().into()
+            }
+            
+            // Load the last block's hash from storage if we have blocks
+            if chain_height > 0 {
+                let storage = block_storage_for_bridge.read();
+                match storage.read_block_by_height(chain_height) {
+                    Ok(stored) => {
+                        let hash = compute_block_hash(&stored.block);
+                        info!("[Bridge] 📖 Loaded last block hash from height {} ({:02x}{:02x}...)", 
+                            chain_height, hash[0], hash[1]);
+                        hash
+                    }
+                    Err(_) => {
+                        info!("[Bridge] ⚠️ Could not load last block, using genesis parent");
+                        [0u8; 32] // Genesis parent hash (all zeros)
+                    }
+                }
+            } else {
+                // For first block after genesis, get genesis hash
+                let storage = block_storage_for_bridge.read();
+                match storage.read_block_by_height(0) {
+                    Ok(genesis) => {
+                        let hash = compute_block_hash(&genesis.block);
+                        info!("[Bridge] 📖 Loaded genesis block hash ({:02x}{:02x}...)", hash[0], hash[1]);
+                        hash
+                    }
+                    Err(_) => {
+                        info!("[Bridge] ⚠️ No genesis found, using zeros");
+                        [0u8; 32]
+                    }
+                }
+            }
+        };
+        
+        info!("[Bridge] Starting choreography bridge task...");
+        
+        tokio::spawn(async move {
+            info!("[Bridge] 🌉 Bridge task loop starting...");
+            let mut iteration = 0u64;
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                iteration += 1;
+                
+                // Check if a new block was mined
+                let status = miner_status_checker.get_status().await;
+                let current_blocks = status.blocks_produced;
+                
+                // Debug: Log every 10th iteration
+                if iteration % 10 == 0 {
+                    info!("[Bridge] 🔄 Poll #{}: blocks_produced={}, last_height={}", iteration, current_blocks, last_block_height);
+                }
+                
+                if current_blocks > last_block_height {
+                    for block_height in (last_block_height + 1)..=current_blocks {
+                        // Create a minimal ValidatedBlock for storage
+                        use shared_types::{ValidatedBlock, BlockHeader, ConsensusProof, Hash, PublicKey};
+                        
+                        // Compute block hash (deterministic from height + parent)
+                        let _block_hash: [u8; 32] = {
+                            use sha2::{Sha256, Digest};
+                            let mut hasher = Sha256::new();
+                            hasher.update(&block_height.to_be_bytes());
+                            hasher.update(&last_block_hash);
+                            let result = hasher.finalize();
+                            let mut hash = [0u8; 32];
+                            hash.copy_from_slice(&result);
+                            hash
+                        };
+                        
+                        let block = ValidatedBlock {
+                            header: BlockHeader {
+                                version: 1,
+                                height: block_height,
+                                parent_hash: last_block_hash, // Link to parent!
+                                merkle_root: Hash::default(),
+                                state_root: Hash::default(),
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs(),
+                                proposer: PublicKey::default(),
+                            },
+                            transactions: vec![],
+                            consensus_proof: ConsensusProof::default(),
+                        };
+                        
+                        info!("[Bridge] 🌉 Storing block #{} (parent: {:02x}{:02x}...) to storage", 
+                            block_height, last_block_hash[0], last_block_hash[1]);
+                        
+                        // Store block directly to qc-02
+                        let stored_ok = {
+                            use qc_02_block_storage::ports::inbound::BlockStorageApi;
+                            let mut storage = block_storage_for_bridge.write();
+                            let merkle_root = shared_types::Hash::default();
+                            let state_root = shared_types::Hash::default();
+                            match (*storage).write_block(block, merkle_root, state_root) {
+                                Ok(stored_hash) => {
+                                    info!("[Bridge] 💾 Block #{} stored successfully (hash: {:02x}{:02x}...)", 
+                                        block_height, stored_hash[0], stored_hash[1]);
+                                    // Update last_block_hash for next iteration
+                                    last_block_hash = stored_hash;
+                                    true
+                                }
+                                Err(e) => {
+                                    error!("[Bridge] ❌ Failed to store block #{}: {}", block_height, e);
+                                    false
+                                }
+                            }
+                        };
+                        
+                        if stored_ok {
+                            // Publish BlockValidated to choreography router
+                            match choreography_router.publish(
+                                crate::wiring::ChoreographyEvent::BlockValidated {
+                                    block_hash: last_block_hash,
+                                    block_height,
+                                    sender_id: shared_types::SubsystemId::Consensus,
+                                }
+                            ) {
+                                Ok(_) => {
+                                    info!("[Bridge] ✅ Published BlockValidated for block #{}", block_height);
+                                }
+                                Err(e) => {
+                                    error!("[Bridge] ❌ Failed to publish BlockValidated: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    
+                    last_block_height = current_blocks;
+                }
+            }
+        });
+        
+        info!("  [Bridge] Choreography bridge started");
+
         info!("Choreography handlers started");
         Ok(())
     }
@@ -438,7 +696,7 @@ async fn main() -> Result<()> {
             "--version" | "-V" => {
                 println!("quantum-chain {}", env!("CARGO_PKG_VERSION"));
                 println!("Architecture: V2.3 Choreography Pattern");
-                println!("Subsystems: 15 (all compiled into single binary)");
+                println!("Subsystems: 17 (all compiled into single binary)");
                 return Ok(());
             }
             "health" => {

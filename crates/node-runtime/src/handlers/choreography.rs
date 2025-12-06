@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::broadcast;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use shared_types::SubsystemId;
 
@@ -56,21 +56,66 @@ impl TxIndexingHandler {
                         continue;
                     }
 
-                    debug!(
-                        "[qc-03] Processing BlockValidated for height {}",
+                    info!(
+                        "[qc-03] 🌳 Computing merkle tree for block #{}",
                         block_height
+                    );
+
+                    // JSON EVENT LOG
+                    let start_time = chrono::Utc::now();
+                    info!(
+                        "EVENT_FLOW_JSON {}",
+                        serde_json::json!({
+                            "timestamp": start_time.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                            "subsystem_id": "qc-03",
+                            "event_type": "MerkleComputationStarted",
+                            "correlation_id": format!("{:x}", block_hash[0]),
+                            "block_hash": hex::encode(&block_hash),
+                            "block_height": block_height,
+                            "metadata": {
+                                "target": "qc-02",
+                                "assembly_component": "1/3"
+                            }
+                        })
                     );
 
                     // Use the adapter to compute Merkle root with actual domain logic
                     // In production, transaction hashes would come from the block
                     let transaction_hashes: Vec<[u8; 32]> = vec![]; // Would be extracted from block
 
-                    if let Err(e) = self.adapter.process_block_validated(
+                    let computation_start = std::time::Instant::now();
+                    match self.adapter.process_block_validated(
                         block_hash,
                         block_height,
                         transaction_hashes,
                     ) {
-                        error!("[qc-03] Failed to process BlockValidated: {}", e);
+                        Ok(_) => {
+                            let elapsed = computation_start.elapsed().as_millis();
+                            info!("[qc-03] ✓ Merkle root computed for block #{}", block_height);
+                            
+                            // JSON EVENT LOG - Success
+                            info!(
+                                
+                                "{}",
+                                serde_json::json!({
+                                    "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                                    "subsystem_id": "qc-03",
+                                    "event_type": "MerkleRootComputed",
+                                    "correlation_id": format!("{:x}", block_hash[0]),
+                                    "block_hash": hex::encode(&block_hash),
+                                    "block_height": block_height,
+                                    "processing_time_ms": elapsed,
+                                    "metadata": {
+                                        "target": "qc-02",
+                                        "assembly_component": "1/3",
+                                        "status": "sent_to_assembler"
+                                    }
+                                })
+                            );
+                        }
+                        Err(e) => {
+                            error!("[qc-03] ❌ Failed to compute merkle: {}", e);
+                        }
                     }
                 }
                 Ok(_) => {
@@ -121,20 +166,64 @@ impl StateMgmtHandler {
                         continue;
                     }
 
-                    debug!(
-                        "[qc-04] Processing BlockValidated for height {}",
+                    info!(
+                        "[qc-04] 💾 Computing state root for block #{}",
                         block_height
+                    );
+
+                    // JSON EVENT LOG
+                    info!(
+                        
+                        "{}",
+                        serde_json::json!({
+                            "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                            "subsystem_id": "qc-04",
+                            "event_type": "StateComputationStarted",
+                            "correlation_id": format!("{:x}", block_hash[0]),
+                            "block_hash": hex::encode(&block_hash),
+                            "block_height": block_height,
+                            "metadata": {
+                                "target": "qc-02",
+                                "assembly_component": "2/3"
+                            }
+                        })
                     );
 
                     // Use the adapter to compute state root with actual domain logic
                     // In production, transactions would come from the block
                     let transactions = vec![]; // Would be extracted from block
 
-                    if let Err(e) =
-                        self.adapter
+                    let computation_start = std::time::Instant::now();
+                    match self.adapter
                             .process_block_validated(block_hash, block_height, transactions)
                     {
-                        error!("[qc-04] Failed to process BlockValidated: {}", e);
+                        Ok(_) => {
+                            let elapsed = computation_start.elapsed().as_millis();
+                            info!("[qc-04] ✓ State root computed for block #{}", block_height);
+                            
+                            // JSON EVENT LOG - Success
+                            info!(
+                                
+                                "{}",
+                                serde_json::json!({
+                                    "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                                    "subsystem_id": "qc-04",
+                                    "event_type": "StateRootComputed",
+                                    "correlation_id": format!("{:x}", block_hash[0]),
+                                    "block_hash": hex::encode(&block_hash),
+                                    "block_height": block_height,
+                                    "processing_time_ms": elapsed,
+                                    "metadata": {
+                                        "target": "qc-02",
+                                        "assembly_component": "2/3",
+                                        "status": "sent_to_assembler"
+                                    }
+                                })
+                            );
+                        }
+                        Err(e) => {
+                            error!("[qc-04] ❌ Failed to compute state: {}", e);
+                        }
                     }
                 }
                 Ok(_) => {
@@ -196,12 +285,38 @@ impl BlockStorageHandler {
                                 warn!("[qc-02] Ignoring BlockValidated from {:?}", sender_id);
                                 continue;
                             }
-                            if let Err(e) = self
+                            info!("[qc-02] 📦 Starting assembly for block #{}", block_height);
+                            
+                            // JSON EVENT LOG - Assembly started
+                            info!(
+                                
+                                "{}",
+                                serde_json::json!({
+                                    "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                                    "subsystem_id": "qc-02",
+                                    "event_type": "AssemblyStarted",
+                                    "correlation_id": format!("{:x}", block_hash[0]),
+                                    "block_hash": hex::encode(&block_hash),
+                                    "block_height": block_height,
+                                    "metadata": {
+                                        "components_waiting": ["BlockValidated", "MerkleRootComputed", "StateRootComputed"],
+                                        "components_received": ["BlockValidated"],
+                                        "assembly_state": "1/3"
+                                    }
+                                })
+                            );
+                            
+                            match self
                                 .adapter
                                 .on_block_validated(block_hash, block_height)
                                 .await
                             {
-                                error!("[qc-02] Failed to process BlockValidated: {}", e);
+                                Ok(_) => {
+                                    info!("[qc-02] ✓ Block #{} assembly initiated", block_height);
+                                }
+                                Err(e) => {
+                                    error!("[qc-02] ❌ Assembly failed: {}", e);
+                                }
                             }
                         }
                         ChoreographyEvent::MerkleRootComputed {
@@ -278,15 +393,18 @@ impl FinalityHandler {
                         warn!("[qc-09] Ignoring BlockStored from {:?}", sender_id);
                         continue;
                     }
-
-                    debug!("[qc-09] Checking finality for block {}", block_height);
+                    
+                    info!("[qc-09] 📥 Received BlockStored for block #{}", block_height);
 
                     // In real impl: check attestations, verify 2/3 threshold
-                    // For now, finalize every 32 blocks (epoch boundary)
-                    if block_height % 32 == 0 {
+                    // For demo: finalize every 4 blocks (epoch boundary)
+                    // In production this would be 32 blocks per epoch
+                    let epoch_size = 4;
+                    if block_height % epoch_size == 0 || block_height <= 10 {
+                        let epoch = block_height / epoch_size;
                         info!(
-                            "[qc-09] Block {} is at epoch boundary, checking finality",
-                            block_height
+                            "[qc-09] 🔒 Block #{} at epoch {} boundary, finalizing...",
+                            block_height, epoch
                         );
 
                         // Publish BlockFinalized
@@ -297,8 +415,13 @@ impl FinalityHandler {
                             sender_id: SubsystemId::Finality,
                         };
 
-                        if let Err(e) = publisher.publish(event) {
-                            error!("[qc-09] Failed to publish BlockFinalized: {}", e);
+                        match publisher.publish(event) {
+                            Ok(_) => {
+                                info!("[qc-09] ✓ Block #{} FINALIZED at epoch {}", block_height, epoch);
+                            }
+                            Err(e) => {
+                                error!("[qc-09] ❌ Failed to finalize: {}", e);
+                            }
                         }
                     }
                 }

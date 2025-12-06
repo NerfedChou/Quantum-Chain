@@ -44,7 +44,9 @@
 //! - **Domain Layer** (`domain/`): Pure Merkle tree logic, no I/O
 //! - **Ports Layer** (`ports/`): Inbound API traits, Outbound SPI traits
 //! - **IPC Layer** (`ipc/`): Event-driven message handling
+//! - **Adapters Layer** (`adapters/`): Secondary adapters (API Gateway handler)
 
+pub mod adapters;
 pub mod domain;
 pub mod ipc;
 pub mod ports;
@@ -66,3 +68,5 @@ pub use ipc::{
     MerkleProofResponsePayload, MerkleRootComputedPayload, TransactionIndexingHandler,
     TransactionLocationRequestPayload, TransactionLocationResponsePayload,
 };
+
+pub use adapters::{ApiGatewayHandler, ApiQueryError, Qc03Metrics, handle_api_query};

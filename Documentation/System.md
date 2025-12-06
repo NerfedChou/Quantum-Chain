@@ -1,6 +1,6 @@
 # BLOCKCHAIN SUBSYSTEMS: STANDALONE ARCHITECTURE
 ## Each subsystem defined with Main Algorithm, Supporting Algorithms, Dependencies, and Security
-**Version:** 2.3 | **Last Updated:** 2025-12-01
+**Version:** 2.4 | **Last Updated:** 2025-12-06
 
 ---
 
@@ -762,6 +762,307 @@ increases, 2PC becomes a coordination bottleneck that limits throughput.
 
 ---
 
+## SUBSYSTEM 17: BLOCK PRODUCTION ENGINE
+**Purpose:** Produce new blocks through intelligent transaction selection and consensus-appropriate sealing
+
+### Main Algorithm: Priority-Based Greedy Knapsack
+**Why:** Optimal transaction selection within gas limit constraints, O(n log n) complexity
+
+The block production problem is fundamentally a **bounded knapsack problem**:
+- **Capacity:** Block gas limit (e.g., 30M gas)
+- **Items:** Pending transactions with weight (gas_limit) and value (gas_price * gas_limit)
+- **Goal:** Maximize total value (fee revenue) without exceeding capacity
+
+### Supporting Algorithms:
+
+1. **Nonce Dependency Graph (DAG)**
+   - Group transactions by sender
+   - Sort by nonce within each group (ascending)
+   - Maintain transaction chains per account
+   - **Why:** Ethereum requires sequential nonce ordering; including tx N+2 without N+1 causes failure
+
+2. **State Prefetch Cache**
+   - Pre-execute transactions in simulation
+   - Cache account balances, nonces, storage slots
+   - Detect failures before inclusion
+   - **Why:** Avoid including transactions that will fail (waste block space, reduce profitability)
+
+3. **Parallel PoW Nonce Search** (if PoW mode)
+   - Divide nonce space (2^64) across CPU threads
+   - Each thread searches its assigned range
+   - First to find valid nonce wins
+   - **Algorithm:** SHA-256d (Bitcoin) or Ethash/Keccak256 (Ethereum)
+   - **Why:** Mining is embarrassingly parallel; linear speedup with cores
+
+4. **VRF Slot Assignment** (if PoS mode)
+   - Verifiable Random Function determines proposer
+   - Input: (slot, epoch, validator_set_hash, validator_private_key)
+   - Output: (vrf_output, vrf_proof)
+   - Proposer selected if `vrf_output % validator_count == validator_index`
+   - **Why:** Provably fair, non-manipulable randomness
+
+5. **MEV Protection (Fair Ordering)**
+   - Timestamp-based ordering within same gas price tier
+   - Optional: Commit-reveal schemes (Flashbots-style bundles)
+   - Bundle profitability metrics
+   - **Why:** Prevent sandwich attacks, front-running; maintain chain legitimacy
+
+### Dependencies:
+- **Subsystem 6** (Mempool) - Source of pending transactions
+- **Subsystem 4** (State Management) - State prefetch for simulation
+- **Subsystem 8** (Consensus) - Submit produced blocks for validation
+- **Subsystem 10** (Signature Verification) - Sign blocks with validator key (PoS)
+- **Subsystem 9** (Finality) - Trigger next block production after finalization
+
+### Provides To:
+- **Subsystem 8** (Consensus) - Produced block templates
+- **Event Bus** - `BlockProduced` events for telemetry
+
+### Production Modes:
+
+**Mode 1: PoW Mining**
+```
+1. Fetch transactions from Mempool (6)
+2. Select optimal transaction set (greedy knapsack)
+3. Create block template (header + transactions)
+4. Spawn parallel workers to search nonce space
+5. Submit winning block to Consensus (8)
+```
+
+**Mode 2: PoS Proposing**
+```
+1. Subscribe to `SlotAssigned` events from Consensus (8)
+2. When assigned, fetch transactions from Mempool (6)
+3. Select optimal transaction set (greedy knapsack)
+4. Create block template with VRF proof
+5. Sign block with validator key (Subsystem 10)
+6. Submit to Consensus (8)
+```
+
+**Mode 3: PBFT Leader Proposal**
+```
+1. Subscribe to `LeaderRotation` events from Consensus (8)
+2. When designated leader, fetch transactions
+3. Select optimal transaction set
+4. Create block proposal
+5. Broadcast to other validators via Consensus (8)
+```
+
+### Security & Robustness:
+
+**Attack Vectors:**
+- **Selfish Mining** - Withhold blocks to gain advantage over honest miners
+- **Transaction Censorship** - Deliberately exclude specific transactions
+- **MEV Exploitation** - Front-running, back-running, sandwich attacks
+- **Empty Block Mining** - Mine empty blocks to collect rewards without effort
+- **Uncle/Orphan Blocks** - Blocks not included in canonical chain due to propagation delays
+- **State Prefetch Poisoning** - Attacker submits transactions that poison cache
+
+**Defenses:**
+1. **Late Block Penalty** - Reduce rewards for blocks submitted after slot deadline (PoS)
+2. **Cryptographic Inclusion Proofs** - Prove transactions were available in mempool
+3. **Fair Ordering Enforcement** - FIFO within gas price tiers, no reordering
+4. **Minimum Transaction Requirement** - Configurable minimum (e.g., 1 transaction per block)
+5. **Compact Block Relay (BIP152)** - Fast propagation to reduce orphan rate
+6. **State Simulation Isolation** - Each simulation in separate sandbox
+7. **MEV Bundle Transparency** - Emit metrics for all bundle profitability
+
+**Invariants (Critical):**
+```rust
+invariant!(sum(tx.gas_used) <= block_gas_limit);
+invariant!(all_transactions_have_sequential_nonces());
+invariant!(all_transactions_simulate_successfully());
+invariant!(block.timestamp >= parent_block.timestamp);
+invariant!(no_duplicate_transaction_hashes());
+```
+
+**Robustness Measures:**
+- Graceful fallback if mempool empty (empty block with coinbase)
+- Retry transaction selection if state changes (reorg detected)
+- Dynamic gas limit adjustment based on network congestion
+- Prefetch parallelization across multiple threads
+
+### Block Template Creation (Detailed):
+
+```
+FUNCTION create_block_template(parent_block, validator_key):
+    # Step 1: Fetch pending transactions
+    pending_txs = mempool.get_pending_transactions(max_count=10000)
+    
+    # Step 2: Group by sender and sort by nonce
+    tx_groups = group_by_sender(pending_txs)
+    for sender, txs in tx_groups:
+        txs.sort(key=lambda t: t.nonce)
+    
+    # Step 3: Initialize state prefetch cache
+    state_cache = state_mgmt.create_prefetch_cache(parent_block.state_root)
+    
+    # Step 4: Build priority queue (max heap by gas price)
+    priority_queue = MaxHeap()
+    for sender, txs in tx_groups:
+        if len(txs) > 0:
+            first_tx = txs[0]
+            expected_nonce = state_cache.get_nonce(sender)
+            if first_tx.nonce == expected_nonce:
+                priority_queue.push(first_tx, key=first_tx.gas_price)
+    
+    # Step 5: Greedy selection (knapsack)
+    selected_txs = []
+    total_gas = 0
+    sender_indices = {}  # Track next tx index per sender
+    
+    while not priority_queue.empty() and total_gas < BLOCK_GAS_LIMIT:
+        tx = priority_queue.pop()
+        
+        # Gas limit check
+        if total_gas + tx.gas_limit > BLOCK_GAS_LIMIT:
+            continue
+        
+        # Simulate execution
+        sim_result = state_cache.simulate_transaction(tx)
+        if sim_result.success:
+            selected_txs.append(tx)
+            total_gas += sim_result.gas_used  # Actual gas, not limit
+            state_cache.commit(sim_result.state_changes)
+            
+            # Add next transaction from same sender
+            sender = tx.from
+            next_index = sender_indices.get(sender, 0) + 1
+            if next_index < len(tx_groups[sender]):
+                next_tx = tx_groups[sender][next_index]
+                expected_nonce = state_cache.get_nonce(sender)
+                if next_tx.nonce == expected_nonce:
+                    priority_queue.push(next_tx, key=next_tx.gas_price)
+                    sender_indices[sender] = next_index
+    
+    # Step 6: Create block header
+    header = BlockHeader {
+        parent_hash: parent_block.hash(),
+        block_number: parent_block.number + 1,
+        timestamp: current_timestamp(),
+        gas_used: total_gas,
+        gas_limit: BLOCK_GAS_LIMIT,
+        difficulty: calculate_difficulty(parent_block),
+        beneficiary: validator_key.address(),
+        extra_data: encode_version_and_client_id(),
+        merkle_root: None,  # Filled by Subsystem 3
+        state_root: None,   # Filled by Subsystem 4
+        nonce: 0,           # Filled by PoW miner or omitted in PoS
+    }
+    
+    # Step 7: Return block template
+    BlockTemplate {
+        header: header,
+        transactions: selected_txs,
+        mode: consensus_mode,  # PoW, PoS, or PBFT
+    }
+
+COMPLEXITY ANALYSIS:
+- Grouping: O(n)
+- Sorting: O(n log n) per group → O(n log n) total
+- Priority queue operations: O(n log n)
+- Selection loop: O(n log n) due to heap operations
+TOTAL: O(n log n) where n = mempool size
+```
+
+### PoW Mining (Parallel Nonce Search):
+
+```
+FUNCTION mine_block_pow(block_template, difficulty_target, num_threads):
+    nonce_space = 2^64
+    chunk_size = nonce_space / num_threads
+    
+    # Spawn parallel workers
+    workers = []
+    for thread_id in 0..num_threads:
+        start_nonce = thread_id * chunk_size
+        end_nonce = start_nonce + chunk_size
+        
+        worker = spawn_thread(|| {
+            search_nonce(
+                block_template.clone(),
+                difficulty_target,
+                start_nonce,
+                end_nonce
+            )
+        })
+        workers.push(worker)
+    
+    # Wait for first successful result
+    winning_nonce = wait_for_first_result(workers)
+    
+    # Kill other threads
+    terminate_remaining_workers(workers)
+    
+    return winning_nonce
+
+FUNCTION search_nonce(block_template, difficulty_target, start, end):
+    for nonce in start..end:
+        block_template.header.nonce = nonce
+        serialized = serialize_block_header(block_template.header)
+        hash = sha256(sha256(serialized))  # Double SHA-256 (Bitcoin)
+        
+        if hash <= difficulty_target:
+            return Some(nonce)  # SUCCESS
+    
+    return None  # Not found in this range
+
+PERFORMANCE:
+- Bitcoin: ~100 EH/s global hashrate = 10^20 hashes/second
+- Single thread: ~1-10 MH/s depending on CPU
+- 8-core CPU: ~8-80 MH/s
+- Expected time to find block = difficulty / hashrate
+```
+
+### VRF Slot Assignment (PoS):
+
+```
+FUNCTION check_proposer_duty(validator_key, slot, epoch, validator_set):
+    # Step 1: Generate VRF input
+    vrf_input = serialize([
+        slot,
+        epoch,
+        hash(validator_set),
+    ])
+    
+    # Step 2: Sign with validator private key
+    (vrf_output, vrf_proof) = vrf_sign(validator_key.private, vrf_input)
+    
+    # Step 3: Deterministic selection
+    selected_index = vrf_output % len(validator_set)
+    selected_validator = validator_set[selected_index]
+    
+    # Step 4: Check if we are selected
+    if selected_validator == validator_key.public:
+        return Some(ProposerDuty {
+            slot: slot,
+            vrf_proof: vrf_proof,
+            validator_index: selected_index,
+        })
+    else:
+        return None  # Not our turn
+
+SECURITY PROPERTIES:
+- Unpredictable: Attacker cannot predict future proposers
+- Verifiable: Anyone can verify VRF proof
+- Unbiasable: Proposer cannot manipulate selection
+```
+
+### MEV (Miner Extractable Value) Handling:
+
+**MEV Detection:**
+- Front-running: TX A (user) → TX B (miner front-run) → TX A
+- Back-running: TX A (user) → TX B (miner back-run)
+- Sandwich: TX B (front) → TX A (user) → TX C (back)
+
+**Defenses:**
+1. **Fair Ordering** - Timestamp-based FIFO within same gas price
+2. **Bundle Transparency** - Emit metrics for all bundles
+3. **Encrypted Mempool** - Threshold encryption (decrypt after block)
+4. **Commit-Reveal** - Users commit hash(tx), reveal after proposer commits
+
+---
+
 ## DEPENDENCY GRAPH (V2.3 - UNIFIED WORKFLOW)
 
 **CRITICAL UPDATE (V2.3 - Choreography + Data Retrieval):**
@@ -860,6 +1161,16 @@ SUBSYSTEM 16: API Gateway (External Interface)
     ├── Depends on: Subsystem 11 (eth_call, estimateGas)
     ├── Subscribes to: Event Bus (WebSocket subscriptions)
     └── Exposed to: External HTTP/WS clients (wallets, dApps, explorers)
+
+SUBSYSTEM 17: Block Production Engine
+    ├── Depends on: Subsystem 6 (Mempool - transaction source)
+    ├── Depends on: Subsystem 4 (State Management - state prefetch for simulation)
+    ├── Depends on: Subsystem 8 (Consensus - block submission)
+    ├── Depends on: Subsystem 10 (Signature Verification - validator key signing for PoS)
+    ├── Subscribes to: Subsystem 9 (BlockFinalized event - triggers next block)
+    ├── Subscribes to: Subsystem 8 (SlotAssigned event - PoS proposer duty)
+    ├── Provides to: Subsystem 8 (Produced block templates)
+    └── Publishes to: Event Bus (BlockProduced, MiningMetrics)
 ```
 
 **V2.3 Data Flow Diagrams:**
@@ -973,6 +1284,11 @@ Light Client (13) ──MerkleProofRequest──→ Transaction Indexing (3)
 - Subsystem 16 (API Gateway) - Needs 1, 2, 3, 4, 6, 10, 11 (Axum + Tower + jsonrpsee)
 - LGTM Telemetry Integration (quantum-telemetry crate)
 
-**Phase 5 (Optional Scaling - Weeks 15+):**
+**Phase 5 (Block Production - Weeks 15-16):**
+- Subsystem 17 (Block Production Engine) - Needs 4, 6, 8, 9, 10
+- Enables self-sufficient block creation (PoW/PoS/PBFT modes)
+- Greedy knapsack transaction selection + parallel mining
+
+**Phase 6 (Optional Scaling - Weeks 17+):**
 - Subsystem 14 (Sharding) - Needs 8, 4
 - Subsystem 15 (Cross-Chain) - Needs 11, 8

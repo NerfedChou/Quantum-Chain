@@ -25,6 +25,10 @@
 //! ```
 //!
 //! ## Environment Variables
+
+// Allow dead code for API functions that may be used by consumers
+#![allow(dead_code)]
+
 //!
 //! | Variable | Default | Description |
 //! |----------|---------|-------------|

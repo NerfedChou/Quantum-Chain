@@ -38,6 +38,7 @@
 //! - `ports/` - Port traits (inbound API, outbound SPI)
 //! - `service.rs` - Application service implementing BlockStorageApi
 //! - `ipc/` - IPC envelope validation and message handlers
+//! - `adapters/` - External interface adapters (API Gateway)
 //!
 //! ## Reference
 //!
@@ -45,6 +46,7 @@
 //! - Architecture.md Section 5.1 (choreography pattern)
 //! - IPC-MATRIX.md (sender authorization)
 
+pub mod adapters;
 pub mod domain;
 pub mod ipc;
 pub mod ports;
@@ -68,3 +70,6 @@ pub use service::BlockStorageService;
 // Re-export IPC types
 pub use ipc::payloads::*;
 pub use ipc::{AuthenticatedMessage, BlockStorageHandler, EnvelopeError, EnvelopeValidator};
+
+// Re-export API Gateway handler
+pub use adapters::{ApiGatewayHandler, ApiQueryError, Qc02Metrics, RpcPendingAssembly, handle_api_query};

@@ -7,3 +7,45 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# Core
+bitvec = "1"
+murmur3 = "0.5"
+siphasher = "1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1"
+
+# Async
+async-trait = "0.1"
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }
+futures = "0.3"
+
+# Shared types
+shared-types = { path = "../shared-types" }
+shared-bus = { path = "../shared-bus" }
+
+# Error handling
+thiserror = "1"
+
+# Hashing
+sha2 = "0.10"
+
+# UUID for correlation IDs
+uuid = { version = "1", features = ["v4"] }
+
+# Caching
+lru = "0.12"
+
+# Encoding
+hex = "0.4"
+
+# Logging
+tracing = "0.1"
+
+[dev-dependencies]
+proptest = "1"
+criterion = "0.5"
+tokio-test = "0.4"
+rand = "0.8"

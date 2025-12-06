@@ -42,7 +42,7 @@ pub mod publisher;
 pub mod subscriber;
 
 // Re-export main types
-pub use events::{BlockchainEvent, EventFilter, EventTopic};
+pub use events::{ApiQueryError, BlockchainEvent, EventFilter, EventTopic};
 pub use nonce_cache::TimeBoundedNonceCache;
 pub use publisher::{EventPublisher, InMemoryEventBus};
 pub use subscriber::{EventStream, EventSubscriber, Subscription, SubscriptionError};

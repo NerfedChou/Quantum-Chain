@@ -21,6 +21,7 @@ hmac = { workspace = true }
 
 # Serialization for storage
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 bincode = "1.3"
 
 # Time handling
@@ -28,6 +29,12 @@ chrono = "0.4"
 
 # UUID for correlation IDs
 uuid = { version = "1.0", features = ["v4"] }
+
+# Hex encoding for API responses
+hex = "0.4"
+
+# Logging
+tracing = "0.1"
 
 [dev-dependencies]
 # Testing

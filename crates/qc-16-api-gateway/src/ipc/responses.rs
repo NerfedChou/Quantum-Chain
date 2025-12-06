@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 pub struct IpcResponse {
     /// Correlation ID matching the request
     pub correlation_id: CorrelationId,
-    /// Source subsystem
-    pub source: String,
+    /// Source subsystem ID that produced this response
+    pub source: u8,
     /// Response payload
     pub payload: ResponsePayload,
 }
@@ -57,6 +57,9 @@ pub enum SuccessData {
     // Generic
     Bool(bool),
     Null,
+
+    /// Generic JSON value for dynamic responses
+    Json(serde_json::Value),
 }
 
 /// Error response data
@@ -230,12 +233,12 @@ impl IpcResponse {
     /// Create a success response
     pub fn success(
         correlation_id: CorrelationId,
-        source: impl Into<String>,
+        source: u8,
         data: SuccessData,
     ) -> Self {
         Self {
             correlation_id,
-            source: source.into(),
+            source,
             payload: ResponsePayload::Success(data),
         }
     }
@@ -243,13 +246,13 @@ impl IpcResponse {
     /// Create an error response
     pub fn error(
         correlation_id: CorrelationId,
-        source: impl Into<String>,
+        source: u8,
         code: i32,
         message: impl Into<String>,
     ) -> Self {
         Self {
             correlation_id,
-            source: source.into(),
+            source,
             payload: ResponsePayload::Error(ErrorData {
                 code,
                 message: message.into(),
