@@ -108,6 +108,14 @@ pub type ConcreteFinalityService = FinalityService<
     FinalityValidatorSetAdapter,
 >;
 
+/// Concrete type for Finality Service with RocksDB backend (production).
+#[cfg(feature = "rocksdb")]
+pub type ConcreteFinalityService = FinalityService<
+    ConcreteFinalityBlockStorageAdapter,
+    FinalityAttestationAdapter,
+    FinalityValidatorSetAdapter,
+>;
+
 /// Central container holding all subsystem instances.
 ///
 /// This is the main integration point where all subsystems are wired together
@@ -167,7 +175,6 @@ pub struct SubsystemContainer {
 
     /// Finality (Subsystem 9)
     /// Casper FFG finalization gadget.
-    #[cfg(not(feature = "rocksdb"))]
     pub finality: Arc<ConcreteFinalityService>,
 
     // =========================================================================
@@ -265,9 +272,7 @@ impl SubsystemContainer {
             config.storage.assembly_timeout_secs, config.storage.max_pending_assemblies
         );
 
-        #[cfg(not(feature = "rocksdb"))]
         let finality = Self::init_finality(Arc::clone(&block_storage));
-        #[cfg(not(feature = "rocksdb"))]
         info!("  [9] Finality initialized (Casper FFG)");
 
         // =====================================================================
@@ -289,7 +294,6 @@ impl SubsystemContainer {
             consensus,
             block_storage,
             assembly_buffer,
-            #[cfg(not(feature = "rocksdb"))]
             finality,
             block_producer,
             event_bus,
@@ -478,7 +482,6 @@ impl SubsystemContainer {
     }
 
     /// Initialize Finality service with all port adapters.
-    #[cfg(not(feature = "rocksdb"))]
     fn init_finality(
         block_storage: Arc<RwLock<ConcreteBlockStorageService>>,
     ) -> Arc<ConcreteFinalityService> {
@@ -560,7 +563,6 @@ impl SubsystemContainer {
     }
 
     /// Get finality service for Casper FFG operations.
-    #[cfg(not(feature = "rocksdb"))]
     pub fn finality(&self) -> Arc<ConcreteFinalityService> {
         Arc::clone(&self.finality)
     }
