@@ -244,7 +244,7 @@ pub fn handle_api_query<S: BlockStorageApi>(
 ) -> Result<serde_json::Value, ApiQueryError> {
     match method {
         "eth_blockNumber" => Ok(handler.handle_block_number()),
-        
+
         "eth_getBlockByNumber" => {
             let height = params
                 .get(0)
@@ -261,46 +261,40 @@ pub fn handle_api_query<S: BlockStorageApi>(
                     }
                 })
                 .ok_or_else(|| ApiQueryError::InvalidParams("Invalid block number".into()))?;
-            
-            let full_tx = params
-                .get(1)
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            
+
+            let full_tx = params.get(1).and_then(|v| v.as_bool()).unwrap_or(false);
+
             Ok(handler.handle_get_block_by_number(height, full_tx))
         }
-        
+
         "eth_getBlockByHash" => {
             let hash_str = params
                 .get(0)
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| ApiQueryError::InvalidParams("Missing block hash".into()))?;
-            
+
             let hash_hex = hash_str.strip_prefix("0x").unwrap_or(hash_str);
             let hash_bytes = hex::decode(hash_hex)
                 .map_err(|_| ApiQueryError::InvalidParams("Invalid hash format".into()))?;
-            
+
             if hash_bytes.len() != 32 {
                 return Err(ApiQueryError::InvalidParams("Hash must be 32 bytes".into()));
             }
-            
+
             let mut hash = [0u8; 32];
             hash.copy_from_slice(&hash_bytes);
-            
-            let full_tx = params
-                .get(1)
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            
+
+            let full_tx = params.get(1).and_then(|v| v.as_bool()).unwrap_or(false);
+
             Ok(handler.handle_get_block_by_hash(&hash, full_tx))
         }
-        
+
         "debug_getBlockStorageMetrics" | "debug_subsystemMetrics" => {
             Ok(handler.handle_get_metrics())
         }
-        
+
         "ping" => Ok(handler.handle_ping()),
-        
+
         _ => Err(ApiQueryError::UnknownMethod(method.to_string())),
     }
 }

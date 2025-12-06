@@ -157,9 +157,7 @@ impl BloomFilterHandler {
     /// Check if a sender is authorized for a specific message type
     pub fn is_authorized(&self, sender: u8, message_type: &str) -> bool {
         match message_type {
-            "BuildFilterRequest" | "UpdateFilterRequest" => {
-                sender == SUBSYSTEM_LIGHT_CLIENT
-            }
+            "BuildFilterRequest" | "UpdateFilterRequest" => sender == SUBSYSTEM_LIGHT_CLIENT,
             "TransactionHashUpdate" => sender == SUBSYSTEM_TRANSACTION_INDEXING,
             _ => false,
         }

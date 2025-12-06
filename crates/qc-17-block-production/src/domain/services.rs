@@ -41,7 +41,6 @@ impl TransactionSelector {
         candidates: Vec<TransactionCandidate>,
         state_cache: &mut StatePrefetchCache,
     ) -> Result<Vec<Vec<u8>>> {
-
         use std::collections::{BinaryHeap, HashMap};
 
         if candidates.is_empty() {

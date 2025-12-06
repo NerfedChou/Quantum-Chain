@@ -125,16 +125,13 @@ impl IpcHandler {
     /// Health check a subsystem (ping with short timeout)
     pub async fn health_check(&self, target: &str) -> Result<u64, IpcError> {
         use crate::domain::correlation::CorrelationId;
-        
+
         let start = std::time::Instant::now();
         let timeout = Duration::from_millis(500);
-        
+
         // Try to send a lightweight ping
-        let request = IpcRequest::with_correlation_id(
-            CorrelationId::new(),
-            target,
-            RequestPayload::Ping,
-        );
+        let request =
+            IpcRequest::with_correlation_id(CorrelationId::new(), target, RequestPayload::Ping);
 
         match tokio::time::timeout(timeout, self.sender.send(request)).await {
             Ok(Ok(_)) => Ok(start.elapsed().as_millis() as u64),

@@ -8,4 +8,6 @@
 
 pub mod api_handler;
 
-pub use api_handler::{ApiGatewayHandler, ApiQueryError, Qc02Metrics, RpcPendingAssembly, handle_api_query};
+pub use api_handler::{
+    handle_api_query, ApiGatewayHandler, ApiQueryError, Qc02Metrics, RpcPendingAssembly,
+};

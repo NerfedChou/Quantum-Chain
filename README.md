@@ -550,6 +550,118 @@ cargo test -p qc-08-consensus
 
 ---
 
+## 🔮 Future Subsystems
+
+These subsystems are designed but not yet implemented:
+
+| ID | Name | Purpose | Priority |
+|----|------|---------|----------|
+| **QC-11** | Smart Contracts | EVM-compatible contract execution | 🔴 High |
+| **QC-12** | Transaction Ordering | MEV protection, fair ordering | 🟡 Medium |
+| **QC-13** | Light Client Sync | SPV proofs, header sync | 🟡 Medium |
+| **QC-14** | Sharding Coordinator | Cross-shard communication | 🟢 Low |
+| **QC-15** | Cross-Chain Bridge | IBC/HTLC bridges | 🟢 Low |
+
+### Plug-and-Play Design
+
+Thanks to EDA, adding new subsystems is straightforward:
+
+```rust
+// 1. Create your subsystem crate
+// crates/qc-11-smart-contracts/src/lib.rs
+
+// 2. Implement the SubsystemRegistration trait
+impl SubsystemRegistration for SmartContractEngine {
+    fn subsystem_id(&self) -> u8 { 11 }
+    fn name(&self) -> &'static str { "smart-contracts" }
+    fn subscribed_events(&self) -> Vec<EventType> {
+        vec![EventType::TransactionReceived]
+    }
+}
+
+// 3. Register with event bus - that's it!
+// No changes to other subsystems required
+```
+
+---
+
+## 🏛️ Architectural Patterns
+
+Quantum-Chain implements four complementary architectural patterns:
+
+### 1. Event-Driven Architecture (EDA)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        EVENT BUS                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   QC-17 ──publish──▶ BlockProduced ──subscribe──▶ QC-08         │
+│   QC-08 ──publish──▶ BlockValidated ──subscribe──▶ QC-02,03,04  │
+│   QC-02 ──publish──▶ BlockStored ──subscribe──▶ QC-09           │
+│                                                                 │
+│   ✓ Subsystems NEVER call each other directly                   │
+│   ✓ All communication through events                            │
+│   ✓ Unplug any subsystem without breaking others               │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 2. Domain-Driven Design (DDD)
+
+Each subsystem has bounded context with clear domain boundaries:
+
+```
+qc-08-consensus/
+├── domain/           # Pure business logic (no I/O)
+│   ├── entities.rs   # Block, Header, ValidationResult
+│   ├── services.rs   # validate_pow(), verify_merkle()
+│   └── errors.rs     # ConsensusError variants
+├── ports/            # Interfaces (traits)
+│   ├── inbound.rs    # ValidatorPort
+│   └── outbound.rs   # BlockStoragePort
+└── adapters/         # Implementations
+    └── event.rs      # Event bus integration
+```
+
+### 3. Hexagonal Architecture (Ports & Adapters)
+
+```
+External World                Core Domain                External World
+     │                            │                            │
+     │    ┌──────────────┐       │       ┌──────────────┐     │
+     │◀───│ Inbound Port │◀──────│──────▶│ Outbound Port│────▶│
+     │    └──────────────┘       │       └──────────────┘     │
+     │           ▲               │              │             │
+     │    ┌──────┴───────┐       │       ┌──────▼───────┐     │
+     └───▶│   Adapter    │       │       │   Adapter    │◀────┘
+          │ (IPC/Event)  │       │       │ (Storage/Net)│
+          └──────────────┘       │       └──────────────┘
+                                 │
+                          Domain Logic
+                          (Pure Rust)
+```
+
+### 4. Test-Driven Development (TDD)
+
+Every subsystem has comprehensive test coverage:
+
+```bash
+# Unit tests for domain logic
+cargo test -p qc-08-consensus domain::
+
+# Integration tests for adapters
+cargo test -p qc-08-consensus adapters::
+
+# Full system tests
+cargo test -p integration-tests
+
+# Property-based tests
+cargo test -p qc-10-signature-verification properties::
+```
+
+---
+
 ## 📚 Documentation
 
 | Document | Description |
@@ -559,6 +671,18 @@ cargo test -p qc-08-consensus
 | [IPC-MATRIX.md](Documentation/IPC-MATRIX.md) | Event bus communication |
 | [DATA-ARCHITECTURE.md](Documentation/DATA-ARCHITECTURE.md) | Storage design |
 | [TELEMETRY.md](Documentation/TELEMETRY.md) | Monitoring setup |
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read the architectural documentation first:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/qc-11-smart-contracts`)
+3. Follow the hexagonal architecture pattern
+4. Add tests (aim for >80% coverage)
+5. Submit a pull request
 
 ---
 

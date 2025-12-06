@@ -307,7 +307,10 @@ mod tests {
             true
         }
 
-        fn get_transaction_location(&self, _tx_hash: Hash) -> Result<TransactionLocation, IndexingError> {
+        fn get_transaction_location(
+            &self,
+            _tx_hash: Hash,
+        ) -> Result<TransactionLocation, IndexingError> {
             Err(IndexingError::TransactionNotFound { tx_hash: [0; 32] })
         }
 

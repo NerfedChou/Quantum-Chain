@@ -4,11 +4,11 @@
 //!
 //! Orchestrates domain logic and coordinates with external dependencies.
 
-use std::sync::Arc;
 use async_trait::async_trait;
 use shared_types::{Address, Hash, SignedTransaction};
+use std::sync::Arc;
 
-use crate::domain::{BloomConfig, BloomFilter, BlockFilter};
+use crate::domain::{BlockFilter, BloomConfig, BloomFilter};
 use crate::error::FilterError;
 use crate::ports::{
     BloomFilterApi, MatchResult, MatchedField, TransactionDataProvider, TransactionReceipt,
@@ -52,11 +52,14 @@ impl<T: TransactionDataProvider> BloomFilterService<T> {
         // Calculate how many noise elements to add based on the number of real elements
         // This adds additional fake elements proportional to the real element count
         let n = filter.elements_inserted();
-        let noise_elements =
-            ((n as f64) * (config.privacy_noise_percent / 100.0)).ceil() as usize;
+        let noise_elements = ((n as f64) * (config.privacy_noise_percent / 100.0)).ceil() as usize;
 
         // Ensure at least 1 noise element if noise is enabled and we have elements
-        let noise_elements = if noise_elements == 0 && n > 0 { 1 } else { noise_elements };
+        let noise_elements = if noise_elements == 0 && n > 0 {
+            1
+        } else {
+            noise_elements
+        };
 
         // Use deterministic "random" noise based on tweak
         // In production, use proper randomness
@@ -204,7 +207,12 @@ impl<T: TransactionDataProvider + 'static> BloomFilterApi for BloomFilterService
     ) -> Result<BlockFilter, FilterError> {
         let config = &self.default_config;
 
-        Ok(BlockFilter::new(block_hash, block_height, addresses, config))
+        Ok(BlockFilter::new(
+            block_hash,
+            block_height,
+            addresses,
+            config,
+        ))
     }
 }
 
@@ -369,9 +377,7 @@ mod tests {
             rotation_interval: 100,
             privacy_noise_percent: 0.0,
         };
-        let filter = service
-            .create_filter(&[uniswap_router], &config)
-            .unwrap();
+        let filter = service.create_filter(&[uniswap_router], &config).unwrap();
 
         // Transaction with log from uniswap router
         // Use addresses that won't collide with uniswap_router

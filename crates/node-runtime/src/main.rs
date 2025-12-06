@@ -80,7 +80,9 @@ use tracing::{error, info, warn};
 use crate::adapters::BlockStorageAdapter;
 use crate::container::{NodeConfig, SubsystemContainer};
 use crate::genesis::{GenesisBuilder, GenesisConfig};
-use crate::handlers::{ApiQueryHandler, BlockStorageHandler, FinalityHandler, StateMgmtHandler, TxIndexingHandler};
+use crate::handlers::{
+    ApiQueryHandler, BlockStorageHandler, FinalityHandler, StateMgmtHandler, TxIndexingHandler,
+};
 use crate::wiring::ChoreographyCoordinator;
 use qc_02_block_storage::BlockStorageApi;
 use qc_16_api_gateway::{ApiGatewayService, GatewayConfig};
@@ -210,10 +212,8 @@ impl NodeRuntime {
         let pending_store = gateway.pending_store();
 
         // Start EventBusIpcReceiver to complete pending requests from ApiQueryResponse events
-        let receiver = crate::adapters::EventBusIpcReceiver::new(
-            &self.container.event_bus,
-            pending_store,
-        );
+        let receiver =
+            crate::adapters::EventBusIpcReceiver::new(&self.container.event_bus, pending_store);
         let mut receiver_shutdown = self.shutdown_rx.clone();
         tokio::spawn(async move {
             tokio::select! {
@@ -402,7 +402,7 @@ impl NodeRuntime {
 
         // Start Block Production Miner (qc-17) - auto-start on node initialization
         info!("Starting Block Production Miner (qc-17)...");
-        
+
         // Create miner configuration (PoW mode by default)
         let miner_config = qc_17_block_production::BlockProductionConfig {
             mode: qc_17_block_production::ConsensusMode::ProofOfWork,
@@ -421,28 +421,31 @@ impl NodeRuntime {
             pbft: None,
             performance: qc_17_block_production::PerformanceConfig::default(),
         };
-        
+
         // Create the block producer service
         let miner_service = Arc::new(qc_17_block_production::ConcreteBlockProducer::new(
             Arc::clone(&container.event_bus),
             miner_config,
         ));
-        
+
         // Get current chain height from storage to resume from
         let chain_height = {
             let storage = container.block_storage.read();
             storage.get_latest_height().unwrap_or(0)
         };
-        
+
         if chain_height > 0 {
-            info!("[qc-17] 💾 Chain height loaded from storage: {}", chain_height);
+            info!(
+                "[qc-17] 💾 Chain height loaded from storage: {}",
+                chain_height
+            );
         }
-        
+
         // Start production in PoW mode with the correct starting height
         let miner_clone = Arc::clone(&miner_service);
         let mut production_config = qc_17_block_production::ProductionConfig::default();
         production_config.starting_height = chain_height;
-        
+
         tokio::spawn(async move {
             if let Err(e) = miner_clone
                 .start_production(
@@ -454,7 +457,7 @@ impl NodeRuntime {
                 error!("[qc-17] Failed to start production: {}", e);
             }
         });
-        
+
         // Monitor shutdown signal
         let miner_shutdown_clone = Arc::clone(&miner_service);
         let mut miner_shutdown = self.shutdown_rx.clone();
@@ -465,16 +468,16 @@ impl NodeRuntime {
                 error!("[qc-17] Error during shutdown: {}", e);
             }
         });
-        
+
         info!("  [17] Block Production Miner started (PoW auto-mining enabled)");
-        
+
         // CHOREOGRAPHY BRIDGE: Create a task that triggers BlockValidated for mined blocks
         // Since qc-17 uses PoW, each mined block is already validated by difficulty proof
         let choreography_router = self.choreography.router();
         let miner_status_checker = Arc::clone(&miner_service);
         let block_storage_for_bridge = Arc::clone(&container.block_storage);
         let mut last_block_height = chain_height; // Start from loaded height
-        
+
         // Track the last block hash for parent linking
         let mut last_block_hash: [u8; 32] = {
             // Helper to compute block hash (must match qc-02 logic)
@@ -488,15 +491,17 @@ impl NodeRuntime {
                 hasher.update(block.header.timestamp.to_le_bytes());
                 hasher.finalize().into()
             }
-            
+
             // Load the last block's hash from storage if we have blocks
             if chain_height > 0 {
                 let storage = block_storage_for_bridge.read();
                 match storage.read_block_by_height(chain_height) {
                     Ok(stored) => {
                         let hash = compute_block_hash(&stored.block);
-                        info!("[Bridge] 📖 Loaded last block hash from height {} ({:02x}{:02x}...)", 
-                            chain_height, hash[0], hash[1]);
+                        info!(
+                            "[Bridge] 📖 Loaded last block hash from height {} ({:02x}{:02x}...)",
+                            chain_height, hash[0], hash[1]
+                        );
                         hash
                     }
                     Err(_) => {
@@ -510,7 +515,10 @@ impl NodeRuntime {
                 match storage.read_block_by_height(0) {
                     Ok(genesis) => {
                         let hash = compute_block_hash(&genesis.block);
-                        info!("[Bridge] 📖 Loaded genesis block hash ({:02x}{:02x}...)", hash[0], hash[1]);
+                        info!(
+                            "[Bridge] 📖 Loaded genesis block hash ({:02x}{:02x}...)",
+                            hash[0], hash[1]
+                        );
                         hash
                     }
                     Err(_) => {
@@ -520,33 +528,38 @@ impl NodeRuntime {
                 }
             }
         };
-        
+
         info!("[Bridge] Starting choreography bridge task...");
-        
+
         tokio::spawn(async move {
             info!("[Bridge] 🌉 Bridge task loop starting...");
             let mut iteration = 0u64;
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 iteration += 1;
-                
+
                 // Check if a new block was mined
                 let status = miner_status_checker.get_status().await;
                 let current_blocks = status.blocks_produced;
-                
+
                 // Debug: Log every 10th iteration
                 if iteration % 10 == 0 {
-                    info!("[Bridge] 🔄 Poll #{}: blocks_produced={}, last_height={}", iteration, current_blocks, last_block_height);
+                    info!(
+                        "[Bridge] 🔄 Poll #{}: blocks_produced={}, last_height={}",
+                        iteration, current_blocks, last_block_height
+                    );
                 }
-                
+
                 if current_blocks > last_block_height {
                     for block_height in (last_block_height + 1)..=current_blocks {
                         // Create a minimal ValidatedBlock for storage
-                        use shared_types::{ValidatedBlock, BlockHeader, ConsensusProof, Hash, PublicKey};
-                        
+                        use shared_types::{
+                            BlockHeader, ConsensusProof, Hash, PublicKey, ValidatedBlock,
+                        };
+
                         // Compute block hash (deterministic from height + parent)
                         let _block_hash: [u8; 32] = {
-                            use sha2::{Sha256, Digest};
+                            use sha2::{Digest, Sha256};
                             let mut hasher = Sha256::new();
                             hasher.update(&block_height.to_be_bytes());
                             hasher.update(&last_block_hash);
@@ -555,7 +568,7 @@ impl NodeRuntime {
                             hash.copy_from_slice(&result);
                             hash
                         };
-                        
+
                         let block = ValidatedBlock {
                             header: BlockHeader {
                                 version: 1,
@@ -572,10 +585,12 @@ impl NodeRuntime {
                             transactions: vec![],
                             consensus_proof: ConsensusProof::default(),
                         };
-                        
-                        info!("[Bridge] 🌉 Storing block #{} (parent: {:02x}{:02x}...) to storage", 
-                            block_height, last_block_hash[0], last_block_hash[1]);
-                        
+
+                        info!(
+                            "[Bridge] 🌉 Storing block #{} (parent: {:02x}{:02x}...) to storage",
+                            block_height, last_block_hash[0], last_block_hash[1]
+                        );
+
                         // Store block directly to qc-02
                         let stored_ok = {
                             use qc_02_block_storage::ports::inbound::BlockStorageApi;
@@ -591,12 +606,15 @@ impl NodeRuntime {
                                     true
                                 }
                                 Err(e) => {
-                                    error!("[Bridge] ❌ Failed to store block #{}: {}", block_height, e);
+                                    error!(
+                                        "[Bridge] ❌ Failed to store block #{}: {}",
+                                        block_height, e
+                                    );
                                     false
                                 }
                             }
                         };
-                        
+
                         if stored_ok {
                             // Publish BlockValidated to choreography router
                             match choreography_router.publish(
@@ -604,10 +622,13 @@ impl NodeRuntime {
                                     block_hash: last_block_hash,
                                     block_height,
                                     sender_id: shared_types::SubsystemId::Consensus,
-                                }
+                                },
                             ) {
                                 Ok(_) => {
-                                    info!("[Bridge] ✅ Published BlockValidated for block #{}", block_height);
+                                    info!(
+                                        "[Bridge] ✅ Published BlockValidated for block #{}",
+                                        block_height
+                                    );
                                 }
                                 Err(e) => {
                                     error!("[Bridge] ❌ Failed to publish BlockValidated: {}", e);
@@ -615,12 +636,12 @@ impl NodeRuntime {
                             }
                         }
                     }
-                    
+
                     last_block_height = current_blocks;
                 }
             }
         });
-        
+
         info!("  [Bridge] Choreography bridge started");
 
         info!("Choreography handlers started");
@@ -721,6 +742,7 @@ async fn main() -> Result<()> {
                 println!("    QC_RPC_PORT      RPC port (default: 8545)");
                 println!("    QC_DATA_DIR      Data directory path");
                 println!("    QC_LOG_LEVEL     Log level (default: info)");
+                println!("    QC_COMPUTE_BACKEND  Compute backend: auto, cpu, opencl");
                 println!();
                 println!("TELEMETRY (LGTM Stack):");
                 println!("    OTEL_EXPORTER_OTLP_ENDPOINT   Tempo endpoint (default: http://localhost:4317)");
@@ -742,6 +764,43 @@ async fn main() -> Result<()> {
 
     // Load configuration
     let config = load_config();
+
+    // Auto-detect compute backend (GPU/CPU)
+    info!("===========================================");
+    info!("  COMPUTE BACKEND DETECTION");
+    info!("===========================================");
+
+    match qc_compute::auto_detect() {
+        Ok(engine) => {
+            let device = engine.device_info();
+            info!("✅ Compute Backend: {}", engine.backend());
+            info!("   Device: {}", device.name);
+            info!("   Compute Units: {}", device.compute_units);
+            if device.memory_bytes > 0 {
+                info!("   Memory: {} MB", device.memory_bytes / 1024 / 1024);
+            }
+
+            // Log subsystem recommendations
+            info!("   GPU-accelerated subsystems:");
+            info!(
+                "     - QC-17 (Mining): {}",
+                qc_compute::recommended_backend_for("qc-17")
+            );
+            info!(
+                "     - QC-10 (Signatures): {}",
+                qc_compute::recommended_backend_for("qc-10")
+            );
+            info!(
+                "     - QC-03 (Merkle): {}",
+                qc_compute::recommended_backend_for("qc-03")
+            );
+        }
+        Err(e) => {
+            warn!("⚠️  GPU detection failed: {}. Using CPU fallback.", e);
+            info!("   Tip: Install OpenCL drivers for GPU acceleration");
+        }
+    }
+    info!("===========================================");
 
     // Validate for production (optional - comment out for development)
     // config.validate_for_production();

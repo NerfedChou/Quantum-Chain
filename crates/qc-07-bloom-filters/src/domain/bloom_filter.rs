@@ -227,7 +227,10 @@ mod tests {
 
         filter.insert(element);
 
-        assert!(filter.bits_set() > 0, "After insert, some bits should be set");
+        assert!(
+            filter.bits_set() > 0,
+            "After insert, some bits should be set"
+        );
         assert!(
             filter.bits_set() <= 7,
             "At most k=7 bits should be set for one element"

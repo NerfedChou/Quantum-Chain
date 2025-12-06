@@ -13,7 +13,7 @@ use std::io::Cursor;
 pub fn murmur_hash(element: &[u8], seed: u32, tweak: u32) -> u64 {
     let combined_seed = seed.wrapping_add(tweak);
     let mut cursor = Cursor::new(element);
-    
+
     // Use murmur3 128-bit hash and take the lower 64 bits
     let hash = murmur3::murmur3_x64_128(&mut cursor, combined_seed).unwrap_or(0);
     hash as u64
@@ -26,7 +26,7 @@ pub fn murmur_hash(element: &[u8], seed: u32, tweak: u32) -> u64 {
 pub fn compute_hash_positions(element: &[u8], k: usize, m: usize, tweak: u32) -> Vec<usize> {
     let h1 = murmur_hash(element, 0, tweak);
     let h2 = murmur_hash(element, 1, tweak);
-    
+
     (0..k)
         .map(|i| {
             let hash = h1.wrapping_add((i as u64).wrapping_mul(h2));
@@ -55,7 +55,10 @@ mod tests {
         let hash1 = murmur_hash(element, seed, tweak);
         let hash2 = murmur_hash(element, seed, tweak);
 
-        assert_eq!(hash1, hash2, "Same input with same seed/tweak must produce same output");
+        assert_eq!(
+            hash1, hash2,
+            "Same input with same seed/tweak must produce same output"
+        );
     }
 
     #[test]
@@ -66,7 +69,10 @@ mod tests {
         let hash1 = murmur_hash(element, 0, tweak);
         let hash2 = murmur_hash(element, 1, tweak);
 
-        assert_ne!(hash1, hash2, "Different seeds must produce different outputs");
+        assert_ne!(
+            hash1, hash2,
+            "Different seeds must produce different outputs"
+        );
     }
 
     #[test]
@@ -77,7 +83,10 @@ mod tests {
         let hash1 = murmur_hash(element, seed, 0);
         let hash2 = murmur_hash(element, seed, 100);
 
-        assert_ne!(hash1, hash2, "Different tweaks must produce different outputs");
+        assert_ne!(
+            hash1, hash2,
+            "Different tweaks must produce different outputs"
+        );
     }
 
     #[test]
@@ -98,7 +107,10 @@ mod tests {
 
         // At least some positions should be different (with high probability for k=7)
         let unique: std::collections::HashSet<_> = positions.iter().collect();
-        assert!(unique.len() >= 3, "Hash functions should produce varied positions");
+        assert!(
+            unique.len() >= 3,
+            "Hash functions should produce varied positions"
+        );
     }
 
     #[test]

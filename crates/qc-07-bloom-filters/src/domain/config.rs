@@ -40,8 +40,8 @@ pub struct BloomConfig {
 impl Default for BloomConfig {
     fn default() -> Self {
         Self {
-            target_fpr: 0.0001,       // 0.01% false positive rate
-            max_size_bits: 36_000,    // ~4.5 KB
+            target_fpr: 0.0001,    // 0.01% false positive rate
+            max_size_bits: 36_000, // ~4.5 KB
             max_elements: 50,
             rotation_interval: 100,
             privacy_noise_percent: 5.0,
@@ -73,12 +73,16 @@ impl BloomConfig {
     pub fn validate(&self) -> Result<(), FilterError> {
         // IPC-MATRIX.md: Reject FPR <0.01 (too precise = privacy risk)
         if self.target_fpr < 0.01 {
-            return Err(FilterError::InvalidFPR { fpr: self.target_fpr });
+            return Err(FilterError::InvalidFPR {
+                fpr: self.target_fpr,
+            });
         }
 
         // IPC-MATRIX.md: Reject FPR >0.1 (too noisy = useless)
         if self.target_fpr > 0.1 {
-            return Err(FilterError::InvalidFPR { fpr: self.target_fpr });
+            return Err(FilterError::InvalidFPR {
+                fpr: self.target_fpr,
+            });
         }
 
         // IPC-MATRIX.md: Reject >1000 watched addresses
@@ -196,7 +200,9 @@ impl BloomConfigBuilder {
             max_size_bits: self.max_size_bits.unwrap_or(defaults.max_size_bits),
             max_elements: self.max_elements.unwrap_or(defaults.max_elements),
             rotation_interval: self.rotation_interval.unwrap_or(defaults.rotation_interval),
-            privacy_noise_percent: self.privacy_noise_percent.unwrap_or(defaults.privacy_noise_percent),
+            privacy_noise_percent: self
+                .privacy_noise_percent
+                .unwrap_or(defaults.privacy_noise_percent),
         };
 
         config.validate()?;
@@ -212,7 +218,9 @@ impl BloomConfigBuilder {
             max_size_bits: self.max_size_bits.unwrap_or(defaults.max_size_bits),
             max_elements: self.max_elements.unwrap_or(defaults.max_elements),
             rotation_interval: self.rotation_interval.unwrap_or(defaults.rotation_interval),
-            privacy_noise_percent: self.privacy_noise_percent.unwrap_or(defaults.privacy_noise_percent),
+            privacy_noise_percent: self
+                .privacy_noise_percent
+                .unwrap_or(defaults.privacy_noise_percent),
         }
     }
 }

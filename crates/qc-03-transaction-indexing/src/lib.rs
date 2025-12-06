@@ -69,4 +69,4 @@ pub use ipc::{
     TransactionLocationRequestPayload, TransactionLocationResponsePayload,
 };
 
-pub use adapters::{ApiGatewayHandler, ApiQueryError, Qc03Metrics, handle_api_query};
+pub use adapters::{handle_api_query, ApiGatewayHandler, ApiQueryError, Qc03Metrics};

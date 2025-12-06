@@ -5,4 +5,4 @@
 
 pub mod api_handler;
 
-pub use api_handler::{ApiGatewayHandler, handle_api_query, ApiQueryError, Qc03Metrics};
+pub use api_handler::{handle_api_query, ApiGatewayHandler, ApiQueryError, Qc03Metrics};

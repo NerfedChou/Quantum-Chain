@@ -1,8 +1,8 @@
 #!/bin/bash
-# Quantum-Chain Flow Monitor
-# Real-time subsystem activity logger - No UI, pure terminal logs
+# Quantum-Chain Flow Monitor v2
+# Real-time subsystem activity logger - Shows complete block flow choreography
 
-# Colors
+# Color definitions
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -10,98 +10,153 @@ BLUE='\033[0;34m'
 MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 WHITE='\033[0;37m'
+BRIGHT_GREEN='\033[1;32m'
+BRIGHT_CYAN='\033[1;36m'
+BRIGHT_MAGENTA='\033[1;35m'
+BRIGHT_YELLOW='\033[1;33m'
+BRIGHT_BLUE='\033[1;34m'
 GRAY='\033[0;90m'
-BOLD='\033[1m'
-RESET='\033[0m'
+NC='\033[0m'
 
 clear
 cat << 'EOF'
 ═══════════════════════════════════════════════════════════════════════
-   ⛓️  QUANTUM-CHAIN LIVE SUBSYSTEM FLOW MONITOR
+   ⛓️  QUANTUM-CHAIN FLOW MONITOR v2
 ═══════════════════════════════════════════════════════════════════════
 
-Watching all subsystems in real-time:
+Block Flow Choreography:
+  ⛏️  qc-17 → ✅ Bridge → 🌳 qc-03 + 💾 qc-04 → 📦 qc-02 → 🔒 qc-09
 
-  ⛏️  QC-17: Block Production (Mining)
-  ✅ QC-08: Consensus (Validation)
-  🌳 QC-03: Transaction Indexing (Merkle Trees)
-  💾 QC-04: State Management
-  📦 QC-02: Block Storage (Choreography)
-  🔒 QC-09: Finality
-  💰 QC-06: Mempool
-  🌐 QC-01: Peer Discovery
-  📡 QC-05: Block Propagation
-  🔐 QC-10: Signature Verification
-  🌉 QC-16: API Gateway
+Subsystems:
+  ⛏️  qc-17: Block Production    📦 qc-02: Block Storage
+  ✅ qc-08: Consensus            🔒 qc-09: Finality  
+  🌳 qc-03: Merkle Trees         💾 qc-04: State Management
+  💰 qc-06: Mempool              🌐 qc-01: Peer Discovery
+  🔐 qc-10: Signatures           🌉 qc-16: API Gateway
 
 Press Ctrl+C to stop
 ───────────────────────────────────────────────────────────────────────
 EOF
 
-# Follow docker logs and format output
-docker logs -f --tail 0 quantum-chain-node 2>&1 | while IFS= read -r line; do
+# Track blocks in flight for summary stats
+declare -A block_start_times
+
+docker logs -f --tail 20 quantum-chain-node 2>&1 | \
+  stdbuf -oL grep -E '\[qc-[0-9]+\]|Bridge|ERROR|WARN' | \
+  while IFS= read -r line; do
     # Extract timestamp
-    if [[ $line =~ ([0-9]{2}:[0-9]{2}:[0-9]{2}) ]]; then
-        TIME="${BASH_REMATCH[1]}"
-    else
-        TIME="--:--:--"
+    timestamp=$(echo "$line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+Z' | head -1)
+    time_display=$(echo "$timestamp" | sed -E 's/.*T([0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}).*/\1/' 2>/dev/null)
+    [[ -z "$time_display" ]] && time_display="--:--:--.---"
+
+    # Handle errors first
+    if [[ "$line" == *"ERROR"* ]]; then
+        echo -e "${RED}[$time_display] ❌ ERROR: ${line##*ERROR}${NC}"
+        continue
     fi
-    
-    # Parse and colorize by subsystem
+
+    # Parse by subsystem/event
     case "$line" in
-        *"[qc-17]"*)
-            if [[ $line =~ "mined!" ]]; then
-                echo -e "${GREEN}${BOLD}[$TIME] ✓ QC-17${RESET}${GREEN} $(echo "$line" | sed 's/.*\[qc-17\]//')${RESET}"
-            elif [[ $line =~ "Mining block" ]]; then
-                echo -e "${YELLOW}[$TIME] ⛏  QC-17$(echo "$line" | sed 's/.*\[qc-17\]//' | head -c 80)...${RESET}"
-            else
-                echo -e "${YELLOW}[$TIME] ⛏  QC-17$(echo "$line" | sed 's/.*\[qc-17\]//')${RESET}"
-            fi
+        # === QC-17: Block Production ===
+        *"[qc-17]"*"Block #"*"mined"*)
+            block=$(echo "$line" | grep -oE 'Block #[0-9]+')
+            nonce=$(echo "$line" | grep -oE 'Nonce: [0-9]+' | cut -d' ' -f2)
+            echo -e "${BRIGHT_GREEN}[$time_display] ⛏️  [qc-17] $block mined! | nonce: $nonce${NC}"
             ;;
+        *"[qc-17]"*"Mining block"*)
+            block=$(echo "$line" | grep -oE 'block #[0-9]+')
+            echo -e "${GREEN}[$time_display] ⛏️  [qc-17] Mining $block...${NC}"
+            ;;
+        
+        # === Bridge: Choreography Trigger ===
+        *"[Bridge]"*"Published BlockValidated"*)
+            block=$(echo "$line" | grep -oE 'block #[0-9]+')
+            echo -e "${BRIGHT_YELLOW}[$time_display] ✅ [Bridge] BlockValidated published for $block → EVENT BUS${NC}"
+            echo -e "${GRAY}   └─ Triggers: qc-02, qc-03, qc-04${NC}"
+            ;;
+        *"[Bridge]"*"Triggering"*)
+            block=$(echo "$line" | grep -oE 'block #[0-9]+')
+            echo -e "${YELLOW}[$time_display] 🌉 [Bridge] Triggering choreography for $block${NC}"
+            ;;
+        
+        # === QC-03: Merkle Tree ===
+        *"[qc-03]"*"Computing merkle"*)
+            block=$(echo "$line" | grep -oE 'block #[0-9]+')
+            echo -e "${CYAN}[$time_display] 🌳 [qc-03] Computing merkle tree for $block [1/3]${NC}"
+            ;;
+        *"[qc-03]"*"Merkle root computed"*)
+            block=$(echo "$line" | grep -oE 'block #[0-9]+')
+            echo -e "${BRIGHT_CYAN}[$time_display] 🌳 [qc-03] ✓ Merkle root computed for $block → qc-02${NC}"
+            ;;
+        
+        # === QC-04: State Management ===
+        *"[qc-04]"*"Computing state"*)
+            block=$(echo "$line" | grep -oE 'block #[0-9]+')
+            echo -e "${MAGENTA}[$time_display] 💾 [qc-04] Computing state root for $block [2/3]${NC}"
+            ;;
+        *"[qc-04]"*"State root computed"*)
+            block=$(echo "$line" | grep -oE 'block #[0-9]+')
+            echo -e "${BRIGHT_MAGENTA}[$time_display] 💾 [qc-04] ✓ State root computed for $block → qc-02${NC}"
+            ;;
+        
+        # === QC-02: Block Storage (Assembler) ===
+        *"[qc-02]"*"assembly"*|*"[qc-02]"*"Assembly"*)
+            block=$(echo "$line" | grep -oE '[Bb]lock #[0-9]+')
+            echo -e "${BLUE}[$time_display] 📦 [qc-02] Assembly initiated for $block [3/3]${NC}"
+            ;;
+        *"[qc-02]"*"stored"*|*"[qc-02]"*"STORED"*|*"[qc-02]"*"ATOMIC WRITE"*)
+            block=$(echo "$line" | grep -oE 'Block #[0-9]+')
+            echo -e "${BRIGHT_BLUE}[$time_display] 📦 [qc-02] ✓ $block STORED (atomic write complete)${NC}"
+            echo -e "${GRAY}   └─ Next: qc-09 (Finality)${NC}"
+            ;;
+        
+        # === QC-09: Finality ===
+        *"[qc-09]"*"finalizing"*|*"[qc-09]"*"epoch"*"boundary"*)
+            block=$(echo "$line" | grep -oE 'Block #[0-9]+')
+            epoch=$(echo "$line" | grep -oE 'epoch [0-9]+')
+            echo -e "${YELLOW}[$time_display] 🔒 [qc-09] $block at $epoch boundary, checking finality...${NC}"
+            ;;
+        *"[qc-09]"*"FINALIZED"*)
+            block=$(echo "$line" | grep -oE 'Block #[0-9]+')
+            echo -e "${BRIGHT_GREEN}[$time_display] 🔒 [qc-09] ✓ $block FINALIZED ✓${NC}"
+            echo -e "${GREEN}═══════════════════════════════════════════════════════════════════════${NC}"
+            ;;
+        
+        # === QC-08: Consensus ===
         *"[qc-08]"*)
-            echo -e "${GREEN}[$TIME] ✅ QC-08$(echo "$line" | sed 's/.*\[qc-08\]//')${RESET}"
+            msg="${line##*\[qc-08\]}"
+            echo -e "${GREEN}[$time_display] ✅ [qc-08]$msg${NC}"
             ;;
-        *"[qc-03]"*)
-            echo -e "${CYAN}[$TIME] 🌳 QC-03$(echo "$line" | sed 's/.*\[qc-03\]//')${RESET}"
-            ;;
-        *"[qc-04]"*)
-            echo -e "${BLUE}[$TIME] 💾 QC-04$(echo "$line" | sed 's/.*\[qc-04\]//')${RESET}"
-            ;;
-        *"[qc-02]"*)
-            echo -e "${MAGENTA}[$TIME] 📦 QC-02$(echo "$line" | sed 's/.*\[qc-02\]//')${RESET}"
-            ;;
-        *"[qc-09]"*)
-            echo -e "${MAGENTA}[$TIME] 🔒 QC-09$(echo "$line" | sed 's/.*\[qc-09\]//')${RESET}"
-            ;;
+        
+        # === QC-06: Mempool ===
         *"[qc-06]"*)
-            echo -e "${WHITE}[$TIME] 💰 QC-06$(echo "$line" | sed 's/.*\[qc-06\]//')${RESET}"
+            msg="${line##*\[qc-06\]}"
+            echo -e "${WHITE}[$time_display] 💰 [qc-06]$msg${NC}"
             ;;
+        
+        # === QC-01: Peer Discovery ===
         *"[qc-01]"*)
-            echo -e "${CYAN}[$TIME] 🌐 QC-01$(echo "$line" | sed 's/.*\[qc-01\]//')${RESET}"
+            msg="${line##*\[qc-01\]}"
+            echo -e "${CYAN}[$time_display] 🌐 [qc-01]$msg${NC}"
             ;;
-        *"[qc-05]"*)
-            echo -e "${BLUE}[$TIME] 📡 QC-05$(echo "$line" | sed 's/.*\[qc-05\]//')${RESET}"
-            ;;
+        
+        # === QC-10: Signatures ===
         *"[qc-10]"*)
-            echo -e "${YELLOW}[$TIME] 🔐 QC-10$(echo "$line" | sed 's/.*\[qc-10\]//')${RESET}"
+            msg="${line##*\[qc-10\]}"
+            echo -e "${YELLOW}[$time_display] 🔐 [qc-10]$msg${NC}"
             ;;
-        *"[qc-16]"*|*"API Gateway"*)
-            if [[ $line =~ "INFO" ]]; then
-                echo -e "${GRAY}[$TIME] 🌉 QC-16$(echo "$line" | sed 's/.*qc_16//' | sed 's/.*INFO//')${RESET}"
-            fi
+        
+        # === QC-16: API Gateway ===
+        *"[qc-16]"*)
+            msg="${line##*\[qc-16\]}"
+            echo -e "${GRAY}[$time_display] 🌉 [qc-16]$msg${NC}"
             ;;
-        *"started"*|*"Starting"*)
-            if [[ $line =~ "INFO" ]]; then
-                echo -e "${GRAY}[$TIME] 🚀 $(echo "$line" | sed 's/.*INFO//' | sed 's/node_runtime:://')${RESET}"
-            fi
-            ;;
-        *"ERROR"*)
-            echo -e "${RED}${BOLD}[$TIME] ❌ $(echo "$line" | sed 's/.*ERROR//')${RESET}"
-            ;;
-        *"WARN"*)
-            # Skip debug warnings
-            if [[ ! $line =~ "correlation_id" ]] && [[ ! $line =~ "pending request" ]]; then
-                echo -e "${RED}[$TIME] ⚠️  $(echo "$line" | sed 's/.*WARN//')${RESET}"
+        
+        # === Startup messages ===
+        *"handler started"*|*"Starting"*|*"Initializing"*)
+            if [[ "$line" == *"INFO"* ]]; then
+                subsystem=$(echo "$line" | grep -oE '\[qc-[0-9]+\]')
+                echo -e "${GRAY}[$time_display] 🚀 $subsystem Started${NC}"
             fi
             ;;
     esac

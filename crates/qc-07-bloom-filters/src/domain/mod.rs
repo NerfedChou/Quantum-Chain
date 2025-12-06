@@ -13,13 +13,13 @@
 //! - No async code
 //! - Pure functions where possible
 
-pub mod bloom_filter;
 pub mod block_filter;
+pub mod bloom_filter;
 pub mod config;
 pub mod hash_functions;
 pub mod parameters;
 
-pub use bloom_filter::BloomFilter;
 pub use block_filter::BlockFilter;
+pub use bloom_filter::BloomFilter;
 pub use config::{BloomConfig, BloomConfigBuilder};
 pub use parameters::{calculate_optimal_parameters, BloomFilterParams};

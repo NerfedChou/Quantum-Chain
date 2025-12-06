@@ -129,22 +129,21 @@ where
             }
 
             // Parse height from key
-            let height_bytes: [u8; 8] = key[2..10]
-                .try_into()
-                .map_err(|_| StorageError::DatabaseError {
-                    message: "Invalid height key format".to_string(),
-                })?;
+            let height_bytes: [u8; 8] =
+                key[2..10]
+                    .try_into()
+                    .map_err(|_| StorageError::DatabaseError {
+                        message: "Invalid height key format".to_string(),
+                    })?;
             let height = u64::from_be_bytes(height_bytes);
 
             // Parse block hash from value
             if value.len() != 32 {
                 continue; // Skip malformed values
             }
-            let block_hash: Hash = value
-                .try_into()
-                .map_err(|_| StorageError::DatabaseError {
-                    message: "Invalid block hash format".to_string(),
-                })?;
+            let block_hash: Hash = value.try_into().map_err(|_| StorageError::DatabaseError {
+                message: "Invalid block hash format".to_string(),
+            })?;
 
             // Insert into in-memory index
             self.block_index.insert(height, block_hash);
@@ -160,7 +159,10 @@ where
             );
 
             // Update metadata with loaded state
-            self.metadata.on_block_stored(max_height, self.block_index.get(max_height).unwrap_or([0u8; 32]));
+            self.metadata.on_block_stored(
+                max_height,
+                self.block_index.get(max_height).unwrap_or([0u8; 32]),
+            );
         }
 
         Ok(())
@@ -291,7 +293,7 @@ where
     ) -> Result<Hash, StorageError> {
         let height = block.header.height;
         tracing::info!("[qc-02] 📦 Writing block #{} to storage", height);
-        
+
         // INVARIANT-2: Check disk space
         self.check_disk_space()?;
 

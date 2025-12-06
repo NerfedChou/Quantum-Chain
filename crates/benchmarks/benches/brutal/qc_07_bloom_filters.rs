@@ -291,15 +291,19 @@ pub fn brutal_merge_operations(c: &mut Criterion) {
         }
 
         group.throughput(Throughput::Bytes(size as u64 / 8));
-        group.bench_with_input(BenchmarkId::new("merge_filters", size), &filter2, |b, f2| {
-            b.iter(|| {
-                let mut f1_clone = BrutalBloomFilter::new(size, 7);
-                f1_clone.bits.copy_from_slice(&filter1.bits);
-                f1_clone.n = filter1.n;
-                f1_clone.merge(black_box(f2));
-                black_box(f1_clone.bits_set())
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("merge_filters", size),
+            &filter2,
+            |b, f2| {
+                b.iter(|| {
+                    let mut f1_clone = BrutalBloomFilter::new(size, 7);
+                    f1_clone.bits.copy_from_slice(&filter1.bits);
+                    f1_clone.n = filter1.n;
+                    f1_clone.merge(black_box(f2));
+                    black_box(f1_clone.bits_set())
+                });
+            },
+        );
     }
 
     group.finish();
@@ -336,7 +340,12 @@ pub fn brutal_fpr_calculation(c: &mut Criterion) {
 
     // SPEC claim: Optimal parameter calculation < 1μs
     group.bench_function("optimal_params_claim_1us", |b| {
-        b.iter(|| black_box(BrutalBloomFilter::optimal_params(black_box(100), black_box(0.01))))
+        b.iter(|| {
+            black_box(BrutalBloomFilter::optimal_params(
+                black_box(100),
+                black_box(0.01),
+            ))
+        })
     });
 
     // FPR calculation on populated filter
@@ -395,8 +404,7 @@ pub fn brutal_memory_pressure(c: &mut Criterion) {
 
     // Create many filters simultaneously (simulating many light clients)
     group.bench_function("create_100_concurrent_filters", |b| {
-        let addresses_sets: Vec<Vec<Vec<u8>>> =
-            (0..100).map(|_| generate_addresses(50)).collect();
+        let addresses_sets: Vec<Vec<Vec<u8>>> = (0..100).map(|_| generate_addresses(50)).collect();
 
         b.iter(|| {
             let filters: Vec<BrutalBloomFilter> = addresses_sets

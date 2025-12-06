@@ -100,7 +100,7 @@ pub mod ports;
 pub mod service;
 
 // Re-exports for convenience
-pub use domain::{BloomConfig, BloomConfigBuilder, BloomFilter, BlockFilter};
+pub use domain::{BlockFilter, BloomConfig, BloomConfigBuilder, BloomFilter};
 pub use error::{DataError, FilterError};
 pub use handler::BloomFilterHandler;
 pub use metrics::{Metrics, MetricsRecorder, MetricsSnapshot, NoOpMetrics};

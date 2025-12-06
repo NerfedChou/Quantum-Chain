@@ -208,14 +208,13 @@ impl ResponseRouter {
                 result,
             } => {
                 // Parse correlation ID, or generate new one if parsing fails
-                let correlation = CorrelationId::parse(correlation_id)
-                    .unwrap_or_else(|_| {
-                        warn!(
-                            correlation_id = %correlation_id,
-                            "Failed to parse correlation ID from response"
-                        );
-                        CorrelationId::new()
-                    });
+                let correlation = CorrelationId::parse(correlation_id).unwrap_or_else(|_| {
+                    warn!(
+                        correlation_id = %correlation_id,
+                        "Failed to parse correlation ID from response"
+                    );
+                    CorrelationId::new()
+                });
 
                 let payload = match result {
                     Ok(data) => ResponsePayload::Success(SuccessData::Json(data.clone())),
@@ -398,7 +397,9 @@ impl QueryRouter {
                     };
                     tx.send(query).await.map_err(|_| IpcError::ChannelClosed)?;
                 } else {
-                    return Err(IpcError::SubsystemUnavailable("qc-01-peer-discovery".into()));
+                    return Err(IpcError::SubsystemUnavailable(
+                        "qc-01-peer-discovery".into(),
+                    ));
                 }
             }
 
@@ -425,7 +426,10 @@ impl QueryRouter {
                         crate::ipc::responses::SuccessData::Bool(true),
                     ),
                 };
-                response_tx.send(response).await.map_err(|_| IpcError::ChannelClosed)?;
+                response_tx
+                    .send(response)
+                    .await
+                    .map_err(|_| IpcError::ChannelClosed)?;
             }
 
             // Admin metrics query - routed to admin handler

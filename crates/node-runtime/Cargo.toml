@@ -3,6 +3,12 @@
 # ==============================================================================
 # The main executable for the Quantum-Chain node. This crate initializes and
 # orchestrates all subsystems according to the Architecture.md specifications.
+#
+# ## Plug-and-Play Architecture
+#
+# Subsystems are optional features. Enable only what you need:
+#   cargo build --features "qc-01,qc-02,qc-08"  # Minimal node
+#   cargo build --features "full"                # All subsystems
 # ==============================================================================
 
 [package]
@@ -21,26 +27,52 @@ name = "node_runtime"
 path = "src/lib.rs"
 
 [features]
-default = []
-# Enable RocksDB for production storage (requires librocksdb-dev)
+default = ["full"]
+
+# Full node with all subsystems
+full = [
+    "qc-01", "qc-02", "qc-03", "qc-04", "qc-05", "qc-06",
+    "qc-08", "qc-09", "qc-10", "qc-16", "qc-17"
+]
+
+# Individual subsystems (plug-and-play)
+qc-01 = ["dep:qc-01-peer-discovery"]           # Peer Discovery
+qc-02 = ["dep:qc-02-block-storage"]            # Block Storage (REQUIRED)
+qc-03 = ["dep:qc-03-transaction-indexing"]     # Transaction Indexing
+qc-04 = ["dep:qc-04-state-management"]         # State Management
+qc-05 = ["dep:qc-05-block-propagation"]        # Block Propagation
+qc-06 = ["dep:qc-06-mempool"]                  # Mempool
+qc-08 = ["dep:qc-08-consensus"]                # Consensus (REQUIRED)
+qc-09 = ["dep:qc-09-finality"]                 # Finality
+qc-10 = ["dep:qc-10-signature-verification"]   # Signature Verification (REQUIRED)
+qc-16 = ["dep:qc-16-api-gateway"]              # API Gateway
+qc-17 = ["dep:qc-17-block-production"]         # Block Production
+
+# Storage backends
 rocksdb = ["dep:rocksdb"]
 
+# GPU compute (auto-detected at runtime)
+gpu = ["qc-compute/opencl"]
+
 [dependencies]
-# Internal crates - Core subsystems
+# Core infrastructure (always required)
 shared-types.workspace = true
 shared-bus = { path = "../shared-bus" }
 quantum-telemetry = { path = "../quantum-telemetry" }
-qc-01-peer-discovery = { path = "../qc-01-peer-discovery" }
-qc-02-block-storage = { path = "../qc-02-block-storage" }
-qc-03-transaction-indexing = { path = "../qc-03-transaction-indexing" }
-qc-04-state-management = { path = "../qc-04-state-management" }
-qc-05-block-propagation = { path = "../qc-05-block-propagation" }
-qc-06-mempool = { path = "../qc-06-mempool" }
-qc-08-consensus = { path = "../qc-08-consensus" }
-qc-09-finality = { path = "../qc-09-finality" }
-qc-10-signature-verification = { path = "../qc-10-signature-verification" }
-qc-16-api-gateway = { path = "../qc-16-api-gateway" }
-qc-17-block-production = { path = "../qc-17-block-production" }
+qc-compute = { path = "../qc-compute" }
+
+# Subsystems (optional - enable via features)
+qc-01-peer-discovery = { path = "../qc-01-peer-discovery", optional = true }
+qc-02-block-storage = { path = "../qc-02-block-storage", optional = true }
+qc-03-transaction-indexing = { path = "../qc-03-transaction-indexing", optional = true }
+qc-04-state-management = { path = "../qc-04-state-management", optional = true }
+qc-05-block-propagation = { path = "../qc-05-block-propagation", optional = true }
+qc-06-mempool = { path = "../qc-06-mempool", optional = true }
+qc-08-consensus = { path = "../qc-08-consensus", optional = true }
+qc-09-finality = { path = "../qc-09-finality", optional = true }
+qc-10-signature-verification = { path = "../qc-10-signature-verification", optional = true }
+qc-16-api-gateway = { path = "../qc-16-api-gateway", optional = true }
+qc-17-block-production = { path = "../qc-17-block-production", optional = true }
 
 # Production storage (optional)
 rocksdb = { workspace = true, optional = true }

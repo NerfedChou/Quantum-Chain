@@ -5,9 +5,13 @@
 //! ## Ports Implemented
 //!
 //! - `EventBus` - Publishes BlockValidated to container's event bus
-//! - `MempoolGateway` - Delegates to container's mempool
+//! - `MempoolGateway` - Delegates to container's mempool (if qc-06 enabled)
 //! - `SignatureVerifier` - Delegates to qc-10 stateless functions
 //! - `ValidatorSetProvider` - Reads from container's state trie
+//!
+//! ## Plug-and-Play (v2.4)
+//!
+//! When qc-06 (Mempool) is disabled, the MempoolGateway returns empty transactions.
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
@@ -15,7 +19,9 @@ use shared_bus::{EventPublisher, InMemoryEventBus};
 use shared_types::Hash;
 use std::sync::Arc;
 
+#[cfg(feature = "qc-06")]
 use qc_06_mempool::TransactionPool;
+
 use qc_08_consensus::domain::{
     SignedTransaction, ValidatedBlock, ValidationProof, ValidatorInfo, ValidatorSet,
 };
@@ -58,11 +64,10 @@ impl EventBus for ConsensusEventBusAdapter {
                 timestamp: block.header.timestamp,
                 proposer: block.header.proposer,
             },
-            transactions: vec![], // Transactions are passed separately in choreography
+            transactions: vec![],
             consensus_proof: shared_types::ConsensusProof::default(),
         };
 
-        // Publish to the shared event bus per V2.3 Choreography Pattern
         let event = shared_bus::BlockchainEvent::BlockValidated(validated_block);
 
         let receivers = self.event_bus.publish(event).await;
@@ -76,21 +81,24 @@ impl EventBus for ConsensusEventBusAdapter {
 }
 
 // =============================================================================
-// MempoolGateway Adapter
+// MempoolGateway Adapter (with qc-06 enabled)
 // =============================================================================
 
+#[cfg(feature = "qc-06")]
 /// Adapter implementing qc-08's MempoolGateway trait.
 /// Delegates to the container's mempool instance.
 pub struct ConsensusMempoolAdapter {
     mempool: Arc<RwLock<TransactionPool>>,
 }
 
+#[cfg(feature = "qc-06")]
 impl ConsensusMempoolAdapter {
     pub fn new(mempool: Arc<RwLock<TransactionPool>>) -> Self {
         Self { mempool }
     }
 }
 
+#[cfg(feature = "qc-06")]
 #[async_trait]
 impl MempoolGateway for ConsensusMempoolAdapter {
     async fn get_transactions_for_block(
@@ -99,15 +107,11 @@ impl MempoolGateway for ConsensusMempoolAdapter {
         max_gas: u64,
     ) -> Result<Vec<SignedTransaction>, String> {
         let pool = self.mempool.read();
-
-        // Get pending transactions from mempool
         let mempool_txs = pool.get_for_block(max_count, max_gas);
 
-        // Convert to SignedTransaction format expected by Consensus
         let txs: Vec<SignedTransaction> = mempool_txs
             .into_iter()
             .map(|tx| {
-                // Convert signature to fixed array
                 let mut signature = [0u8; 65];
                 let sig_len = tx.transaction.signature.len().min(65);
                 signature[..sig_len].copy_from_slice(&tx.transaction.signature[..sig_len]);
@@ -146,6 +150,52 @@ impl MempoolGateway for ConsensusMempoolAdapter {
 }
 
 // =============================================================================
+// MempoolGateway Adapter (without qc-06 - stub implementation)
+// =============================================================================
+
+#[cfg(not(feature = "qc-06"))]
+/// Stub adapter when mempool is disabled.
+/// Returns empty transactions - blocks will be empty.
+pub struct ConsensusMempoolAdapter;
+
+#[cfg(not(feature = "qc-06"))]
+impl ConsensusMempoolAdapter {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(not(feature = "qc-06"))]
+impl Default for ConsensusMempoolAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(feature = "qc-06"))]
+#[async_trait]
+impl MempoolGateway for ConsensusMempoolAdapter {
+    async fn get_transactions_for_block(
+        &self,
+        _max_count: usize,
+        _max_gas: u64,
+    ) -> Result<Vec<SignedTransaction>, String> {
+        // No mempool - return empty transactions
+        tracing::warn!("[qc-08] Mempool disabled - blocks will be empty");
+        Ok(vec![])
+    }
+
+    async fn propose_transactions(
+        &self,
+        _tx_hashes: Vec<Hash>,
+        _target_block_height: u64,
+    ) -> Result<(), String> {
+        // No-op when mempool is disabled
+        Ok(())
+    }
+}
+
+// =============================================================================
 // SignatureVerifier Adapter
 // =============================================================================
 
@@ -165,12 +215,12 @@ impl Default for ConsensusSignatureAdapter {
     }
 }
 
+#[cfg(feature = "qc-10")]
 impl SignatureVerifier for ConsensusSignatureAdapter {
     fn verify_ecdsa(&self, message: &[u8], signature: &[u8; 65], _public_key: &[u8; 33]) -> bool {
         use qc_10_signature_verification::domain::ecdsa::verify_ecdsa;
         use qc_10_signature_verification::domain::entities::EcdsaSignature;
 
-        // Extract r, s, v from signature
         let mut r = [0u8; 32];
         let mut s = [0u8; 32];
         r.copy_from_slice(&signature[..32]);
@@ -179,7 +229,6 @@ impl SignatureVerifier for ConsensusSignatureAdapter {
 
         let sig = EcdsaSignature { r, s, v };
 
-        // Hash the message if it's not already 32 bytes
         let msg_hash: [u8; 32] = if message.len() == 32 {
             let mut hash = [0u8; 32];
             hash.copy_from_slice(message);
@@ -207,12 +256,10 @@ impl SignatureVerifier for ConsensusSignatureAdapter {
         use qc_10_signature_verification::domain::bls::verify_bls_aggregate;
         use qc_10_signature_verification::domain::entities::{BlsPublicKey, BlsSignature};
 
-        // BLS signature is 48 bytes (G1), take first 48 bytes from the 96-byte input
         let mut sig_bytes = [0u8; 48];
         sig_bytes.copy_from_slice(&signature[..48]);
         let bls_sig = BlsSignature { bytes: sig_bytes };
 
-        // BLS public keys are 96 bytes (G2)
         let bls_pks: Vec<BlsPublicKey> = public_keys
             .iter()
             .map(|pk| {
@@ -255,23 +302,41 @@ impl SignatureVerifier for ConsensusSignatureAdapter {
     }
 }
 
+#[cfg(not(feature = "qc-10"))]
+impl SignatureVerifier for ConsensusSignatureAdapter {
+    fn verify_ecdsa(&self, _message: &[u8], _signature: &[u8; 65], _public_key: &[u8; 33]) -> bool {
+        tracing::warn!("[qc-08] Signature verification disabled - accepting all signatures");
+        true // INSECURE: Accept all when qc-10 is disabled
+    }
+
+    fn verify_aggregate_bls(
+        &self,
+        _message: &[u8],
+        _signature: &[u8; 96],
+        _public_keys: &[[u8; 48]],
+    ) -> bool {
+        tracing::warn!("[qc-08] BLS verification disabled - accepting all signatures");
+        true // INSECURE: Accept all when qc-10 is disabled
+    }
+
+    fn recover_signer(&self, _message: &[u8], _signature: &[u8; 65]) -> Option<[u8; 20]> {
+        None // Can't recover without qc-10
+    }
+}
+
 // =============================================================================
 // ValidatorSetProvider Adapter
 // =============================================================================
 
 /// Adapter implementing qc-08's ValidatorSetProvider trait.
 /// In production, this would read from qc-04 state management.
-/// For now, provides a mock validator set.
 pub struct ConsensusValidatorSetAdapter {
-    /// Mock validators for testing (in production, read from state trie)
     validators: Vec<ValidatorInfo>,
     current_epoch: u64,
 }
 
 impl ConsensusValidatorSetAdapter {
-    /// Create with default test validators
     pub fn new() -> Self {
-        // Create 4 test validators with equal stake
         let validators: Vec<ValidatorInfo> = (0..4)
             .map(|i| {
                 let mut id = [0u8; 32];
@@ -288,7 +353,6 @@ impl ConsensusValidatorSetAdapter {
         }
     }
 
-    /// Create with specific validators
     pub fn with_validators(validators: Vec<ValidatorInfo>) -> Self {
         Self {
             validators,

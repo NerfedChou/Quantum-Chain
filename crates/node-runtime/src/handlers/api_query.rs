@@ -185,9 +185,9 @@ impl ApiQueryHandler {
                 let block_id = params
                     .get("GetBlockByNumber")
                     .and_then(|v| v.get("block_id"));
-                
+
                 let storage = self.container.block_storage.read();
-                
+
                 // Get the height to query
                 let height = if let Some(id) = block_id {
                     // Parse block ID (latest, pending, or number)
@@ -240,21 +240,21 @@ impl ApiQueryHandler {
                     .and_then(|v| v.get("hash"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                
+
                 // Parse hex string to [u8; 32]
                 let hash_bytes = if hash_hex.starts_with("0x") {
                     hex::decode(&hash_hex[2..]).unwrap_or_default()
                 } else {
                     hex::decode(hash_hex).unwrap_or_default()
                 };
-                
+
                 if hash_bytes.len() != 32 {
                     return Ok(serde_json::Value::Null);
                 }
-                
+
                 let mut hash = [0u8; 32];
                 hash.copy_from_slice(&hash_bytes);
-                
+
                 let storage = self.container.block_storage.read();
                 match storage.read_block(&hash) {
                     Ok(stored) => {
@@ -311,11 +311,13 @@ impl ApiQueryHandler {
                 let pool = self.container.mempool.read();
                 // Get all pending transactions (use large max to get all)
                 let pending_txs = pool.get_for_block(10000, u64::MAX);
-                
+
                 // Group transactions by sender address
-                let mut pending_by_sender: std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>> = 
-                    std::collections::HashMap::new();
-                
+                let mut pending_by_sender: std::collections::HashMap<
+                    String,
+                    std::collections::HashMap<String, serde_json::Value>,
+                > = std::collections::HashMap::new();
+
                 for tx in pending_txs {
                     let sender = format!("0x{}", hex::encode(&tx.sender));
                     let nonce = format!("0x{:x}", tx.nonce);
@@ -328,13 +330,13 @@ impl ApiQueryHandler {
                         "value": format!("0x{}", tx.transaction.value.to_string()),
                         "input": format!("0x{}", hex::encode(&tx.transaction.data))
                     });
-                    
+
                     pending_by_sender
                         .entry(sender)
                         .or_default()
                         .insert(nonce, tx_data);
                 }
-                
+
                 Ok(serde_json::json!({
                     "pending": pending_by_sender,
                     "queued": {}
@@ -477,7 +479,7 @@ impl ApiQueryHandler {
                 // Check if node is syncing by comparing local height with network
                 let storage = self.container.block_storage.read();
                 let current_height = storage.get_latest_height().unwrap_or(0);
-                
+
                 // For now, we're not syncing if we have genesis block
                 // In production, compare with peer heights
                 if current_height == 0 {
@@ -552,12 +554,12 @@ impl ApiQueryHandler {
                 let latest_height = storage.get_latest_height().unwrap_or(0);
                 let finalized_height = storage.get_finalized_height().unwrap_or(0);
                 let metadata = storage.get_metadata().unwrap_or_default();
-                
+
                 // Disk metrics would come from filesystem adapter in production
                 // For now, use placeholder values
                 let disk_used_bytes: u64 = 0;
                 let disk_capacity_bytes: u64 = 500 * 1024 * 1024 * 1024; // 500GB
-                
+
                 Ok(serde_json::json!({
                     "latest_height": latest_height,
                     "finalized_height": finalized_height,
@@ -576,15 +578,15 @@ impl ApiQueryHandler {
                 let storage = self.container.block_storage.read();
                 let height = storage.get_latest_height().unwrap_or(0);
                 let chain_tip = height; // Current chain height
-                
+
                 // Get transaction index metrics
                 let tx_index = self.container.transaction_index.read();
                 let stats = tx_index.stats();
-                
+
                 // Calculate sync metrics
                 let indexed_height = stats.last_indexed_height;
                 let head_lag = chain_tip.saturating_sub(indexed_height);
-                
+
                 // Build block_tx_counts for traffic pattern (last 15 blocks)
                 let mut block_tx_counts = Vec::new();
                 let start_block = indexed_height.saturating_sub(14);
@@ -596,7 +598,7 @@ impl ApiQueryHandler {
                         }));
                     }
                 }
-                
+
                 Ok(serde_json::json!({
                     "total_indexed": stats.total_indexed_txs,
                     "cached_trees": stats.cached_trees,
@@ -692,20 +694,21 @@ impl ApiQueryHandler {
                 let depth = self.container.finality.get_finality_lag().await;
                 let state = self.container.finality.get_state().await;
                 let current_epoch = self.container.finality.get_current_epoch().await;
-                let epochs_without_finality = self.container.finality.get_epochs_without_finality().await;
-                
+                let epochs_without_finality =
+                    self.container.finality.get_epochs_without_finality().await;
+
                 // Map FinalityState to string
                 let circuit_breaker_state = match state {
                     qc_09_finality::FinalityState::Running => "running",
                     qc_09_finality::FinalityState::Sync { .. } => "sync",
                     qc_09_finality::FinalityState::HaltedAwaitingIntervention => "halted",
                 };
-                
+
                 let sync_attempts = match state {
                     qc_09_finality::FinalityState::Sync { attempt } => attempt as u64,
                     _ => 0,
                 };
-                
+
                 Ok(serde_json::json!({
                     "last_finalized_epoch": last_finalized.as_ref().map(|c| c.epoch).unwrap_or(0),
                     "last_finalized_block": last_finalized.as_ref().map(|c| c.block_height).unwrap_or(0),
@@ -775,11 +778,9 @@ impl ApiQueryHandler {
                 }))
             }
             // Unimplemented subsystems
-            7 | 11 | 12 | 13 | 14 | 15 => {
-                Ok(serde_json::json!({
-                    "implemented": false
-                }))
-            }
+            7 | 11 | 12 | 13 | 14 | 15 => Ok(serde_json::json!({
+                "implemented": false
+            })),
             _ => Err(ApiQueryError {
                 code: -32602,
                 message: format!("Unknown subsystem ID: {}", subsystem_id),
@@ -812,9 +813,15 @@ mod tests {
 
     #[test]
     fn test_target_to_subsystem_id() {
-        assert_eq!(ApiQueryHandler::target_to_subsystem_id("qc-02-block-storage"), 2);
+        assert_eq!(
+            ApiQueryHandler::target_to_subsystem_id("qc-02-block-storage"),
+            2
+        );
         assert_eq!(ApiQueryHandler::target_to_subsystem_id("qc-06-mempool"), 6);
-        assert_eq!(ApiQueryHandler::target_to_subsystem_id("qc-01-peer-discovery"), 1);
+        assert_eq!(
+            ApiQueryHandler::target_to_subsystem_id("qc-01-peer-discovery"),
+            1
+        );
         assert_eq!(ApiQueryHandler::target_to_subsystem_id("unknown"), 0);
     }
 }

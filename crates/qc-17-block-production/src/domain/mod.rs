@@ -33,16 +33,16 @@
 //! - StatePrefetchCache: Planned for Phase 2
 //! - Invariant checkers: ✅ Core invariants implemented
 
+pub mod difficulty;
 mod entities;
+pub mod genesis;
 pub mod invariants;
 mod services;
-pub mod genesis;
-pub mod difficulty;
 
+pub use difficulty::{BlockInfo, DifficultyAdjuster, DifficultyConfig};
 pub use entities::*;
 pub use genesis::*;
 pub use invariants::*;
 pub use services::{
     AccountState, NonceValidator, PoSProposer, PoWMiner, StatePrefetchCache, TransactionSelector,
 };
-pub use difficulty::{DifficultyAdjuster, DifficultyConfig, BlockInfo};

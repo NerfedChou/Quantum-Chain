@@ -399,10 +399,16 @@ impl TransactionIndex {
     /// Get transaction count for a specific block.
     pub fn get_tx_count_for_block(&self, block_height: u64) -> Option<u64> {
         // Count transactions at this block height
-        let count = self.locations.values()
+        let count = self
+            .locations
+            .values()
             .filter(|loc| loc.block_height == block_height)
             .count() as u64;
-        if count > 0 { Some(count) } else { None }
+        if count > 0 {
+            Some(count)
+        } else {
+            None
+        }
     }
 
     /// Update last indexed height.

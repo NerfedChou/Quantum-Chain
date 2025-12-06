@@ -83,8 +83,8 @@ pub use ipc::{
 
 // Re-export adapter types
 pub use adapters::{
-    ApiGatewayHandler, ApiQueryError, EventBuilder, EventHandler, InMemoryEventPublisher,
-    NoOpEventPublisher, NodeIdentityVerificationResult, PeerDiscoveryEventPublisher,
-    PeerDiscoveryEventSubscriber, Qc01Metrics, RpcNetworkInfo, RpcNodeInfo, RpcPeerInfo,
-    RpcPorts, RpcProtocols, SubscriptionError, SubscriptionFilter, handle_api_query,
+    handle_api_query, ApiGatewayHandler, ApiQueryError, EventBuilder, EventHandler,
+    InMemoryEventPublisher, NoOpEventPublisher, NodeIdentityVerificationResult,
+    PeerDiscoveryEventPublisher, PeerDiscoveryEventSubscriber, Qc01Metrics, RpcNetworkInfo,
+    RpcNodeInfo, RpcPeerInfo, RpcPorts, RpcProtocols, SubscriptionError, SubscriptionFilter,
 };

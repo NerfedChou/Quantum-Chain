@@ -6,8 +6,8 @@ pub mod requests;
 pub mod responses;
 
 pub use requests::{
-    BuildFilterRequest, FilteredTransactionsRequest, TransactionHashRequest,
-    TransactionHashUpdate, UpdateFilterRequest,
+    BuildFilterRequest, FilteredTransactionsRequest, TransactionHashRequest, TransactionHashUpdate,
+    UpdateFilterRequest,
 };
 pub use responses::{
     error_codes, BloomFilterResponse, ErrorResponse, FilteredTransactionsResponse,

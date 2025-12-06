@@ -1,0 +1,39 @@
+[package]
+name = "qc-compute"
+version = "0.1.0"
+edition = "2021"
+description = "Portable GPU/CPU compute abstraction for Quantum-Chain"
+license = "Unlicense"
+
+[features]
+default = ["cpu"]
+# CPU parallelism - always available, zero external deps
+cpu = ["rayon"]
+# OpenCL - portable across NVIDIA, AMD, Intel GPUs (runtime detection)
+# NOTE: Requires OpenCL runtime installed on system, but compiles without it
+opencl = ["ocl"]
+# GPU features are OPTIONAL - system works perfectly without them
+# Vulkan removed: vulkano-shaders requires shaderc/cmake which breaks CI
+# Instead, we use OpenCL for GPU or pure CPU (both work great)
+
+[dependencies]
+# Core
+thiserror = "1.0"
+tracing = "0.1"
+async-trait = "0.1"
+
+# CPU parallelism (always available as fallback)
+rayon = { version = "1.10", optional = true }
+num_cpus = "1.16"
+
+# OpenCL - works on NVIDIA, AMD, Intel, Apple
+# Compiles even without OpenCL runtime; fails gracefully at runtime
+ocl = { version = "0.19", optional = true }
+
+# Cryptographic primitives
+sha2 = "0.10"
+primitive-types = { version = "0.12", features = ["serde"] }
+k256 = { version = "0.13", features = ["ecdsa", "ecdsa-core"] }
+
+[dev-dependencies]
+tokio = { version = "1.34", features = ["rt-multi-thread", "macros"] }

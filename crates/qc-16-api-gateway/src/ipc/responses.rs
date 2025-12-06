@@ -231,11 +231,7 @@ pub struct NodePorts {
 
 impl IpcResponse {
     /// Create a success response
-    pub fn success(
-        correlation_id: CorrelationId,
-        source: u8,
-        data: SuccessData,
-    ) -> Self {
+    pub fn success(correlation_id: CorrelationId, source: u8, data: SuccessData) -> Self {
         Self {
             correlation_id,
             source,

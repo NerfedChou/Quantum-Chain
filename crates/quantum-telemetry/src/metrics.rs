@@ -10,8 +10,8 @@
 
 use lazy_static::lazy_static;
 use prometheus::{
-    exponential_buckets, Counter, CounterVec, Encoder, Gauge, Histogram, HistogramVec,
-    Opts, Registry, TextEncoder,
+    exponential_buckets, Counter, CounterVec, Encoder, Gauge, Histogram, HistogramVec, Opts,
+    Registry, TextEncoder,
 };
 use std::sync::Arc;
 
