@@ -519,6 +519,8 @@ mod tests {
                 state_root: [0; 32],
                 timestamp: 1000 + height,
                 proposer: [0xAA; 32],
+                difficulty: shared_types::U256::from(2).pow(shared_types::U256::from(252)),
+                nonce: 0,
             },
             transactions: txs,
             consensus_proof: ConsensusProof {

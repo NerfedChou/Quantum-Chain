@@ -138,6 +138,13 @@ pub struct BlockHeader {
     pub timestamp: u64,
     /// The validator who proposed this block.
     pub proposer: PublicKey,
+    /// PoW difficulty target for this block (higher = easier).
+    /// Used for difficulty adjustment when resuming mining.
+    #[serde(default)]
+    pub difficulty: U256,
+    /// PoW nonce that satisfies the difficulty target.
+    #[serde(default)]
+    pub nonce: u64,
 }
 
 /// A validated block ready for storage.

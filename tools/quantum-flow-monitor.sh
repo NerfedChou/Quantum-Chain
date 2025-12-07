@@ -25,14 +25,18 @@ cat << 'EOF'
 ═══════════════════════════════════════════════════════════════════════
 
 Block Flow Choreography:
-  ⛏️  qc-17 → ✅ Bridge → 🌳 qc-03 + 💾 qc-04 → 📦 qc-02 → 🔒 qc-09
+  ⛏️  qc-17 → ✅ Bridge → 📜 qc-11 (exec) → 🌳 qc-03 + 💾 qc-04 → 📦 qc-02 → 🔒 qc-09
+
+Transaction Execution Flow:
+  💰 qc-06 → 🔐 qc-10 → ✅ qc-08/qc-12 → 📜 qc-11 → 💾 qc-04
 
 Subsystems:
   ⛏️  qc-17: Block Production    📦 qc-02: Block Storage
   ✅ qc-08: Consensus            🔒 qc-09: Finality  
   🌳 qc-03: Merkle Trees         💾 qc-04: State Management
   💰 qc-06: Mempool              🌐 qc-01: Peer Discovery
-  🔐 qc-10: Signatures           🌉 qc-16: API Gateway
+  🔐 qc-10: Signatures           📜 qc-11: Smart Contracts (EVM)
+  🌉 qc-16: API Gateway          🔄 qc-12: Tx Ordering
 
 Press Ctrl+C to stop
 ───────────────────────────────────────────────────────────────────────
@@ -60,12 +64,22 @@ docker logs -f --tail 20 quantum-chain-node 2>&1 | \
         # === QC-17: Block Production ===
         *"[qc-17]"*"Block #"*"mined"*)
             block=$(echo "$line" | grep -oE 'Block #[0-9]+')
-            nonce=$(echo "$line" | grep -oE 'Nonce: [0-9]+' | cut -d' ' -f2)
+            # Handle large nonces (u64 can be very big)
+            nonce=$(echo "$line" | sed -n 's/.*nonce: \([0-9]*\).*/\1/p')
             echo -e "${BRIGHT_GREEN}[$time_display] ⛏️  [qc-17] $block mined! | nonce: $nonce${NC}"
             ;;
         *"[qc-17]"*"Mining block"*)
             block=$(echo "$line" | grep -oE 'block #[0-9]+')
             echo -e "${GREEN}[$time_display] ⛏️  [qc-17] Mining $block...${NC}"
+            ;;
+        *"[qc-17]"*"Difficulty"*)
+            diff_info=$(echo "$line" | grep -oE '~[0-9]+ leading.*window.*blocks')
+            echo -e "${GREEN}[$time_display] 📊 [qc-17] Difficulty: $diff_info${NC}"
+            ;;
+        *"[qc-17]"*"Resuming from height"*)
+            height=$(echo "$line" | grep -oE 'height [0-9]+')
+            diff=$(echo "$line" | grep -oE '~[0-9]+ leading zero bytes')
+            echo -e "${BRIGHT_GREEN}[$time_display] 💾 [qc-17] Resuming: $height, difficulty: $diff${NC}"
             ;;
         
         # === Bridge: Choreography Trigger ===
@@ -73,6 +87,18 @@ docker logs -f --tail 20 quantum-chain-node 2>&1 | \
             block=$(echo "$line" | grep -oE 'block #[0-9]+')
             echo -e "${BRIGHT_YELLOW}[$time_display] ✅ [Bridge] BlockValidated published for $block → EVENT BUS${NC}"
             echo -e "${GRAY}   └─ Triggers: qc-02, qc-03, qc-04${NC}"
+            ;;
+        *"[Bridge]"*"Storing block"*)
+            block=$(echo "$line" | grep -oE 'block #[0-9]+')
+            # Extract nonce and difficulty from new log format
+            nonce=$(echo "$line" | sed -n 's/.*nonce: \([0-9]*\).*/\1/p')
+            diff=$(echo "$line" | grep -oE '~[0-9]+ zero bytes')
+            echo -e "${YELLOW}[$time_display] 🌉 [Bridge] Storing $block (nonce: $nonce, diff: $diff)${NC}"
+            ;;
+        *"[Bridge]"*"Loaded last block"*|*"[Bridge]"*"Resuming"*)
+            height=$(echo "$line" | grep -oE 'height [0-9]+')
+            diff=$(echo "$line" | grep -oE '~[0-9]+ zero bytes')
+            echo -e "${BRIGHT_YELLOW}[$time_display] 📖 [Bridge] Loaded chain: $height, diff: $diff${NC}"
             ;;
         *"[Bridge]"*"Triggering"*)
             block=$(echo "$line" | grep -oE 'block #[0-9]+')
@@ -144,6 +170,34 @@ docker logs -f --tail 20 quantum-chain-node 2>&1 | \
         *"[qc-10]"*)
             msg="${line##*\[qc-10\]}"
             echo -e "${YELLOW}[$time_display] 🔐 [qc-10]$msg${NC}"
+            ;;
+        
+        # === QC-11: Smart Contracts ===
+        *"[qc-11]"*"Executing"*|*"[qc-11]"*"execution request"*)
+            tx_hash=$(echo "$line" | grep -oE 'tx_hash=[a-fA-F0-9x]+' | head -1)
+            block=$(echo "$line" | grep -oE 'block #[0-9]+' | head -1)
+            echo -e "${BRIGHT_MAGENTA}[$time_display] 📜 [qc-11] Executing transaction ${tx_hash:-""} ${block:-""}${NC}"
+            ;;
+        *"[qc-11]"*"completed"*|*"[qc-11]"*"success"*)
+            gas=$(echo "$line" | grep -oE 'gas_used=[0-9]+' | cut -d'=' -f2)
+            echo -e "${BRIGHT_MAGENTA}[$time_display] 📜 [qc-11] ✓ Execution complete | gas: ${gas:-N/A}${NC}"
+            ;;
+        *"[qc-11]"*"deployed"*|*"[qc-11]"*"ContractCreate"*)
+            addr=$(echo "$line" | grep -oE '0x[a-fA-F0-9]{40}' | head -1)
+            echo -e "${BRIGHT_MAGENTA}[$time_display] 📜 [qc-11] ✓ Contract deployed: ${addr:-""}${NC}"
+            echo -e "${GRAY}   └─ State changes → qc-04${NC}"
+            ;;
+        *"[qc-11]"*"HTLC"*)
+            op=$(echo "$line" | grep -oiE 'claim|refund' | head -1)
+            echo -e "${BRIGHT_MAGENTA}[$time_display] 📜 [qc-11] HTLC ${op:-operation} (via qc-15)${NC}"
+            ;;
+        *"[qc-11]"*"state_changes"*|*"[qc-11]"*"StateWrite"*)
+            count=$(echo "$line" | grep -oE 'count=[0-9]+' | cut -d'=' -f2)
+            echo -e "${MAGENTA}[$time_display] 📜 [qc-11] Publishing ${count:-"state"} changes → qc-04${NC}"
+            ;;
+        *"[qc-11]"*)
+            msg="${line##*\[qc-11\]}"
+            echo -e "${MAGENTA}[$time_display] 📜 [qc-11]$msg${NC}"
             ;;
         
         # === QC-16: API Gateway ===

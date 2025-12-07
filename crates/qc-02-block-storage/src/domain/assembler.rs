@@ -282,7 +282,7 @@ impl PendingBlockAssembly {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared_types::{BlockHeader, ConsensusProof};
+    use shared_types::{BlockHeader, ConsensusProof, U256};
 
     fn make_test_block(height: u64) -> ValidatedBlock {
         ValidatedBlock {
@@ -294,6 +294,8 @@ mod tests {
                 state_root: [0; 32],
                 timestamp: 1000,
                 proposer: [0; 32],
+                difficulty: U256::from(2).pow(U256::from(252)),
+                nonce: 0,
             },
             transactions: vec![],
             consensus_proof: ConsensusProof::default(),

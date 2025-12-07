@@ -34,6 +34,9 @@ pub fn create_genesis_block(config: &GenesisConfig) -> Result<ValidatedBlock, Ge
         state_root: [0u8; 32], // Initial state root
         timestamp: config.timestamp,
         proposer: [0u8; 32], // System genesis
+        // Genesis uses initial (easy) difficulty - 2^252
+        difficulty: U256::from(2).pow(U256::from(252)),
+        nonce: 0, // Genesis doesn't require mining
     };
 
     // Create empty consensus proof for genesis (trusted by definition)

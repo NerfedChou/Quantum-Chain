@@ -17,6 +17,7 @@ Tracking ALL subsystems in real-time:
   📡 qc-05: Block Propagation
   💰 qc-06: Mempool
   🔐 qc-10: Signature Verification
+  📜 qc-11: Smart Contracts (EVM)
   ✅ qc-08: Consensus
   🔒 qc-09: Finality
   🌉 qc-16: API Gateway
@@ -111,6 +112,27 @@ docker logs -f --tail 10 quantum-chain-node 2>&1 | \
             ;;
         *"[qc-10]"*"Signature"*|*"[qc-10]"*"verified"*)
             echo -e "${WHITE}[$time_display] 🔐 [qc-10] ${line##*\[qc-10\]}${NC}"
+            ;;
+        *"[qc-11]"*"execution"*|*"[qc-11]"*"Executing"*)
+            tx_hash=$(echo "$line" | grep -oE 'tx: 0x[a-fA-F0-9]+' | head -1)
+            echo -e "${BRIGHT_MAGENTA}[$time_display] 📜 [qc-11] Executing contract ${tx_hash:-""}${NC}"
+            ;;
+        *"[qc-11]"*"completed"*|*"[qc-11]"*"result"*)
+            gas=$(echo "$line" | grep -oE 'gas_used: [0-9]+' | cut -d' ' -f2)
+            success=$(echo "$line" | grep -oE 'success: (true|false)' | cut -d' ' -f2)
+            echo -e "${BRIGHT_MAGENTA}[$time_display] 📜 [qc-11] ✓ Execution complete | gas: ${gas:-N/A} | success: ${success:-true}${NC}"
+            ;;
+        *"[qc-11]"*"Contract deployed"*|*"[qc-11]"*"CREATE"*)
+            addr=$(echo "$line" | grep -oE '0x[a-fA-F0-9]{40}' | head -1)
+            echo -e "${BRIGHT_MAGENTA}[$time_display] 📜 [qc-11] ✓ Contract deployed at ${addr:-""}${NC}"
+            ;;
+        *"[qc-11]"*"HTLC"*)
+            op=$(echo "$line" | grep -oE 'Claim|Refund' | head -1)
+            echo -e "${BRIGHT_MAGENTA}[$time_display] 📜 [qc-11] HTLC ${op:-operation}${NC}"
+            ;;
+        *"[qc-11]"*)
+            msg="${line##*\[qc-11\]}"
+            echo -e "${MAGENTA}[$time_display] 📜 [qc-11]$msg${NC}"
             ;;
         *"[qc-16]"*"API"*|*"[qc-16]"*"Gateway"*)
             echo -e "${WHITE}[$time_display] 🌉 [qc-16] ${line##*\[qc-16\]}${NC}"

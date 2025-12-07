@@ -541,7 +541,7 @@ mod tests {
         SystemTimeSource,
     };
     use crate::service::BlockStorageService;
-    use shared_types::{BlockHeader, ConsensusProof, ValidatedBlock};
+    use shared_types::{BlockHeader, ConsensusProof, ValidatedBlock, U256};
 
     fn make_test_handler() -> BlockStorageHandler<
         InMemoryKVStore,
@@ -571,6 +571,8 @@ mod tests {
                 state_root: [0; 32],
                 timestamp: 1000 + height,
                 proposer: [0xAA; 32],
+                difficulty: U256::from(2).pow(U256::from(252)),
+                nonce: 0,
             },
             transactions: vec![],
             consensus_proof: ConsensusProof {

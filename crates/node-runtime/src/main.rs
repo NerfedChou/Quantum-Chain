@@ -89,6 +89,13 @@ use qc_16_api_gateway::{ApiGatewayService, GatewayConfig};
 use qc_17_block_production::BlockProducerService;
 use quantum_telemetry::{init_telemetry, TelemetryConfig};
 
+/// Helper to describe difficulty for logging
+fn difficulty_desc(difficulty: &U256) -> String {
+    let leading_zeros = difficulty.leading_zeros();
+    let leading_zero_bytes = leading_zeros / 8;
+    format!("~{} zero bytes", leading_zero_bytes)
+}
+
 /// The main node runtime orchestrating all subsystems.
 pub struct NodeRuntime {
     /// Subsystem container with all initialized services.
@@ -292,6 +299,9 @@ impl NodeRuntime {
                 state_root: genesis.header.state_root,
                 timestamp: genesis.header.timestamp,
                 proposer: [0u8; 32], // No proposer for genesis
+                // Genesis uses initial (easy) difficulty - 2^252
+                difficulty: primitive_types::U256::from(2).pow(primitive_types::U256::from(252)),
+                nonce: 0, // Genesis doesn't require mining
             },
             transactions: vec![],
             consensus_proof: shared_types::ConsensusProof::default(),
@@ -441,10 +451,64 @@ impl NodeRuntime {
             );
         }
 
+        // Load recent block history for difficulty adjustment when resuming
+        // We need timestamps from recent blocks to calculate proper difficulty
+        // Load recent blocks for difficulty adjustment - CRITICAL for chain continuity
+        // We track the last known good difficulty to handle old blocks without difficulty
+        let recent_blocks: Vec<qc_17_block_production::HistoricalBlockInfo> = {
+            let storage = container.block_storage.read();
+            let window_size = 24.min(chain_height as usize); // DGW window size
+            let mut blocks = Vec::with_capacity(window_size);
+            
+            // Track the last known good difficulty (start with initial, update as we find valid ones)
+            let mut last_known_difficulty = primitive_types::U256::from(2).pow(primitive_types::U256::from(252));
+
+            // Load blocks from OLDEST to NEWEST first, to find the progression of difficulty
+            let start_height = chain_height.saturating_sub(window_size as u64);
+            for h in start_height..=chain_height {
+                if let Ok(stored) = storage.read_block_by_height(h) {
+                    // If this block has valid difficulty, use it and update last_known
+                    let difficulty = if !stored.block.header.difficulty.is_zero() {
+                        last_known_difficulty = stored.block.header.difficulty;
+                        stored.block.header.difficulty
+                    } else {
+                        // Old block without difficulty - use last known (maintains progression)
+                        last_known_difficulty
+                    };
+                    blocks.push(qc_17_block_production::HistoricalBlockInfo {
+                        height: h,
+                        timestamp: stored.block.header.timestamp,
+                        difficulty,
+                    });
+                }
+            }
+            
+            // Reverse to get newest-first order (required by DGW algorithm)
+            blocks.reverse();
+
+            if !blocks.is_empty() {
+                let last_diff = &blocks[0].difficulty;
+                info!(
+                    "[qc-17] 📊 Loaded {} historical blocks for difficulty adjustment (last: {})",
+                    blocks.len(),
+                    difficulty_desc(last_diff)
+                );
+            }
+
+            blocks
+        };
+        
+        // Extract last known difficulty from loaded blocks for production config
+        let last_known_difficulty = recent_blocks.first()
+            .map(|b| b.difficulty)
+            .unwrap_or_else(|| primitive_types::U256::from(2).pow(primitive_types::U256::from(252)));
+
         // Start production in PoW mode with the correct starting height
         let miner_clone = Arc::clone(&miner_service);
         let mut production_config = qc_17_block_production::ProductionConfig::default();
         production_config.starting_height = chain_height;
+        production_config.recent_blocks = recent_blocks;
+        production_config.last_difficulty = Some(last_known_difficulty);
 
         tokio::spawn(async move {
             if let Err(e) = miner_clone
@@ -479,7 +543,7 @@ impl NodeRuntime {
         let mut last_block_height = chain_height; // Start from loaded height
 
         // Track the last block hash for parent linking
-        let mut last_block_hash: [u8; 32] = {
+        let (mut last_block_hash, _last_stored_difficulty): ([u8; 32], primitive_types::U256) = {
             // Helper to compute block hash (must match qc-02 logic)
             fn compute_block_hash(block: &shared_types::ValidatedBlock) -> [u8; 32] {
                 use sha2::{Digest, Sha256};
@@ -491,22 +555,29 @@ impl NodeRuntime {
                 hasher.update(block.header.timestamp.to_le_bytes());
                 hasher.finalize().into()
             }
+            
+            let initial_difficulty = primitive_types::U256::from(2).pow(primitive_types::U256::from(252));
 
-            // Load the last block's hash from storage if we have blocks
+            // Load the last block's hash and difficulty from storage if we have blocks
             if chain_height > 0 {
                 let storage = block_storage_for_bridge.read();
                 match storage.read_block_by_height(chain_height) {
                     Ok(stored) => {
                         let hash = compute_block_hash(&stored.block);
+                        let diff = if stored.block.header.difficulty.is_zero() {
+                            last_known_difficulty // Use the one we computed earlier
+                        } else {
+                            stored.block.header.difficulty
+                        };
                         info!(
-                            "[Bridge] 📖 Loaded last block hash from height {} ({:02x}{:02x}...)",
-                            chain_height, hash[0], hash[1]
+                            "[Bridge] 📖 Loaded last block from height {} (hash: {:02x}{:02x}..., diff: {})",
+                            chain_height, hash[0], hash[1], crate::difficulty_desc(&diff)
                         );
-                        hash
+                        (hash, diff)
                     }
                     Err(_) => {
                         info!("[Bridge] ⚠️ Could not load last block, using genesis parent");
-                        [0u8; 32] // Genesis parent hash (all zeros)
+                        ([0u8; 32], initial_difficulty)
                     }
                 }
             } else {
@@ -519,11 +590,11 @@ impl NodeRuntime {
                             "[Bridge] 📖 Loaded genesis block hash ({:02x}{:02x}...)",
                             hash[0], hash[1]
                         );
-                        hash
+                        (hash, initial_difficulty)
                     }
                     Err(_) => {
                         info!("[Bridge] ⚠️ No genesis found, using zeros");
-                        [0u8; 32]
+                        ([0u8; 32], initial_difficulty)
                     }
                 }
             }
@@ -538,106 +609,99 @@ impl NodeRuntime {
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 iteration += 1;
 
-                // Check if a new block was mined
-                let status = miner_status_checker.get_status().await;
-                let current_blocks = status.blocks_produced;
-
-                // Debug: Log every 10th iteration
-                if iteration % 10 == 0 {
+                // CRITICAL FIX: Drain the pending blocks queue instead of just reading status
+                // This ensures each block gets its own correct difficulty/nonce even when
+                // multiple blocks are mined between bridge polls
+                let pending_blocks = miner_status_checker.drain_pending_blocks().await;
+                
+                // Debug: Log every 10th iteration or when we have blocks
+                if iteration % 10 == 0 || !pending_blocks.is_empty() {
+                    let status = miner_status_checker.get_status().await;
                     info!(
-                        "[Bridge] 🔄 Poll #{}: blocks_produced={}, last_height={}",
-                        iteration, current_blocks, last_block_height
+                        "[Bridge] 🔄 Poll #{}: total_mined={}, pending={}, last_height={}",
+                        iteration, status.blocks_produced, pending_blocks.len(), last_block_height
                     );
                 }
 
-                if current_blocks > last_block_height {
-                    for block_height in (last_block_height + 1)..=current_blocks {
-                        // Create a minimal ValidatedBlock for storage
-                        use shared_types::{
-                            BlockHeader, ConsensusProof, Hash, PublicKey, ValidatedBlock,
-                        };
+                // Process each mined block with its OWN difficulty and nonce
+                for mined_block in pending_blocks {
+                    // Create a minimal ValidatedBlock for storage
+                    use shared_types::{
+                        BlockHeader, ConsensusProof, Hash, PublicKey, ValidatedBlock,
+                    };
 
-                        // Compute block hash (deterministic from height + parent)
-                        let _block_hash: [u8; 32] = {
-                            use sha2::{Digest, Sha256};
-                            let mut hasher = Sha256::new();
-                            hasher.update(&block_height.to_be_bytes());
-                            hasher.update(&last_block_hash);
-                            let result = hasher.finalize();
-                            let mut hash = [0u8; 32];
-                            hash.copy_from_slice(&result);
-                            hash
-                        };
+                    let block_height = mined_block.height;
+                    let difficulty = mined_block.difficulty;
+                    let nonce = mined_block.nonce;
+                    let timestamp = mined_block.timestamp;
 
-                        let block = ValidatedBlock {
-                            header: BlockHeader {
-                                version: 1,
-                                height: block_height,
-                                parent_hash: last_block_hash, // Link to parent!
-                                merkle_root: Hash::default(),
-                                state_root: Hash::default(),
-                                timestamp: std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_secs(),
-                                proposer: PublicKey::default(),
-                            },
-                            transactions: vec![],
-                            consensus_proof: ConsensusProof::default(),
-                        };
+                    let block = ValidatedBlock {
+                        header: BlockHeader {
+                            version: 1,
+                            height: block_height,
+                            parent_hash: last_block_hash, // Link to parent!
+                            merkle_root: Hash::default(),
+                            state_root: Hash::default(),
+                            timestamp,
+                            proposer: PublicKey::default(),
+                            difficulty,
+                            nonce,
+                        },
+                        transactions: vec![],
+                        consensus_proof: ConsensusProof::default(),
+                    };
 
-                        info!(
-                            "[Bridge] 🌉 Storing block #{} (parent: {:02x}{:02x}...) to storage",
-                            block_height, last_block_hash[0], last_block_hash[1]
-                        );
+                    info!(
+                        "[Bridge] 🌉 Storing block #{} (nonce: {}, diff: {}) to storage",
+                        block_height, nonce, crate::difficulty_desc(&difficulty)
+                    );
 
-                        // Store block directly to qc-02
-                        let stored_ok = {
-                            use qc_02_block_storage::ports::inbound::BlockStorageApi;
-                            let mut storage = block_storage_for_bridge.write();
-                            let merkle_root = shared_types::Hash::default();
-                            let state_root = shared_types::Hash::default();
-                            match (*storage).write_block(block, merkle_root, state_root) {
-                                Ok(stored_hash) => {
-                                    info!("[Bridge] 💾 Block #{} stored successfully (hash: {:02x}{:02x}...)", 
-                                        block_height, stored_hash[0], stored_hash[1]);
-                                    // Update last_block_hash for next iteration
-                                    last_block_hash = stored_hash;
-                                    true
-                                }
-                                Err(e) => {
-                                    error!(
-                                        "[Bridge] ❌ Failed to store block #{}: {}",
-                                        block_height, e
-                                    );
-                                    false
-                                }
+                    // Store block directly to qc-02
+                    let stored_ok = {
+                        use qc_02_block_storage::ports::inbound::BlockStorageApi;
+                        let mut storage = block_storage_for_bridge.write();
+                        let merkle_root = shared_types::Hash::default();
+                        let state_root = shared_types::Hash::default();
+                        match (*storage).write_block(block, merkle_root, state_root) {
+                            Ok(stored_hash) => {
+                                info!("[Bridge] 💾 Block #{} stored successfully (hash: {:02x}{:02x}...)", 
+                                    block_height, stored_hash[0], stored_hash[1]);
+                                // Update last_block_hash for next iteration (parent linking)
+                                last_block_hash = stored_hash;
+                                true
                             }
-                        };
-
-                        if stored_ok {
-                            // Publish BlockValidated to choreography router
-                            match choreography_router.publish(
-                                crate::wiring::ChoreographyEvent::BlockValidated {
-                                    block_hash: last_block_hash,
-                                    block_height,
-                                    sender_id: shared_types::SubsystemId::Consensus,
-                                },
-                            ) {
-                                Ok(_) => {
-                                    info!(
-                                        "[Bridge] ✅ Published BlockValidated for block #{}",
-                                        block_height
-                                    );
-                                }
-                                Err(e) => {
-                                    error!("[Bridge] ❌ Failed to publish BlockValidated: {}", e);
-                                }
+                            Err(e) => {
+                                error!(
+                                    "[Bridge] ❌ Failed to store block #{}: {}",
+                                    block_height, e
+                                );
+                                false
                             }
                         }
-                    }
+                    };
 
-                    last_block_height = current_blocks;
+                    if stored_ok {
+                        // Publish BlockValidated to choreography router
+                        match choreography_router.publish(
+                            crate::wiring::ChoreographyEvent::BlockValidated {
+                                block_hash: last_block_hash,
+                                block_height,
+                                sender_id: shared_types::SubsystemId::Consensus,
+                            },
+                        ) {
+                            Ok(_) => {
+                                info!(
+                                    "[Bridge] ✅ Published BlockValidated for block #{}",
+                                    block_height
+                                );
+                            }
+                            Err(e) => {
+                                error!("[Bridge] ❌ Failed to publish BlockValidated: {}", e);
+                            }
+                        }
+                        
+                        last_block_height = block_height;
+                    }
                 }
             }
         });
