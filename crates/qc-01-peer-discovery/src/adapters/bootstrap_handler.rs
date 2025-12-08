@@ -19,9 +19,10 @@
 //! The handler does NOT add peers directly to the routing table.
 //! It stages them and awaits `NodeIdentityVerificationResult` from Subsystem 10.
 
-use crate::domain::{NodeId, PeerDiscoveryError, PeerInfo, SocketAddr, VerificationProof};
+use crate::adapters::VerificationRequestPublisher;
+use crate::domain::{NodeId, PeerDiscoveryError, PeerInfo, SocketAddr};
 use crate::ipc::{BootstrapRequest, BootstrapResult};
-use crate::ports::{AddPeerResult, NodeIdValidator, PeerDiscoveryApi, TimeSource};
+use crate::ports::{NodeIdValidator, PeerDiscoveryApi, TimeSource};
 use crate::service::PeerDiscoveryService;
 
 /// Handler for external peer bootstrap requests.
@@ -29,25 +30,30 @@ use crate::service::PeerDiscoveryService;
 /// Implements the DDoS defense flow:
 /// 1. Validate proof-of-work (anti-Sybil)
 /// 2. Check if peer is banned or subnet limit reached
-/// 3. Call service.add_peer() which orchestrates verification
-pub struct BootstrapHandler {
+/// 3. Stage peer in pending_verification
+/// 4. Publish verification request to Subsystem 10
+pub struct BootstrapHandler<S, P> {
     /// The peer discovery service.
-    service: PeerDiscoveryService,
+    service: S,
+    /// Publisher for sending verification requests.
+    verification_publisher: P,
     /// Validator for proof-of-work.
     pow_validator: Box<dyn NodeIdValidator>,
     /// Time source for timestamps.
     time_source: Box<dyn TimeSource>,
 }
 
-impl BootstrapHandler {
+impl<S: PeerDiscoveryApi, P: VerificationRequestPublisher> BootstrapHandler<S, P> {
     /// Create a new bootstrap handler.
     pub fn new(
-        service: PeerDiscoveryService,
+        service: S,
+        verification_publisher: P,
         pow_validator: Box<dyn NodeIdValidator>,
         time_source: Box<dyn TimeSource>,
     ) -> Self {
         Self {
             service,
+            verification_publisher,
             pow_validator,
             time_source,
         }
@@ -79,22 +85,42 @@ impl BootstrapHandler {
         // Step 3: Create peer info and stage for verification
         let socket_addr = SocketAddr::new(request.ip_address, request.port);
         let peer_info = PeerInfo::new(node_id, socket_addr, now);
-        let proof = VerificationProof::new(request.claimed_pubkey, request.signature);
 
-        match self.service.add_peer(peer_info, Some(proof)) {
-            Ok(AddPeerResult::StagedWithVerification(correlation_id)) => {
-                BootstrapResult::PendingVerification { correlation_id }
+        match self.service.add_peer(peer_info) {
+            Ok(true) => {
+                // Peer was staged successfully
             }
-            Ok(AddPeerResult::StagedNoVerification) => {
-                // Should not happen if proof is provided
-                BootstrapResult::StagingFull // Fallback
+            Ok(false) => {
+                // Already exists or rejected
+                return BootstrapResult::SubnetLimitReached;
             }
-            Ok(AddPeerResult::Rejected) => BootstrapResult::SubnetLimitReached,
-            Err(PeerDiscoveryError::StagingAreaFull) => BootstrapResult::StagingFull,
-            Err(PeerDiscoveryError::SubnetLimitReached) => BootstrapResult::SubnetLimitReached,
-            Err(PeerDiscoveryError::PeerBanned) => BootstrapResult::Banned,
-            Err(_) => BootstrapResult::StagingFull,
+            Err(PeerDiscoveryError::StagingAreaFull) => {
+                return BootstrapResult::StagingFull;
+            }
+            Err(PeerDiscoveryError::SubnetLimitReached) => {
+                return BootstrapResult::SubnetLimitReached;
+            }
+            Err(PeerDiscoveryError::PeerBanned) => {
+                return BootstrapResult::Banned;
+            }
+            Err(_) => {
+                return BootstrapResult::StagingFull;
+            }
         }
+
+        // Step 4: Generate correlation ID and publish verification request
+        let correlation_id = self.generate_correlation_id();
+        let verify_request = request.to_verification_request();
+
+        if let Err(_e) = self
+            .verification_publisher
+            .publish_verification_request(verify_request, correlation_id)
+        {
+            // If we can't publish, the peer will timeout in staging
+            // This is acceptable - they can retry
+        }
+
+        BootstrapResult::PendingVerification { correlation_id }
     }
 
     /// Validate proof-of-work for anti-Sybil protection.
@@ -111,18 +137,26 @@ impl BootstrapHandler {
         // Require at least 16 leading zero bits (2 bytes)
         pow[0] == 0 && pow[1] == 0
     }
+
+    /// Generate a correlation ID for request/response matching.
+    fn generate_correlation_id(&self) -> [u8; 16] {
+        // Use UUID v4 for correlation IDs
+        let uuid = uuid::Uuid::new_v4();
+        *uuid.as_bytes()
+    }
+
     /// Get a reference to the underlying service.
-    pub fn service(&self) -> &PeerDiscoveryService {
+    pub fn service(&self) -> &S {
         &self.service
     }
 
     /// Get a mutable reference to the underlying service.
-    pub fn service_mut(&mut self) -> &mut PeerDiscoveryService {
+    pub fn service_mut(&mut self) -> &mut S {
         &mut self.service
     }
 
     /// Consume the handler and return the service.
-    pub fn into_service(self) -> PeerDiscoveryService {
+    pub fn into_service(self) -> S {
         self.service
     }
 }
@@ -149,16 +183,17 @@ mod tests {
         }
     }
 
-    fn make_handler() -> BootstrapHandler {
+    fn make_handler() -> BootstrapHandler<PeerDiscoveryService, InMemoryVerificationPublisher> {
         let local_id = NodeId::new([0u8; 32]);
         let config = KademliaConfig::for_testing();
         let time_source: Box<dyn TimeSource> = Box::new(TestTimeSource::new(Timestamp::new(1000)));
-        let publisher = Box::new(InMemoryVerificationPublisher::new()); // Stored in Service
-        let service = PeerDiscoveryService::new(local_id, config, time_source, publisher);
+        let service = PeerDiscoveryService::new(local_id, config, time_source);
         let test_time: Box<dyn TimeSource> = Box::new(TestTimeSource::new(Timestamp::new(1000)));
+        // Publisher is managed by handler now
+        let publisher = InMemoryVerificationPublisher::new();
         let validator = Box::new(NoOpNodeIdValidator::new());
 
-        BootstrapHandler::new(service, validator, test_time)
+        BootstrapHandler::new(service, publisher, validator, test_time)
     }
 
     fn make_request(node_byte: u8) -> BootstrapRequest {
@@ -207,11 +242,15 @@ mod tests {
     fn test_has_sufficient_zeros() {
         // Valid - 2 zero bytes
         let valid_pow = [0u8; 32];
-        assert!(BootstrapHandler::has_sufficient_zeros(&valid_pow));
+        assert!(BootstrapHandler::<PeerDiscoveryService, InMemoryVerificationPublisher>::has_sufficient_zeros(
+            &valid_pow
+        ));
 
         // Invalid - only 1 zero byte
         let mut invalid_pow = [0u8; 32];
         invalid_pow[1] = 1;
-        assert!(!BootstrapHandler::has_sufficient_zeros(&invalid_pow));
+        assert!(!BootstrapHandler::<PeerDiscoveryService, InMemoryVerificationPublisher>::has_sufficient_zeros(
+            &invalid_pow
+        ));
     }
 }

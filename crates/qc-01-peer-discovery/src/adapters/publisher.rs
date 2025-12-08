@@ -233,9 +233,8 @@ impl PeerDiscoveryEventPublisher for InMemoryEventPublisher {
 // VERIFICATION REQUEST PUBLISHER (Outbound to Subsystem 10)
 // =============================================================================
 
-use crate::domain::{NodeId, VerificationProof};
+
 use crate::ipc::VerifyNodeIdentityRequest;
-use crate::ports::VerificationPublisher;
 
 /// Publisher for sending verification requests to Subsystem 10.
 ///
@@ -248,18 +247,23 @@ use crate::ports::VerificationPublisher;
 /// ```text
 /// BootstrapRequest → stage peer → publish_verification_request → Subsystem 10
 /// ```
-/// Publisher for sending verification requests to Subsystem 10.
-///
-/// This is the EDA outbound port for the DDoS defense flow.
-/// When a new peer connects via `BootstrapRequest`, we stage them
-/// and send a verification request to Subsystem 10.
-///
-/// ## Flow
-///
-/// ```text
-/// BootstrapRequest → stage peer → publish_verification_request → Subsystem 10
-/// ```
-// Trait moved to ports::outbound::VerificationPublisher
+pub trait VerificationRequestPublisher: Send + Sync {
+    /// Send a verification request to Subsystem 10.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The verification request payload
+    /// * `correlation_id` - ID to correlate with the eventual response
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) if published successfully
+    fn publish_verification_request(
+        &self,
+        request: VerifyNodeIdentityRequest,
+        correlation_id: [u8; 16],
+    ) -> Result<(), String>;
+}
 
 /// No-op verification request publisher for testing.
 #[derive(Debug, Default)]
@@ -285,15 +289,15 @@ impl NoOpVerificationPublisher {
     }
 }
 
-impl VerificationPublisher for NoOpVerificationPublisher {
+impl VerificationRequestPublisher for NoOpVerificationPublisher {
     fn publish_verification_request(
         &self,
-        _node_id: NodeId,
-        _proof: VerificationProof,
-    ) -> Result<[u8; 16], String> {
+        _request: VerifyNodeIdentityRequest,
+        _correlation_id: [u8; 16],
+    ) -> Result<(), String> {
         self.request_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok([0u8; 16]) // Dummy ID
+        Ok(())
     }
 }
 
@@ -324,19 +328,17 @@ impl InMemoryVerificationPublisher {
     }
 }
 
-impl VerificationPublisher for InMemoryVerificationPublisher {
+impl VerificationRequestPublisher for InMemoryVerificationPublisher {
     fn publish_verification_request(
         &self,
-        node_id: NodeId,
-        proof: VerificationProof,
-    ) -> Result<[u8; 16], String> {
-        let request = VerifyNodeIdentityRequest::new(node_id.0, proof.claimed_pubkey, proof.signature);
-        let correlation_id = [1u8; 16]; // Dummy
+        request: VerifyNodeIdentityRequest,
+        correlation_id: [u8; 16],
+    ) -> Result<(), String> {
         self.requests
             .lock()
             .unwrap()
             .push((request, correlation_id));
-        Ok(correlation_id)
+        Ok(())
     }
 }
 

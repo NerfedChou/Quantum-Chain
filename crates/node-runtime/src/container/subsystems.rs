@@ -41,6 +41,11 @@ use tracing::{info, instrument, warn};
 use shared_bus::{InMemoryEventBus, TimeBoundedNonceCache};
 use shared_types::SubsystemRegistry;
 
+#[cfg(feature = "qc-01")]
+use qc_01_peer_discovery::adapters::BootstrapHandler;
+#[cfg(feature = "qc-01")]
+use crate::adapters::peer_discovery::{RuntimeVerificationPublisher, SharedPeerDiscovery};
+
 use crate::container::config::NodeConfig;
 
 // =============================================================================
@@ -167,6 +172,8 @@ pub struct SubsystemContainer {
     /// Peer Discovery (Subsystem 1) - Optional
     #[cfg(feature = "qc-01")]
     pub peer_discovery: Arc<RwLock<PeerDiscoveryService>>,
+    #[cfg(feature = "qc-01")]
+    pub bootstrap_handler: Arc<RwLock<BootstrapHandler<SharedPeerDiscovery, RuntimeVerificationPublisher>>>,
 
     /// Mempool (Subsystem 6) - Optional
     #[cfg(feature = "qc-06")]
@@ -262,10 +269,10 @@ impl SubsystemContainer {
         info!("Phase 3: Initializing Level 1 subsystems");
 
         #[cfg(feature = "qc-01")]
-        let peer_discovery = {
-            let pd = Self::init_peer_discovery();
-            info!("  [1] Peer Discovery initialized");
-            pd
+        let (peer_discovery, bootstrap_handler) = {
+            let (pd, bh) = Self::init_peer_discovery(Arc::clone(&event_bus), &config);
+            info!("  [1] Peer Discovery & DDoS Defense initialized");
+            (pd, bh)
         };
 
         #[cfg(feature = "qc-06")]
@@ -381,6 +388,8 @@ impl SubsystemContainer {
         Self {
             #[cfg(feature = "qc-01")]
             peer_discovery,
+            #[cfg(feature = "qc-01")]
+            bootstrap_handler,
             #[cfg(feature = "qc-06")]
             mempool,
             #[cfg(feature = "qc-03")]
@@ -447,19 +456,48 @@ impl SubsystemContainer {
     // SUBSYSTEM INITIALIZATION METHODS
     // =========================================================================
 
+
     #[cfg(feature = "qc-01")]
-    fn init_peer_discovery() -> Arc<RwLock<PeerDiscoveryService>> {
-        use qc_01_peer_discovery::{KademliaConfig, NodeId, SystemTimeSource, TimeSource};
+    fn init_peer_discovery(
+        event_bus: Arc<InMemoryEventBus>,
+        _config: &NodeConfig,
+    ) -> (
+        Arc<RwLock<PeerDiscoveryService>>,
+        Arc<RwLock<BootstrapHandler<SharedPeerDiscovery, RuntimeVerificationPublisher>>>,
+    ) {
+        use qc_01_peer_discovery::{
+            adapters::network::ProofOfWorkValidator, KademliaConfig, NodeId, SystemTimeSource,
+            TimeSource,
+        };
 
         let local_node_id = NodeId::new(rand::random());
         let kademlia_config = KademliaConfig::default();
         let time_source: Box<dyn TimeSource> = Box::new(SystemTimeSource);
 
-        Arc::new(RwLock::new(PeerDiscoveryService::new(
+        let service = Arc::new(RwLock::new(PeerDiscoveryService::new(
             local_node_id,
             kademlia_config,
-            time_source,
-        )))
+            Box::new(SystemTimeSource), // Separate instance
+        )));
+
+        let shared_service = SharedPeerDiscovery {
+            inner: service.clone(),
+        };
+
+        let verification_publisher = RuntimeVerificationPublisher::new(event_bus);
+        let node_id_validator = ProofOfWorkValidator::new(16); // 16 bits = 2 zero bytes
+
+        // Instantiate additional time source for handler
+        let handler_time_source: Box<dyn TimeSource> = Box::new(SystemTimeSource);
+
+        let bootstrap_handler = Arc::new(RwLock::new(BootstrapHandler::new(
+            shared_service,
+            verification_publisher,
+            Box::new(node_id_validator),
+            handler_time_source,
+        )));
+
+        (service, bootstrap_handler)
     }
 
     #[cfg(feature = "qc-06")]

@@ -471,7 +471,6 @@ mod toml_config {
             for node_str in &file.bootstrap.nodes {
                 if let Some(addr) = Self::parse_socket_addr(node_str) {
                     bootstrap_nodes.push(addr);
-                } else {
                 }
             }
 

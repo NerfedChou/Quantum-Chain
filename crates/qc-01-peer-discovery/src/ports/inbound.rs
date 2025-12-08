@@ -5,19 +5,10 @@
 //! Per SPEC-01-PEER-DISCOVERY.md Section 3.1
 
 use crate::domain::{
-    BanReason, NodeId, PeerDiscoveryError, PeerInfo, RoutingTableStats, VerificationProof,
+    BanReason, NodeId, PeerDiscoveryError, PeerInfo, RoutingTableStats,
 };
 
-/// Result of an add_peer operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AddPeerResult {
-    /// Peer was accepted and staged; verification request sent.
-    StagedWithVerification([u8; 16]),
-    /// Peer was accepted and staged; no verification possible (missing proof).
-    StagedNoVerification,
-    /// Peer was rejected (subnet limit, ban, etc.).
-    Rejected,
-}
+
 
 /// Primary API for interacting with the peer discovery subsystem.
 ///
@@ -66,16 +57,11 @@ pub trait PeerDiscoveryApi {
     ///
     /// # Returns
     ///
-    /// - `Ok(StagedWithVerification(id))` if staged and verified
-    /// - `Ok(StagedNoVerification)` if staged without verification
-    /// - `Ok(Rejected)` if rejected (subnet limit, etc.)
+    /// - `Ok(true)` if staged for verification
+    /// - `Ok(false)` if rejected (banned, subnet limit, etc.)
     /// - `Err(StagingAreaFull)` if staging capacity reached
     /// - `Err(SelfConnection)` if sending local node
-    fn add_peer(
-        &mut self,
-        peer: PeerInfo,
-        proof: Option<VerificationProof>,
-    ) -> Result<AddPeerResult, PeerDiscoveryError>;
+    fn add_peer(&mut self, peer: PeerInfo) -> Result<bool, PeerDiscoveryError>;
 
     /// Get a random selection of peers (for gossip protocols).
     ///

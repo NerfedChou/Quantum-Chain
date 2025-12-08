@@ -38,6 +38,11 @@ pub use event_bus::*;
 pub use storage::*;
 
 // Subsystem-specific adapters (conditional)
+#[cfg(feature = "qc-01")]
+pub mod peer_discovery;
+#[cfg(feature = "qc-01")]
+pub use peer_discovery::*;
+
 #[cfg(feature = "qc-02")]
 pub mod block_storage;
 #[cfg(feature = "qc-02")]

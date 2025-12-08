@@ -18,7 +18,5 @@
 pub mod inbound;
 pub mod outbound;
 
-pub use inbound::{AddPeerResult, PeerDiscoveryApi, VerificationHandler};
-pub use outbound::{
-    ConfigProvider, NetworkError, NetworkSocket,    InMemoryVerificationPublisher, NoOpVerificationPublisher,
-};
+pub use inbound::{PeerDiscoveryApi, VerificationHandler};
+pub use outbound::{ConfigProvider, NetworkError, NetworkSocket, NodeIdValidator, TimeSource};

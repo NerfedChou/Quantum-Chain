@@ -108,3 +108,4 @@ num_cpus = "1.16"
 hex = "0.4"
 serde_json.workspace = true
 chrono = "0.4"
+uuid = { workspace = true, features = ["v4"] }

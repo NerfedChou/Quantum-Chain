@@ -77,11 +77,12 @@ use anyhow::{Context, Result};
 use primitive_types::U256;
 use tracing::{error, info, warn};
 
-use crate::adapters::BlockStorageAdapter;
+use crate::adapters::{BlockStorageAdapter, RuntimeMempoolGateway};
 use crate::container::{NodeConfig, SubsystemContainer};
 use crate::genesis::{GenesisBuilder, GenesisConfig};
 use crate::handlers::{
-    ApiQueryHandler, BlockStorageHandler, FinalityHandler, StateMgmtHandler, TxIndexingHandler,
+    ApiQueryHandler, BlockStorageHandler, FinalityHandler, SignatureVerificationHandler, StateMgmtHandler,
+    TxIndexingHandler,
 };
 use crate::wiring::ChoreographyCoordinator;
 use qc_02_block_storage::BlockStorageApi;
@@ -398,6 +399,21 @@ impl NodeRuntime {
             }
         });
 
+
+
+        // Start Signature Verification handler (qc-10) - CRITICAL for peer discovery and secure IPC
+        // Handles VerifyNodeIdentity events from qc-01, verifying signatures and responding
+        let mempool_gateway = RuntimeMempoolGateway::new(Arc::clone(&container.event_bus));
+        let sv_service = qc_10_signature_verification::SignatureVerificationService::new(mempool_gateway);
+        let sv_handler = SignatureVerificationHandler::new(
+            Arc::clone(&container.event_bus),
+            sv_service,
+            &container.config,
+        );
+        let sv_handler_task = tokio::spawn(async move {
+            sv_handler.run().await;
+        });
+        
         // Start API Query handler (bridges qc-16 to subsystems)
         let api_query_handler = ApiQueryHandler::new(Arc::clone(&container));
         let mut api_shutdown = self.shutdown_rx.clone();
