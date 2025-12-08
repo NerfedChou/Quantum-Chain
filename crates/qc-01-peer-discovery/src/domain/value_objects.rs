@@ -28,6 +28,27 @@ impl Distance {
     }
 }
 
+/// Cryptographic proof for Node Identity Verification
+///
+/// Contains the public key and signature required by Subsystem 10
+/// to verify that the node actually owns its NodeID.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerificationProof {
+    /// The claimed compressed public key (33 bytes)
+    pub claimed_pubkey: [u8; 33],
+    /// Signature of the node_id by the private key
+    pub signature: [u8; 64],
+}
+
+impl VerificationProof {
+    pub fn new(claimed_pubkey: [u8; 33], signature: [u8; 64]) -> Self {
+        Self {
+            claimed_pubkey,
+            signature,
+        }
+    }
+}
+
 /// Configuration constants for Kademlia DHT
 ///
 /// # Security Notes (SPEC-01 Section 2.3)

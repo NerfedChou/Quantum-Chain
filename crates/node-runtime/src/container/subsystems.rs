@@ -449,23 +449,11 @@ impl SubsystemContainer {
 
     #[cfg(feature = "qc-01")]
     fn init_peer_discovery() -> Arc<RwLock<PeerDiscoveryService>> {
-        use qc_01_peer_discovery::{KademliaConfig, NodeId, TimeSource, Timestamp};
-
-        struct SimpleTimeSource;
-        impl TimeSource for SimpleTimeSource {
-            fn now(&self) -> Timestamp {
-                Timestamp::new(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0),
-                )
-            }
-        }
+        use qc_01_peer_discovery::{KademliaConfig, NodeId, SystemTimeSource, TimeSource};
 
         let local_node_id = NodeId::new(rand::random());
         let kademlia_config = KademliaConfig::default();
-        let time_source: Box<dyn TimeSource> = Box::new(SimpleTimeSource);
+        let time_source: Box<dyn TimeSource> = Box::new(SystemTimeSource);
 
         Arc::new(RwLock::new(PeerDiscoveryService::new(
             local_node_id,

@@ -184,7 +184,7 @@ impl<S: VerificationHandler> PeerDiscoveryEventSubscriber for EventHandler<S> {
                 // This outcome can trigger a PING event via the publisher
                 Ok(VerificationOutcome::ChallengeRequired {
                     new_peer: result.node_id,
-                    challenged_peer: challenged_peer.as_bytes(),
+                    challenged_peer: *challenged_peer.as_bytes(),
                 })
             }
             Ok(None) => {
@@ -310,5 +310,154 @@ mod tests {
         };
         let sub_err: SubscriptionError = security_err.into();
         assert!(matches!(sub_err, SubscriptionError::SecurityViolation(_)));
+    }
+
+    // ========================================================================
+    // EDA Integration Tests - Event Handler with VerificationHandler
+    // ========================================================================
+
+    use crate::domain::{
+        IpAddr, KademliaConfig, PeerDiscoveryError, PeerInfo, RoutingTable, SocketAddr, Timestamp,
+    };
+
+    /// Mock service that implements VerificationHandler for testing
+    struct MockVerificationService {
+        routing_table: RoutingTable,
+        current_time: Timestamp,
+    }
+
+    impl MockVerificationService {
+        fn new() -> Self {
+            let local_id = NodeId::new([0u8; 32]);
+            Self {
+                routing_table: RoutingTable::new(local_id, KademliaConfig::for_testing()),
+                current_time: Timestamp::new(1000),
+            }
+        }
+
+        fn stage_peer(&mut self, node_id: [u8; 32]) {
+            let peer = PeerInfo::new(
+                NodeId::new(node_id),
+                SocketAddr::new(IpAddr::v4(192, 168, 1, 1), 8080),
+                self.current_time,
+            );
+            self.routing_table.stage_peer(peer, self.current_time).ok();
+        }
+
+        fn peer_count(&self) -> usize {
+            self.routing_table.stats(self.current_time).total_peers
+        }
+    }
+
+    impl VerificationHandler for MockVerificationService {
+        fn handle_verification(
+            &mut self,
+            node_id: &NodeId,
+            identity_valid: bool,
+        ) -> Result<Option<NodeId>, PeerDiscoveryError> {
+            self.routing_table
+                .on_verification_result(node_id, identity_valid, self.current_time)
+        }
+    }
+
+    #[test]
+    fn test_event_handler_rejects_unauthorized_sender() {
+        let service = MockVerificationService::new();
+        let mut handler = EventHandler::new(service);
+
+        let result = handler.on_node_identity_result(
+            5, // Wrong sender ID - should be 10
+            NodeIdentityVerificationResult {
+                node_id: [1u8; 32],
+                identity_valid: true,
+                verification_timestamp: 1000,
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(SubscriptionError::SecurityViolation(_))
+        ));
+    }
+
+    #[test]
+    fn test_event_handler_promotes_peer_on_valid_verification() {
+        let mut service = MockVerificationService::new();
+        service.stage_peer([1u8; 32]);
+        let mut handler = EventHandler::new(service);
+
+        let result = handler.on_node_identity_result(
+            10, // Correct sender ID
+            NodeIdentityVerificationResult {
+                node_id: [1u8; 32],
+                identity_valid: true,
+                verification_timestamp: 1000,
+            },
+        );
+
+        // Should return PeerPromoted
+        assert!(matches!(
+            result,
+            Ok(VerificationOutcome::PeerPromoted { node_id }) if node_id == [1u8; 32]
+        ));
+
+        // Verify peer was actually added to routing table
+        assert_eq!(handler.service().peer_count(), 1);
+    }
+
+    #[test]
+    fn test_event_handler_rejects_peer_on_invalid_verification() {
+        let mut service = MockVerificationService::new();
+        service.stage_peer([1u8; 32]);
+        let mut handler = EventHandler::new(service);
+
+        let result = handler.on_node_identity_result(
+            10,
+            NodeIdentityVerificationResult {
+                node_id: [1u8; 32],
+                identity_valid: false, // Invalid signature
+                verification_timestamp: 1000,
+            },
+        );
+
+        // Should return PeerRejected
+        assert!(matches!(
+            result,
+            Ok(VerificationOutcome::PeerRejected { node_id }) if node_id == [1u8; 32]
+        ));
+
+        // Verify peer was NOT added to routing table
+        assert_eq!(handler.service().peer_count(), 0);
+    }
+
+    #[test]
+    fn test_event_handler_returns_not_found_for_unknown_peer() {
+        let service = MockVerificationService::new();
+        let mut handler = EventHandler::new(service);
+
+        // Try to verify a peer that was never staged
+        let result = handler.on_node_identity_result(
+            10,
+            NodeIdentityVerificationResult {
+                node_id: [99u8; 32], // Unknown peer
+                identity_valid: true,
+                verification_timestamp: 1000,
+            },
+        );
+
+        // Should return NotFound
+        assert!(matches!(
+            result,
+            Ok(VerificationOutcome::NotFound { node_id }) if node_id == [99u8; 32]
+        ));
+    }
+
+    #[test]
+    fn test_event_handler_into_service_consumes_handler() {
+        let service = MockVerificationService::new();
+        let handler = EventHandler::new(service);
+
+        let recovered_service = handler.into_service();
+        assert_eq!(recovered_service.peer_count(), 0);
     }
 }

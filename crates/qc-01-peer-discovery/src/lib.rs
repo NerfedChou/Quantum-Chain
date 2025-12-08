@@ -6,24 +6,28 @@
 //! This crate implements the Kademlia Distributed Hash Table (DHT) for
 //! peer discovery and routing in the Quantum-Chain network.
 //!
+//! ## Zero-Dependency Core
+//!
+//! The core library (domain, ports, service) has **ZERO external dependencies**.
+//! All adapters and integrations are feature-gated for true plug-and-play:
+//!
+//! - `ipc` - Event bus integration (shared-types)
+//! - `rpc` - API Gateway (serde, serde_json)
+//! - `bootstrap` - Bootstrap handler (uuid)
+//! - `network` - UDP/TOML adapters (tokio, toml)
+//!
 //! ## Architecture
 //!
 //! The crate follows Hexagonal Architecture with:
 //! - **Domain Layer:** Pure Kademlia logic (XOR distance, k-buckets, routing table)
 //! - **Ports Layer:** Trait definitions for external dependencies
-//! - **Adapters Layer:** Concrete implementations for IPC and Event Bus
-//!
-//! ## Security Features
-//!
-//! - **DDoS Edge Defense:** New peers staged for verification via Subsystem 10
-//! - **Memory Bomb Defense (V2.3):** Bounded staging with Tail Drop strategy
-//! - **Eclipse Attack Defense (V2.4):** Eviction-on-Failure policy
-//! - **IP Diversity:** Subnet-based limits to prevent Sybil attacks
+//! - **Service Layer:** Wires domain to ports
+//! - **Adapters Layer:** Concrete implementations (feature-gated)
 //!
 //! ## Example
 //!
 //! ```rust
-//! use qc_01_peer_discovery::domain::{
+//! use qc_01_peer_discovery::{
 //!     NodeId, PeerInfo, SocketAddr, IpAddr, Timestamp,
 //!     KademliaConfig, RoutingTable,
 //! };
@@ -48,43 +52,114 @@
 //! table.on_verification_result(&peer.node_id, true, now).unwrap();
 //! ```
 
-pub mod adapters;
+// =============================================================================
+// CORE MODULES (Zero Dependencies)
+// =============================================================================
+
 pub mod domain;
-pub mod ipc;
 pub mod ports;
 pub mod service;
 
-// Re-export commonly used types
+// =============================================================================
+// FEATURE-GATED MODULES
+// =============================================================================
+
+/// IPC module for event bus integration.
+/// Requires feature: `ipc`
+#[cfg(feature = "ipc")]
+pub mod ipc;
+
+/// Adapters for external integrations.
+/// Different adapters require different features.
+#[cfg(any(
+    feature = "ipc",
+    feature = "rpc",
+    feature = "bootstrap",
+    feature = "network"
+))]
+pub mod adapters;
+
+/// Test utilities (FixedTimeSource, etc.)
+/// Requires feature: `test-utils`
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
+
+// =============================================================================
+// CORE RE-EXPORTS (Always Available)
+// =============================================================================
+
+// Domain entities
 pub use domain::{
     BanReason, DisconnectReason, Distance, IpAddr, KBucket, KademliaConfig, NodeId,
     PeerDiscoveryError, PeerInfo, PendingInsertion, PendingPeer, RoutingTable, RoutingTableStats,
     SocketAddr, SubnetMask, Timestamp, WarningType,
 };
 
-// Re-export domain services
+// Domain services
 pub use domain::{
     calculate_bucket_index, find_k_closest, is_same_subnet, sort_peers_by_distance, xor_distance,
 };
 
-// Re-export port traits
+// Port traits
 pub use ports::{
     ConfigProvider, NetworkError, NetworkSocket, NodeIdValidator, PeerDiscoveryApi, TimeSource,
+    VerificationHandler,
 };
 
-// Re-export service
+// Service
 pub use service::PeerDiscoveryService;
 
-// Re-export IPC types
+// =============================================================================
+// IPC RE-EXPORTS (Requires `ipc` feature)
+// =============================================================================
+
+#[cfg(feature = "ipc")]
 pub use ipc::{
     AuthorizationRules, FullNodeListRequestPayload, IpcHandler, PeerConnectedPayload,
     PeerDisconnectedPayload, PeerDiscoveryEventPayload, PeerDiscoveryRequestPayload, PeerFilter,
     PeerListRequestPayload, PeerListResponsePayload, SecurityError, SubsystemId,
+    BootstrapRequest, BootstrapResult, VerifyNodeIdentityRequest,
 };
 
-// Re-export adapter types
+// =============================================================================
+// ADAPTER RE-EXPORTS (Feature-Gated)
+// =============================================================================
+
+// Network adapters - pure types always available when adapters module exists
+#[cfg(any(feature = "ipc", feature = "rpc", feature = "bootstrap", feature = "network"))]
 pub use adapters::{
-    handle_api_query, ApiGatewayHandler, ApiQueryError, EventBuilder, EventHandler,
-    InMemoryEventPublisher, NoOpEventPublisher, NodeIdentityVerificationResult,
-    PeerDiscoveryEventPublisher, PeerDiscoveryEventSubscriber, Qc01Metrics, RpcNetworkInfo,
-    RpcNodeInfo, RpcPeerInfo, RpcPorts, RpcProtocols, SubscriptionError, SubscriptionFilter,
+    NoOpNetworkSocket, NoOpNodeIdValidator, ProofOfWorkValidator, 
+    StaticConfigProvider, SystemTimeSource,
 };
+
+// IPC/EDA adapters (publisher, subscriber)
+#[cfg(feature = "ipc")]
+pub use adapters::{
+    EventBuilder, EventHandler, InMemoryEventPublisher, NoOpEventPublisher,
+    NodeIdentityVerificationResult, PeerDiscoveryEventPublisher, PeerDiscoveryEventSubscriber,
+    SubscriptionError, SubscriptionFilter, VerificationOutcome,
+    InMemoryVerificationPublisher, NoOpVerificationPublisher, VerificationRequestPublisher,
+};
+
+// RPC adapters (serde-based)
+#[cfg(feature = "rpc")]
+pub use adapters::{
+    handle_api_query, ApiGatewayHandler, ApiQueryError, Qc01Metrics, RpcNetworkInfo,
+    RpcNodeInfo, RpcPeerInfo, RpcPorts, RpcProtocols,
+};
+
+// Bootstrap handler
+#[cfg(feature = "bootstrap")]
+pub use adapters::BootstrapHandler;
+
+// Network adapters (tokio-based)
+#[cfg(feature = "network")]
+pub use adapters::{ConfigError, MessageType, TomlConfigProvider, UdpNetworkSocket};
+
+// =============================================================================
+// TEST UTILITIES (Requires `test-utils` feature)
+// =============================================================================
+
+#[cfg(feature = "test-utils")]
+pub use test_utils::FixedTimeSource;
+

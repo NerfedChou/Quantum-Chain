@@ -13,12 +13,13 @@
 //!
 //! Reference: SPEC-01-PEER-DISCOVERY.md Section 3.1
 
-use crate::adapters::subscriber::VerificationHandler;
 use crate::domain::{
     BanReason, KademliaConfig, NodeId, PeerDiscoveryError, PeerInfo, RoutingTable,
-    RoutingTableStats, Timestamp,
+    RoutingTableStats, Timestamp, VerificationProof,
 };
-use crate::ports::{PeerDiscoveryApi, TimeSource};
+use crate::ports::{
+    AddPeerResult, PeerDiscoveryApi, TimeSource, VerificationHandler, VerificationPublisher,
+};
 
 
 /// Peer Discovery Service implementing the driving port.
@@ -45,6 +46,8 @@ pub struct PeerDiscoveryService {
     routing_table: RoutingTable,
     /// Time source for operations requiring timestamps
     time_source: Box<dyn TimeSource>,
+    /// Publisher for sending verification requests (outbound port)
+    publisher: Box<dyn VerificationPublisher>,
 }
 
 impl PeerDiscoveryService {
@@ -59,10 +62,12 @@ impl PeerDiscoveryService {
         local_node_id: NodeId,
         config: KademliaConfig,
         time_source: Box<dyn TimeSource>,
+        publisher: Box<dyn VerificationPublisher>,
     ) -> Self {
         Self {
             routing_table: RoutingTable::new(local_node_id, config),
             time_source,
+            publisher,
         }
     }
 
@@ -149,9 +154,37 @@ impl PeerDiscoveryApi for PeerDiscoveryService {
         self.routing_table.find_closest_peers(&target_id, count)
     }
 
-    fn add_peer(&mut self, peer: PeerInfo) -> Result<bool, PeerDiscoveryError> {
+    fn add_peer(
+        &mut self,
+        peer: PeerInfo,
+        proof: Option<VerificationProof>,
+    ) -> Result<AddPeerResult, PeerDiscoveryError> {
         let now = self.now();
-        self.routing_table.stage_peer(peer, now)
+        let peer_id = peer.node_id;
+
+        // 1. Stage the peer in routing table (pending_verification)
+        let staged = self.routing_table.stage_peer(peer, now)?;
+
+        if !staged {
+            return Ok(AddPeerResult::Rejected);
+        }
+
+        // 2. If successfully staged and we have proof, initiate verification
+        if let Some(p) = proof {
+            match self.publisher.publish_verification_request(peer_id, p) {
+                Ok(cid) => return Ok(AddPeerResult::StagedWithVerification(cid)),
+                Err(_e) => {
+                    // Publishing failed. Should we remove the peer?
+                    // For now, let it timeout in staging.
+                    // Or return error?
+                    return Err(PeerDiscoveryError::NetworkError(
+                        crate::ports::outbound::NetworkError::Timeout,
+                    ));
+                }
+            }
+        }
+
+        Ok(AddPeerResult::StagedNoVerification)
     }
 
     fn get_random_peers(&self, count: usize) -> Vec<PeerInfo> {
@@ -248,19 +281,36 @@ mod tests {
         )
     }
 
+    struct MockPublisher;
+    impl VerificationPublisher for MockPublisher {
+        fn publish_verification_request(
+            &self,
+            _n: NodeId,
+            _p: VerificationProof,
+        ) -> Result<[u8; 16], String> {
+            Ok([1u8; 16]) // Return dummy correlation ID
+        }
+    }
+
+    fn make_test_service(local_id: NodeId, time_source: Box<dyn TimeSource>) -> PeerDiscoveryService {
+        PeerDiscoveryService::new(local_id, KademliaConfig::for_testing(), time_source, Box::new(MockPublisher))
+    }
+
     #[test]
     fn test_service_add_peer_stages_for_verification() {
         let local_id = make_node_id(0);
-        let config = KademliaConfig::for_testing();
         let time_source = Box::new(ControllableTimeSource::new(1000));
-        let mut service = PeerDiscoveryService::new(local_id, config, time_source);
+        let mut service = make_test_service(local_id, time_source);
 
         let peer = make_peer(1);
-        let result = service.add_peer(peer);
+        let result = service.add_peer(peer, None);
 
         // INVARIANT-7: New peers enter staging, not routing table
         assert!(result.is_ok());
-        assert!(result.unwrap());
+        match result.unwrap() {
+            AddPeerResult::StagedNoVerification => (), // Expected since no proof provided
+            _ => panic!("Expected StagedNoVerification"),
+        }
 
         let stats = service.get_stats();
         assert_eq!(stats.pending_verification_count, 1);
@@ -270,14 +320,13 @@ mod tests {
     #[test]
     fn test_service_verification_promotes_peer() {
         let local_id = make_node_id(0);
-        let config = KademliaConfig::for_testing();
         let time_source = Box::new(ControllableTimeSource::new(1000));
-        let mut service = PeerDiscoveryService::new(local_id, config, time_source);
+        let mut service = make_test_service(local_id, time_source);
 
         let peer = make_peer(1);
         let node_id = peer.node_id;
 
-        service.add_peer(peer).unwrap();
+        service.add_peer(peer, None).unwrap();
         assert_eq!(service.get_stats().pending_verification_count, 1);
 
         // INVARIANT-7: Verified peers move from staging to routing table
@@ -292,14 +341,13 @@ mod tests {
     #[test]
     fn test_service_failed_verification_drops_peer() {
         let local_id = make_node_id(0);
-        let config = KademliaConfig::for_testing();
         let time_source = Box::new(ControllableTimeSource::new(1000));
-        let mut service = PeerDiscoveryService::new(local_id, config, time_source);
+        let mut service = make_test_service(local_id, time_source);
 
         let peer = make_peer(1);
         let node_id = peer.node_id;
 
-        service.add_peer(peer).unwrap();
+        service.add_peer(peer, None).unwrap();
 
         // SPEC-01 Section 2.2: Failed verification triggers silent drop, NOT ban
         let result = service.on_verification_result(&node_id, false).unwrap();
@@ -313,9 +361,8 @@ mod tests {
     #[test]
     fn test_service_implements_api_trait() {
         let local_id = make_node_id(0);
-        let config = KademliaConfig::for_testing();
         let time_source = Box::new(ControllableTimeSource::new(1000));
-        let service = PeerDiscoveryService::new(local_id, config, time_source);
+        let service = make_test_service(local_id, time_source);
 
         // Verify PeerDiscoveryService implements the PeerDiscoveryApi trait
         fn use_api<T: PeerDiscoveryApi>(api: &T) -> RoutingTableStats {
@@ -329,9 +376,8 @@ mod tests {
     #[test]
     fn test_service_ban_and_is_banned() {
         let local_id = make_node_id(0);
-        let config = KademliaConfig::for_testing();
         let time_source = Box::new(ControllableTimeSource::new(1000));
-        let mut service = PeerDiscoveryService::new(local_id, config, time_source);
+        let mut service = make_test_service(local_id, time_source);
 
         let peer_id = make_node_id(1);
 
@@ -360,8 +406,7 @@ mod tests {
             }
         }
 
-        let mut service =
-            PeerDiscoveryService::new(local_id, config, Box::new(SharedTimeSource(time_clone)));
+        let mut service = make_test_service(local_id, Box::new(SharedTimeSource(time_clone)));
 
         let peer_id = make_node_id(1);
 

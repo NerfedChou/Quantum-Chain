@@ -4,7 +4,7 @@
 //!
 //! Per SPEC-01-PEER-DISCOVERY.md Section 3.2
 
-use crate::domain::{KademliaConfig, NodeId, SocketAddr, Timestamp};
+use crate::domain::{KademliaConfig, NodeId, SocketAddr, Timestamp, VerificationProof};
 
 /// Abstract interface for network I/O.
 ///
@@ -149,6 +149,30 @@ pub trait NodeIdValidator: Send + Sync {
     /// }
     /// ```
     fn validate_node_id(&self, node_id: NodeId) -> bool;
+}
+
+/// Abstract interface for publishing verification requests to Subsystem 10.
+///
+/// This is required to enforce INVARIANT-7 (Verified Identity).
+/// When a new peer is discovered, we must ask Subsystem 10 to verify its proof.
+///
+/// Reference: IPC-MATRIX.md (Subsystem 1 -> Subsystem 10)
+pub trait VerificationPublisher: Send + Sync {
+    /// Publish a verification request.
+    ///
+    /// # Arguments
+    ///
+    /// * `node_id` - The node claiming identity
+    /// * `proof` - The cryptographic proof (signature + pubkey)
+    ///
+    /// # Returns
+    ///
+    /// Ok(correlation_id) if the request was successfully queued/sent.
+    fn publish_verification_request(
+        &self,
+        node_id: NodeId,
+        proof: VerificationProof,
+    ) -> Result<[u8; 16], String>;
 }
 
 #[cfg(test)]

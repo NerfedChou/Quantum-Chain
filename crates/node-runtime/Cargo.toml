@@ -62,7 +62,7 @@ quantum-telemetry = { path = "../quantum-telemetry" }
 qc-compute = { path = "../qc-compute" }
 
 # Subsystems (optional - enable via features)
-qc-01-peer-discovery = { path = "../qc-01-peer-discovery", optional = true }
+qc-01-peer-discovery = { path = "../qc-01-peer-discovery", optional = true, features = ["full"] }
 qc-02-block-storage = { path = "../qc-02-block-storage", optional = true }
 qc-03-transaction-indexing = { path = "../qc-03-transaction-indexing", optional = true }
 qc-04-state-management = { path = "../qc-04-state-management", optional = true }

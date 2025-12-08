@@ -4,7 +4,20 @@
 //!
 //! Per SPEC-01-PEER-DISCOVERY.md Section 3.1
 
-use crate::domain::{BanReason, NodeId, PeerDiscoveryError, PeerInfo, RoutingTableStats};
+use crate::domain::{
+    BanReason, NodeId, PeerDiscoveryError, PeerInfo, RoutingTableStats, VerificationProof,
+};
+
+/// Result of an add_peer operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddPeerResult {
+    /// Peer was accepted and staged; verification request sent.
+    StagedWithVerification([u8; 16]),
+    /// Peer was accepted and staged; no verification possible (missing proof).
+    StagedNoVerification,
+    /// Peer was rejected (subnet limit, ban, etc.).
+    Rejected,
+}
 
 /// Primary API for interacting with the peer discovery subsystem.
 ///
@@ -53,11 +66,16 @@ pub trait PeerDiscoveryApi {
     ///
     /// # Returns
     ///
-    /// - `Ok(true)` if staged for verification
-    /// - `Ok(false)` if rejected (banned, subnet limit, etc.)
+    /// - `Ok(StagedWithVerification(id))` if staged and verified
+    /// - `Ok(StagedNoVerification)` if staged without verification
+    /// - `Ok(Rejected)` if rejected (subnet limit, etc.)
     /// - `Err(StagingAreaFull)` if staging capacity reached
-    /// - `Err(SelfConnection)` if attempting to add local node
-    fn add_peer(&mut self, peer: PeerInfo) -> Result<bool, PeerDiscoveryError>;
+    /// - `Err(SelfConnection)` if sending local node
+    fn add_peer(
+        &mut self,
+        peer: PeerInfo,
+        proof: Option<VerificationProof>,
+    ) -> Result<AddPeerResult, PeerDiscoveryError>;
 
     /// Get a random selection of peers (for gossip protocols).
     ///
@@ -118,4 +136,35 @@ pub trait PeerDiscoveryApi {
     ///
     /// Statistics including peer counts, staging area status, and health metrics.
     fn get_stats(&self) -> RoutingTableStats;
+}
+
+/// Trait for handling verification results from Subsystem 10.
+///
+/// This is the EDA contract that the service layer implements.
+/// Separating this from `PeerDiscoveryApi` keeps the API clean
+/// while enabling proper event-driven integration.
+///
+/// # EDA Pattern
+///
+/// The adapter (subscriber) receives events from Subsystem 10 and calls
+/// this trait's method. The service layer implements this trait to update
+/// the routing table based on verification results.
+pub trait VerificationHandler: Send + Sync {
+    /// Handle verification result from Subsystem 10.
+    ///
+    /// # Arguments
+    ///
+    /// * `node_id` - The peer that was verified
+    /// * `identity_valid` - Whether the signature was valid
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(node_id))` - A peer needs to be challenged (bucket full, eviction-on-failure)
+    /// - `Ok(None)` - Verification processed successfully
+    /// - `Err(_)` - Error during processing
+    fn handle_verification(
+        &mut self,
+        node_id: &NodeId,
+        identity_valid: bool,
+    ) -> Result<Option<NodeId>, PeerDiscoveryError>;
 }
