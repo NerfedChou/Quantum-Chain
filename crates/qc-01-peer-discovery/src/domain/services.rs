@@ -49,6 +49,34 @@ pub fn calculate_bucket_index(local: &NodeId, remote: &NodeId) -> usize {
     xor_distance(local, remote).bucket_index() as usize
 }
 
+/// Optimized fused function: Calculate bucket index directly without intermediate Distance.
+///
+/// This is an optimized version of `calculate_bucket_index` that avoids creating
+/// an intermediate `Distance` struct. Use this in hot paths where bucket lookup
+/// performance is critical.
+///
+/// # Performance
+/// - Avoids Distance struct allocation
+/// - Single pass through node ID bytes
+/// - O(1) for identical nodes, O(32) worst case
+#[inline]
+pub fn bucket_for_peer(local: &NodeId, remote: &NodeId) -> usize {
+    let local_bytes = local.as_bytes();
+    let remote_bytes = remote.as_bytes();
+
+    // XOR each byte and find the first non-zero byte
+    for i in 0..32 {
+        let xor = local_bytes[i] ^ remote_bytes[i];
+        if xor != 0 {
+            // Calculate bucket index directly: (byte_index * 8) + leading_zeros_in_byte
+            return (i * 8 + xor.leading_zeros() as usize) as usize;
+        }
+    }
+
+    // Identical nodes - return max bucket (255)
+    255
+}
+
 /// Check if two IP addresses share the same subnet prefix.
 ///
 /// Used to enforce INVARIANT-3 (IP Diversity) for Sybil attack resistance.

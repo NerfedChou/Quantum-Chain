@@ -16,6 +16,7 @@
 //! - [`TransactionSelector`]: Optimal transaction selection (greedy knapsack)
 //! - [`StatePrefetchCache`]: State simulation and caching
 //! - [`NonceValidator`]: Nonce ordering validation
+//! - [`CircuitBreaker`]: Downstream subsystem resilience
 //!
 //! ## Invariants
 //!
@@ -30,15 +31,18 @@
 //! ## Implementation Status
 //! - Domain entities: ✅ Implemented
 //! - TransactionSelector service: ✅ Basic implementation
-//! - StatePrefetchCache: Planned for Phase 2
+//! - CircuitBreaker: ✅ Implemented (Phase 3)
+//! - StatePrefetchCache: Planned for Phase 4
 //! - Invariant checkers: ✅ Core invariants implemented
 
+pub mod circuit_breaker;
 pub mod difficulty;
 mod entities;
 pub mod genesis;
 pub mod invariants;
 mod services;
 
+pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState, CircuitStats};
 pub use difficulty::{BlockInfo, DifficultyAdjuster, DifficultyConfig};
 pub use entities::*;
 pub use genesis::*;
@@ -46,3 +50,4 @@ pub use invariants::*;
 pub use services::{
     AccountState, NonceValidator, PoSProposer, PoWMiner, StatePrefetchCache, TransactionSelector,
 };
+

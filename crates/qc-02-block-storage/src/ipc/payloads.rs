@@ -4,7 +4,7 @@
 //! - NO `sender_id` or `requester_id` fields in payloads
 //! - Identity derived ONLY from AuthenticatedMessage envelope
 
-use shared_types::{Hash, ValidatedBlock};
+use shared_types::{Hash, U256, ValidatedBlock};
 
 // ============================================================
 // INCOMING EVENT PAYLOADS (V2.3 Choreography)
@@ -58,6 +58,8 @@ pub enum BlockStorageRequestPayload {
     ReadBlock(ReadBlockRequestPayload),
     /// Read a range of blocks (for node syncing)
     ReadBlockRange(ReadBlockRangeRequestPayload),
+    /// Get chain info for difficulty persistence (V2.4, from Block Production, Subsystem 17)
+    GetChainInfo(GetChainInfoRequestPayload),
     /// Get transaction location (V2.3, from Tx Indexing, Subsystem 3)
     GetTransactionLocation(GetTransactionLocationRequestPayload),
     /// Get transaction hashes for a block (V2.3, from Tx Indexing, Subsystem 3)
@@ -108,7 +110,18 @@ pub struct ReadBlockRangeRequestPayload {
     pub limit: u64,
 }
 
-/// V2.3: Get transaction location request
+/// V2.4: Get chain info request for difficulty persistence
+///
+/// Used by Block Production (qc-17) to query current chain state on startup,
+/// ensuring proper difficulty adjustment continuity across restarts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GetChainInfoRequestPayload {
+    /// Number of recent blocks to include for DGW difficulty calculation
+    /// Typically 24 for Dark Gravity Wave algorithm
+    pub recent_blocks_count: u32,
+}
+
+/// V2.4: Get transaction location request
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GetTransactionLocationRequestPayload {
     pub transaction_hash: Hash,
@@ -135,6 +148,8 @@ pub enum BlockStorageEventPayload {
     ReadBlockResponse(ReadBlockResponsePayload),
     /// Response to ReadBlockRange request
     ReadBlockRangeResponse(ReadBlockRangeResponsePayload),
+    /// Response to GetChainInfo request (V2.4)
+    ChainInfoResponse(ChainInfoResponsePayload),
     /// Response to GetTransactionLocation request
     TransactionLocationResponse(TransactionLocationResponsePayload),
     /// Response to GetTransactionHashes request
@@ -185,6 +200,36 @@ pub struct ReadBlockRangeResponsePayload {
     pub blocks: Vec<StoredBlockPayload>,
     pub chain_tip_height: u64,
     pub has_more: bool,
+}
+
+/// V2.4: Chain info response for difficulty persistence
+///
+/// Provides all information needed by Block Production (qc-17) to
+/// resume mining with correct difficulty after restart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainInfoResponsePayload {
+    /// Latest block height (0 if chain is empty)
+    pub chain_tip_height: u64,
+    /// Latest block hash (genesis hash if empty)
+    pub chain_tip_hash: Hash,
+    /// Latest block timestamp
+    pub chain_tip_timestamp: u64,
+    /// Recent blocks for DGW difficulty calculation
+    /// Ordered from newest to oldest
+    pub recent_blocks: Vec<BlockDifficultyInfo>,
+}
+
+/// V2.4: Minimal block info for difficulty adjustment
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockDifficultyInfo {
+    /// Block height
+    pub height: u64,
+    /// Block timestamp (unix seconds)
+    pub timestamp: u64,
+    /// Block difficulty target
+    pub difficulty: U256,
+    /// Block hash
+    pub hash: Hash,
 }
 
 /// V2.3: Transaction location response
@@ -301,5 +346,87 @@ mod tests {
 
         assert_eq!(error.error_type, StorageErrorType::BlockNotFound);
         assert!(error.block_hash.is_some());
+    }
+
+    #[test]
+    fn test_get_chain_info_request() {
+        let request = GetChainInfoRequestPayload {
+            recent_blocks_count: 24, // DGW window size
+        };
+
+        assert_eq!(request.recent_blocks_count, 24);
+    }
+
+    #[test]
+    fn test_block_difficulty_info() {
+        let info = BlockDifficultyInfo {
+            height: 1000,
+            timestamp: 1700000000,
+            difficulty: U256::from(2).pow(U256::from(235)),
+            hash: [0xAB; 32],
+        };
+
+        assert_eq!(info.height, 1000);
+        assert_eq!(info.timestamp, 1700000000);
+        assert_eq!(info.hash, [0xAB; 32]);
+        // Difficulty should be 2^235
+        assert!(info.difficulty > U256::zero());
+    }
+
+    #[test]
+    fn test_chain_info_response_empty_chain() {
+        let response = ChainInfoResponsePayload {
+            chain_tip_height: 0,
+            chain_tip_hash: [0; 32], // Genesis hash
+            chain_tip_timestamp: 0,
+            recent_blocks: vec![],
+        };
+
+        assert_eq!(response.chain_tip_height, 0);
+        assert!(response.recent_blocks.is_empty());
+    }
+
+    #[test]
+    fn test_chain_info_response_with_blocks() {
+        let recent_blocks = vec![
+            BlockDifficultyInfo {
+                height: 100,
+                timestamp: 1700000100,
+                difficulty: U256::from(2).pow(U256::from(234)),
+                hash: [0x01; 32],
+            },
+            BlockDifficultyInfo {
+                height: 99,
+                timestamp: 1700000090,
+                difficulty: U256::from(2).pow(U256::from(235)),
+                hash: [0x02; 32],
+            },
+        ];
+
+        let response = ChainInfoResponsePayload {
+            chain_tip_height: 100,
+            chain_tip_hash: [0x01; 32],
+            chain_tip_timestamp: 1700000100,
+            recent_blocks,
+        };
+
+        assert_eq!(response.chain_tip_height, 100);
+        assert_eq!(response.recent_blocks.len(), 2);
+        // Verify ordered from newest to oldest
+        assert!(response.recent_blocks[0].height > response.recent_blocks[1].height);
+    }
+
+    #[test]
+    fn test_request_payload_enum_includes_get_chain_info() {
+        let request = BlockStorageRequestPayload::GetChainInfo(
+            GetChainInfoRequestPayload { recent_blocks_count: 24 }
+        );
+
+        match request {
+            BlockStorageRequestPayload::GetChainInfo(payload) => {
+                assert_eq!(payload.recent_blocks_count, 24);
+            }
+            _ => panic!("Expected GetChainInfo variant"),
+        }
     }
 }

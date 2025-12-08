@@ -23,7 +23,6 @@ use crate::adapters::VerificationRequestPublisher;
 use crate::domain::{NodeId, PeerDiscoveryError, PeerInfo, SocketAddr};
 use crate::ipc::{BootstrapRequest, BootstrapResult};
 use crate::ports::{NodeIdValidator, PeerDiscoveryApi, TimeSource};
-use crate::service::PeerDiscoveryService;
 
 /// Handler for external peer bootstrap requests.
 ///
@@ -167,6 +166,7 @@ mod tests {
     use crate::adapters::{InMemoryVerificationPublisher, NoOpNodeIdValidator};
     use crate::domain::{IpAddr, KademliaConfig, Timestamp};
     use crate::ports::TimeSource;
+    use crate::service::PeerDiscoveryService;
 
     /// Fixed time source for testing.
     struct TestTimeSource(Timestamp);

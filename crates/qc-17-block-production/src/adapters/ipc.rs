@@ -527,6 +527,120 @@ impl ConsensusSubmitter for IpcConsensusSubmitter {
 }
 
 // ============================================================================
+// BLOCK STORAGE READER (V2.4 - Difficulty Persistence)
+// ============================================================================
+
+/// Request to Block Storage for chain info
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GetChainInfoRequest {
+    /// IPC protocol version
+    pub version: u16,
+    /// Correlation ID for tracking
+    pub correlation_id: [u8; 16],
+    /// Reply topic name
+    pub reply_to: String,
+    /// Number of recent blocks to include
+    pub recent_blocks_count: u32,
+    /// Message signature
+    pub signature: Vec<u8>,
+}
+
+/// Response from Block Storage with chain info
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GetChainInfoResponse {
+    /// IPC protocol version
+    pub version: u16,
+    /// Correlation ID matching request
+    pub correlation_id: [u8; 16],
+    /// Latest block height
+    pub chain_tip_height: u64,
+    /// Latest block hash
+    pub chain_tip_hash: [u8; 32],
+    /// Latest block timestamp
+    pub chain_tip_timestamp: u64,
+    /// Recent blocks for difficulty adjustment
+    pub recent_blocks: Vec<BlockDifficultyInfoIpc>,
+    /// Response signature
+    pub signature: Vec<u8>,
+}
+
+/// Block difficulty info for IPC (serializable)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BlockDifficultyInfoIpc {
+    /// Block height
+    pub height: u64,
+    /// Block timestamp
+    pub timestamp: u64,
+    /// Difficulty target (serialized as 32 bytes)
+    pub difficulty: [u8; 32],
+    /// Block hash
+    pub hash: [u8; 32],
+}
+
+use crate::ports::outbound::{BlockStorageReader, ChainInfo};
+
+/// IPC adapter for Block Storage (Subsystem 2)
+///
+/// V2.4: Queries chain state on startup for proper difficulty
+/// adjustment continuity across restarts.
+pub struct IpcBlockStorageReader {
+    /// Subsystem ID for IPC routing
+    #[allow(dead_code)]
+    subsystem_id: u8,
+}
+
+impl Default for IpcBlockStorageReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl IpcBlockStorageReader {
+    /// Creates a new IPC block storage reader
+    pub fn new() -> Self {
+        Self { subsystem_id: 17 }
+    }
+
+    /// Generate correlation ID for request tracking
+    fn generate_correlation_id() -> [u8; 16] {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        timestamp.to_le_bytes()
+    }
+}
+
+#[async_trait::async_trait]
+impl BlockStorageReader for IpcBlockStorageReader {
+    async fn get_chain_info(
+        &self,
+        recent_blocks_count: u32,
+    ) -> Result<ChainInfo, crate::error::BlockProductionError> {
+        let correlation_id = Self::generate_correlation_id();
+
+        debug!(
+            "Requesting chain info from Block Storage (recent_blocks={})",
+            recent_blocks_count
+        );
+
+        let _request = GetChainInfoRequest {
+            version: 1,
+            correlation_id,
+            reply_to: "qc17.storage.reply".to_string(),
+            recent_blocks_count,
+            signature: vec![],
+        };
+
+        // IPC transport sends request and awaits response
+        // Currently returns empty chain - will be wired when IPC transport ready
+        warn!("IPC not fully wired - returning empty chain info");
+
+        Ok(ChainInfo::default())
+    }
+}
+
+// ============================================================================
 // UNIT TESTS
 // ============================================================================
 
@@ -616,5 +730,54 @@ mod tests {
         let deserialized: Result<GetPendingTransactionsRequest, _> =
             serde_json::from_str(&serialized.unwrap());
         assert!(deserialized.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_block_storage_reader_interface() {
+        let reader = IpcBlockStorageReader::new();
+        let result = reader.get_chain_info(24).await;
+
+        assert!(result.is_ok());
+        let chain_info = result.unwrap();
+        // Currently returns empty chain due to mock
+        assert_eq!(chain_info.chain_tip_height, 0);
+        assert!(chain_info.recent_blocks.is_empty());
+    }
+
+    #[test]
+    fn test_get_chain_info_request_serialization() {
+        let request = GetChainInfoRequest {
+            version: 1,
+            correlation_id: [0u8; 16],
+            reply_to: "qc17.storage.reply".to_string(),
+            recent_blocks_count: 24,
+            signature: vec![],
+        };
+
+        let serialized = serde_json::to_string(&request);
+        assert!(serialized.is_ok());
+
+        let deserialized: Result<GetChainInfoRequest, _> =
+            serde_json::from_str(&serialized.unwrap());
+        assert!(deserialized.is_ok());
+        assert_eq!(deserialized.unwrap().recent_blocks_count, 24);
+    }
+
+    #[test]
+    fn test_block_difficulty_info_ipc_serialization() {
+        let info = BlockDifficultyInfoIpc {
+            height: 100,
+            timestamp: 1700000000,
+            difficulty: [0xFF; 32],
+            hash: [0xAB; 32],
+        };
+
+        let serialized = serde_json::to_string(&info);
+        assert!(serialized.is_ok());
+
+        let deserialized: Result<BlockDifficultyInfoIpc, _> =
+            serde_json::from_str(&serialized.unwrap());
+        assert!(deserialized.is_ok());
+        assert_eq!(deserialized.unwrap().height, 100);
     }
 }

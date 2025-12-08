@@ -5,15 +5,33 @@
 //! - Routing table with k-buckets
 //! - Peer lifecycle management
 //! - Security invariants (Eclipse Attack Defense, Memory Bomb Defense)
+//! - Address Manager (New/Tried bucket system - Bitcoin addrman)
+//! - Peer Scoring (Gossip scoring for spam protection)
+//! - Connection Slots (Score-Based Eviction)
+//! - Feeler Connections (Poisson-Process Probing)
+//! - Chain-Aware Handshakes (Fork-ID Convergence)
+//! - ENR (Ethereum Node Records - EIP-778)
 
+pub mod address_manager;
+pub mod connection_slots;
 pub mod entities;
+pub mod enr;
 pub mod errors;
+pub mod feeler;
+pub mod handshake;
+pub mod peer_score;
 pub mod routing_table;
 pub mod services;
 pub mod value_objects;
 
+pub use address_manager::*;
+pub use connection_slots::*;
 pub use entities::*;
+pub use enr::*;
 pub use errors::*;
+pub use feeler::*;
+pub use handshake::*;
+pub use peer_score::*;
 pub use routing_table::*;
 pub use services::*;
 pub use value_objects::*;

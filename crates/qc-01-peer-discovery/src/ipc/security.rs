@@ -152,8 +152,13 @@ impl SecurityError {
         use shared_types::envelope::VerificationResult;
         match result {
             VerificationResult::Valid => {
-                // Precondition violated: caller must check is_valid() before conversion
-                panic!("Cannot convert Valid result to SecurityError")
+                // SAFETY: Precondition violated - callers MUST check !result.is_valid() before conversion.
+                // Using unreachable!() instead of panic!() for clearer intent and potential optimization.
+                // If this is reached, the caller has a bug in their validation logic.
+                unreachable!(
+                    "SecurityError::from_verification_result() called with Valid result. \
+                     Caller must verify !result.is_valid() before calling."
+                )
             }
             VerificationResult::UnsupportedVersion {
                 received,

@@ -37,7 +37,7 @@ pub trait BlockProducerService: Send + Sync {
 }
 
 /// Historical block info for difficulty adjustment when resuming
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoricalBlockInfo {
     /// Block height
     pub height: u64,
@@ -45,6 +45,8 @@ pub struct HistoricalBlockInfo {
     pub timestamp: u64,
     /// Difficulty at this block
     pub difficulty: U256,
+    /// Block hash
+    pub hash: H256,
 }
 
 /// Production configuration

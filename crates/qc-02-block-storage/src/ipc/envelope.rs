@@ -27,6 +27,8 @@ pub mod subsystem_ids {
     pub const RPC_GATEWAY: u8 = 13;
     pub const MONITORING: u8 = 14;
     pub const NODE_RUNTIME: u8 = 15;
+    pub const API_GATEWAY: u8 = 16;
+    pub const BLOCK_PRODUCTION: u8 = 17;
 }
 
 /// Protocol version for envelope compatibility

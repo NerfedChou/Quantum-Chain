@@ -251,15 +251,13 @@ impl StatePrefetchCache {
             tx_hash,
             success,
             gas_used,
-            state_changes: if success {
-                vec![] // Would include actual state changes from Subsystem 4
-            } else {
-                vec![]
-            },
-            error: if !success {
-                Some("Mock: odd-length transaction failed".to_string())
-            } else {
+            // Mock implementation: always empty state changes
+            // Real implementation would populate from Subsystem 4 simulation
+            state_changes: vec![],
+            error: if success {
                 None
+            } else {
+                Some("Mock: odd-length transaction failed".to_string())
             },
         }
     }
