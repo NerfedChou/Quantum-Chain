@@ -8,7 +8,16 @@
 //!
 //! This allows Peer Discovery to verify node identities at the network edge
 //! for DDoS defense.
+//!
+//! ## EDA Pattern (Architecture.md v2.3)
+//!
+//! This adapter implements the Event-Driven Architecture pattern:
+//! - Receives events from the shared bus
+//! - Validates sender authorization per IPC-MATRIX
+//! - Routes to the domain service for processing
+//! - Emits resulting events via the publisher
 
+use crate::domain::NodeId;
 use crate::ipc::security::{SecurityError, SubsystemId};
 
 /// Response from Subsystem 10 for node identity verification.
@@ -20,6 +29,26 @@ pub struct NodeIdentityVerificationResult {
     pub identity_valid: bool,
     /// Timestamp of verification.
     pub verification_timestamp: u64,
+}
+
+/// Trait for handling verification results from Subsystem 10.
+///
+/// This is the EDA contract that the service layer implements.
+/// Separating this from `PeerDiscoveryApi` keeps the API clean
+/// while enabling proper event-driven integration.
+pub trait VerificationHandler: Send + Sync {
+    /// Handle verification result from Subsystem 10.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(node_id))` - A peer needs to be challenged (bucket full)
+    /// - `Ok(None)` - Verification processed successfully
+    /// - `Err(_)` - Error during processing
+    fn handle_verification(
+        &mut self,
+        node_id: &NodeId,
+        identity_valid: bool,
+    ) -> Result<Option<NodeId>, crate::domain::PeerDiscoveryError>;
 }
 
 /// Event subscription port for peer discovery.
@@ -34,7 +63,23 @@ pub trait PeerDiscoveryEventSubscriber: Send + Sync {
         &mut self,
         sender_id: u8,
         result: NodeIdentityVerificationResult,
-    ) -> Result<(), SubscriptionError>;
+    ) -> Result<VerificationOutcome, SubscriptionError>;
+}
+
+/// Outcome of processing a verification result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VerificationOutcome {
+    /// Peer was promoted to routing table.
+    PeerPromoted { node_id: [u8; 32] },
+    /// Peer was rejected (invalid signature).
+    PeerRejected { node_id: [u8; 32] },
+    /// Bucket is full, need to challenge existing peer.
+    ChallengeRequired {
+        new_peer: [u8; 32],
+        challenged_peer: [u8; 32],
+    },
+    /// Node was not in pending verification (already processed or unknown).
+    NotFound { node_id: [u8; 32] },
 }
 
 /// Errors that can occur during event subscription processing.
@@ -51,11 +96,11 @@ pub enum SubscriptionError {
 impl std::fmt::Display for SubscriptionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SecurityViolation(e) => write!(f, "security violation: {}", e),
+            Self::SecurityViolation(e) => write!(f, "security violation: {e}"),
             Self::UnknownNode { node_id } => {
                 write!(f, "unknown node: {:?}", &node_id[..4])
             }
-            Self::ProcessingError(msg) => write!(f, "processing error: {}", msg),
+            Self::ProcessingError(msg) => write!(f, "processing error: {msg}"),
         }
     }
 }
@@ -84,6 +129,11 @@ pub fn validate_identity_result_sender(sender_id: u8) -> Result<(), SecurityErro
 /// Event handler that connects to the peer discovery service.
 ///
 /// This struct handles incoming events and routes them to the service.
+/// It implements the EDA pattern by:
+/// 1. Receiving events from the shared bus
+/// 2. Validating authorization per IPC-MATRIX
+/// 3. Routing to domain service for processing
+/// 4. Returning outcomes that can trigger further events
 pub struct EventHandler<S> {
     /// The peer discovery service to route events to.
     service: S,
@@ -104,31 +154,62 @@ impl<S> EventHandler<S> {
     pub fn service_mut(&mut self) -> &mut S {
         &mut self.service
     }
+
+    /// Consume the handler and return the inner service.
+    pub fn into_service(self) -> S {
+        self.service
+    }
 }
 
-impl<S: crate::ports::PeerDiscoveryApi + Send + Sync> PeerDiscoveryEventSubscriber
-    for EventHandler<S>
-{
+impl<S: VerificationHandler> PeerDiscoveryEventSubscriber for EventHandler<S> {
     fn on_node_identity_result(
         &mut self,
         sender_id: u8,
         result: NodeIdentityVerificationResult,
-    ) -> Result<(), SubscriptionError> {
+    ) -> Result<VerificationOutcome, SubscriptionError> {
         // IPC-MATRIX.md: Validate sender is Subsystem 10 (Signature Verification)
         validate_identity_result_sender(sender_id)?;
 
         // Convert raw bytes to domain NodeId type
-        let node_id = crate::domain::NodeId::new(result.node_id);
+        let node_id = NodeId::new(result.node_id);
 
-        // SPEC-01 Section 4.3: Identity result triggers routing table state transition.
-        // The node-runtime wiring layer handles the actual service.on_verification_result()
-        // call with proper timestamp injection. This adapter validates the message format
-        // and sender authorization only.
-        let _ = (node_id, result.identity_valid);
-
-        Ok(())
+        // SPEC-01 Section 4.3: Identity result triggers routing table state transition
+        // This is the core EDA action - process the event and return the outcome
+        match self
+            .service
+            .handle_verification(&node_id, result.identity_valid)
+        {
+            Ok(Some(challenged_peer)) => {
+                // Bucket was full, need to challenge existing peer
+                // This outcome can trigger a PING event via the publisher
+                Ok(VerificationOutcome::ChallengeRequired {
+                    new_peer: result.node_id,
+                    challenged_peer: challenged_peer.as_bytes(),
+                })
+            }
+            Ok(None) => {
+                // Successfully processed
+                if result.identity_valid {
+                    Ok(VerificationOutcome::PeerPromoted {
+                        node_id: result.node_id,
+                    })
+                } else {
+                    Ok(VerificationOutcome::PeerRejected {
+                        node_id: result.node_id,
+                    })
+                }
+            }
+            Err(crate::domain::PeerDiscoveryError::PeerNotFound) => {
+                // Peer was not in pending verification (already processed or unknown)
+                Ok(VerificationOutcome::NotFound {
+                    node_id: result.node_id,
+                })
+            }
+            Err(e) => Err(SubscriptionError::ProcessingError(e.to_string())),
+        }
     }
 }
+
 
 /// Filter for subscription to specific event types.
 #[derive(Debug, Clone, Default)]
