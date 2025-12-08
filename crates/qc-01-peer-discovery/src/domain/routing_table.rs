@@ -727,15 +727,6 @@ mod tests {
         )
     }
 
-    fn make_peer_with_ip(val: u8, ip_last: u8) -> PeerInfo {
-        #![allow(dead_code)]
-        PeerInfo::new(
-            make_node_id(val),
-            SocketAddr::new(IpAddr::v4(192, 168, 1, ip_last), 8080),
-            Timestamp::new(1000),
-        )
-    }
-
     // =========================================================================
     // Test Group 2: K-Bucket Management
     // Reference: SPEC-01 Section 5.1 (TDD Test Specifications)

@@ -97,7 +97,20 @@ pub use domain::{
 
 // Domain services
 pub use domain::{
-    calculate_bucket_index, find_k_closest, is_same_subnet, sort_peers_by_distance, xor_distance,
+    bucket_for_peer, calculate_bucket_index, find_k_closest, is_same_subnet, sort_peers_by_distance, xor_distance,
+};
+
+// Advanced Peer Discovery (Phase 1-3)
+pub use domain::{
+    // Phase 1: Anti-Eclipse Hardening
+    AddressManager, AddressManagerConfig, AddressManagerError, AddressManagerStats,
+    PeerScore, PeerScoreConfig, PeerScoreManager,
+    // Phase 2: Network Health
+    AcceptResult, ConnectionDirection, ConnectionInfo, ConnectionSlots, ConnectionSlotsConfig, ConnectionStats,
+    BucketFreshness, FeelerConfig, FeelerProbe, FeelerResult, FeelerState,
+    ForkId, HandshakeConfig, HandshakeData, HandshakeResult, PeerClassification, RejectReason, verify_handshake,
+    // Phase 3: Enhanced Identity
+    Capability, CapabilityData, CapabilityType, EnrCache, EnrConfig, NodeRecord, PublicKey, Signature,
 };
 
 // Port traits

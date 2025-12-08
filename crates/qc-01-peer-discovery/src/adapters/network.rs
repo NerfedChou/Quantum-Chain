@@ -410,7 +410,15 @@ mod udp_socket {
         let mut signature = [0u8; 64];
         signature.copy_from_slice(&data[98..162]);
 
-        let port_bytes: [u8; 2] = data[162..164].try_into().unwrap();
+        // SECURITY: Bounds check before slice conversion
+        // The minimum length check at start (167 bytes) guarantees data[162..164] exists,
+        // but we add an explicit check here for defense-in-depth
+        if data.len() < 164 {
+            return Err(NetworkError::MessageTooLarge); // Data too short for port bytes
+        }
+        let port_bytes: [u8; 2] = data[162..164]
+            .try_into()
+            .map_err(|_| NetworkError::InvalidAddress)?;
         let port = u16::from_be_bytes(port_bytes);
 
         // IP Address (remaining bytes)

@@ -8,7 +8,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 /// Main gateway configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GatewayConfig {
     /// HTTP server configuration
@@ -35,25 +35,6 @@ pub struct GatewayConfig {
     pub circuit_breaker: CircuitBreakerConfig,
     /// TLS configuration (optional)
     pub tls: Option<TlsConfig>,
-}
-
-impl Default for GatewayConfig {
-    fn default() -> Self {
-        Self {
-            http: HttpConfig::default(),
-            websocket: WebSocketConfig::default(),
-            admin: AdminConfig::default(),
-            rate_limit: RateLimitConfig::default(),
-            limits: LimitsConfig::default(),
-            timeouts: TimeoutConfig::default(),
-            cors: CorsConfig::default(),
-            chain: ChainConfig::default(),
-            security: SecurityConfig::default(),
-            methods: MethodsConfig::default(),
-            circuit_breaker: CircuitBreakerConfig::default(),
-            tls: None,
-        }
-    }
 }
 
 impl GatewayConfig {

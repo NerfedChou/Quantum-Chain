@@ -1,83 +1,158 @@
-//! # Quantum Chain - Block Production Engine (Subsystem 17)
+//! # QC-17 Block Production Engine
 //!
-//! **Version:** 2.4  
-//! **Bounded Context:** Block Production & Mining  
-//! **Architecture Compliance:** DDD + Hexagonal + EDA + TDD
+//! **Subsystem ID:** 17  
+//! **Specification:** SPEC-17-BLOCK-PRODUCTION.md v2.4  
+//! **Architecture:** Architecture.md v2.4, IPC-MATRIX.md v2.4  
+//! **Security Level:** INTERNAL (outputs untrusted until validated)  
+//! **Status:** Production-Ready (Phase 3)
 //!
 //! ## Purpose
 //!
-//! The Block Production Engine is responsible for creating new blocks through:
+//! The Block Production Engine is the **mining/proposing** subsystem, responsible for:
 //! - Intelligent transaction selection using Priority-Based Greedy Knapsack (O(n log n))
 //! - State prefetch and simulation to avoid failed transactions
 //! - Consensus-appropriate sealing (PoW mining, PoS proposing, PBFT leader proposal)
 //! - MEV detection and fair ordering enforcement
 //!
-//! ## Key Design Principles
+//! ## Domain Invariants
 //!
-//! 1. **Optimal Transaction Selection**: Solves the bounded knapsack problem
-//! 2. **Zero-Trust Validation**: Consensus re-validates all transactions
-//! 3. **Multi-Consensus Support**: PoW, PoS, PBFT in one subsystem
-//! 4. **Nonce Ordering**: Maintains sequential nonces per sender
-//! 5. **State Simulation**: Only includes transactions that will succeed
+//! | ID | Invariant | Enforcement Location |
+//! |----|-----------|---------------------|
+//! | INV-1 | Gas Limit | `domain/invariants.rs:50-65` - `validate_gas_used()` |
+//! | INV-2 | Nonce Ordering | `domain/services.rs:172-176` - `validate_nonce_ordering()` |
+//! | INV-3 | State Validity | `domain/services.rs:232-265` - `simulate_transaction()` |
+//! | INV-4 | No Duplicates | `domain/invariants.rs:150-175` - `validate_no_duplicates()` |
+//! | INV-5 | Timestamp Monotonicity | `service.rs:254-256` - enforced in mining loop |
+//! | INV-6 | Minimum Block Interval | `service.rs:430-440` - enforced after mining |
 //!
-//! ## Architecture Layers
+//! ## Security (SPEC-17 Section 1.4)
+//!
+//! ### Trust Model
 //!
 //! ```text
-//! ┌─────────────────────────────────────────────────────┐
-//! │  Adapters (Outer)                                   │
-//! │  - IPC: Mempool, State, Consensus communication     │
-//! │  - PoW: Parallel nonce search                       │
-//! │  - PoS: VRF proposer selection                      │
-//! │  - PBFT: Leader-based proposal                      │
-//! └─────────────────────────────────────────────────────┘
-//!                         │
-//! ┌─────────────────────────────────────────────────────┐
-//! │  Ports (Middle)                                     │
-//! │  - Inbound: BlockProducerService                    │
-//! │  - Outbound: MempoolReader, StateReader, etc.       │
-//! └─────────────────────────────────────────────────────┘
-//!                         │
-//! ┌─────────────────────────────────────────────────────┐
-//! │  Domain (Inner - Pure Logic)                        │
-//! │  - TransactionSelector                              │
-//! │  - StatePrefetchCache                               │
-//! │  - BlockTemplateBuilder                             │
-//! │  - Invariants: gas limit, nonce ordering, etc.      │
-//! └─────────────────────────────────────────────────────┘
+//! ┌─────────────────────────────────────────────────────────────────┐
+//! │                    TRUST BOUNDARY                              │
+//! ├─────────────────────────────────────────────────────────────────┤
+//! │  THIS SUBSYSTEM PRODUCES BLOCKS BUT DOES NOT VALIDATE THEM      │
+//! │                                                                 │
+//! │  INPUTS (Trusted):                                              │
+//! │  ├─ Pending transactions from Mempool (6) - pre-verified       │
+//! │  ├─ State from State Management (4) - authoritative            │
+//! │  └─ Finality events from Finality (9) - triggers next block    │
+//! │                                                                 │
+//! │  OUTPUTS (Untrusted until validated):                           │
+//! │  ├─ Block templates → Consensus (8) - MUST be validated        │
+//! │  └─ Mining metrics → Telemetry - for observability             │
+//! │                                                                 │
+//! │  SECURITY PRINCIPLE:                                            │
+//! │  - Consensus (8) re-validates ALL transactions                  │
+//! │  - This subsystem can be Byzantine without breaking chain       │
+//! │  - Worst case: Censorship (detectable) or empty blocks         │
+//! └─────────────────────────────────────────────────────────────────┘
 //! ```
 //!
-//! ## Critical Invariants
+//! ## IPC Authorization
 //!
-//! 1. **Gas Limit**: sum(tx.gas_used) ≤ block_gas_limit
-//! 2. **Nonce Ordering**: Sequential nonces per sender
-//! 3. **State Validity**: All transactions simulate successfully
-//! 4. **No Duplicates**: Unique transaction hashes
-//! 5. **Timestamp Monotonicity**: parent_time ≤ block_time ≤ now + 15s
-//! 6. **Fee Profitability**: Transactions sorted by gas price (greedy)
+//! ### Inbound Events (Subscribed)
+//!
+//! | Event | Allowed Senders | Purpose |
+//! |-------|-----------------|---------|
+//! | `BlockFinalizedEvent` | Finality (9) | Trigger next block production |
+//! | `SlotAssignedEvent` | Consensus (8) | PoS proposer duty notification |
+//! | `NewPendingTransactionEvent` | Mempool (6) | Transaction availability hint |
+//!
+//! ### Outbound Events (Published)
+//!
+//! | Event | Target | Purpose |
+//! |-------|--------|---------|
+//! | `BlockProducedEvent` | Consensus (8), Block Storage (2) | Block ready for validation |
+//! | `MiningMetrics` | Telemetry (18) | Observability data |
+//!
+//! ## Difficulty Adjustment
+//!
+//! The subsystem implements **Dark Gravity Wave (DGW)** per-block difficulty adjustment:
+//!
+//! ```text
+//! Target: hash(header) <= difficulty_target
+//!
+//! IMPORTANT: Higher target = EASIER mining, Lower target = HARDER mining
+//!
+//! Default Configuration:
+//! - Initial difficulty: 2^235 (~2-5 seconds on single CPU)
+//! - Target block time: 10 seconds
+//! - DGW window: 24 blocks
+//! - Max adjustment: 4x per block
+//! - Min difficulty: 2^200 (hardest allowed)
+//! - Max difficulty: 2^248 (easiest allowed)
+//! ```
+//!
+//! ## Architecture
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────────────┐
+//! │                 BLOCK PRODUCTION ENGINE (qc-17)                      │
+//! ├─────────────────────────────────────────────────────────────────────┤
+//! │  ┌─────────────────────────────────────────────────────────────┐   │
+//! │  │              ConcreteBlockProducer (Service)                 │   │
+//! │  │  - Orchestrates PoW/PoS/PBFT modes                          │   │
+//! │  │  - Manages mining threads                                    │   │
+//! │  │  - Enforces minimum block interval                          │   │
+//! │  └────────────────────────┬────────────────────────────────────┘   │
+//! │                           │                                         │
+//! │  ┌────────────────────────┴────────────────────────┐               │
+//! │  │               Domain Layer                       │               │
+//! │  │  - TransactionSelector (Greedy Knapsack)        │               │
+//! │  │  - DifficultyAdjuster (DGW Algorithm)           │               │
+//! │  │  - PoWMiner (Parallel Nonce Search)             │               │
+//! │  │  - PoSProposer (VRF Selection)                  │               │
+//! │  │  - Invariant Validators                          │               │
+//! │  └─────────────────────────────────────────────────┘               │
+//! │                           │                                         │
+//! │  ┌─────────────────────────────────────────────────┐               │
+//! │  │               Outbound Ports                     │               │
+//! │  │  - MempoolReader → qc-06                        │               │
+//! │  │  - StateReader → qc-04                          │               │
+//! │  │  - ConsensusSubmitter → qc-08                   │               │
+//! │  │  - EventPublisher → Event Bus                   │               │
+//! │  └─────────────────────────────────────────────────┘               │
+//! └─────────────────────────────────────────────────────────────────────┘
+//! ```
 //!
 //! ## Usage Example
 //!
-//! ```rust,ignore
-//! // Create block producer service (not yet implemented)
-//! // This is a placeholder example
+//! ```ignore
+//! use qc_17_block_production::{ConcreteBlockProducer, BlockProductionConfig, ConsensusMode};
+//! use qc_17_block_production::{BlockProducerService, ProductionConfig};
+//! use std::sync::Arc;
+//!
+//! // Create producer with default config
+//! let event_bus = Arc::new(shared_bus::InMemoryEventBus::new());
+//! let config = BlockProductionConfig::default();
+//! let producer = ConcreteBlockProducer::new(event_bus, config);
+//!
+//! // Start PoW mining
+//! producer.start_production(
+//!     ConsensusMode::ProofOfWork,
+//!     ProductionConfig::default(),
+//! ).await?;
+//!
+//! // Check status
+//! let status = producer.get_status().await;
+//! println!("Blocks produced: {}", status.blocks_produced);
+//!
+//! // Stop production
+//! producer.stop_production().await?;
 //! ```
 //!
-//! ## Module Structure
+//! ## SPEC Reference
 //!
-//! - [`domain`]: Pure domain logic (transaction selection, nonce ordering)
-//! - [`ports`]: Hexagonal architecture interfaces (inbound/outbound)
-//! - [`adapters`]: External integrations (IPC, PoW, PoS, PBFT)
-//! - [`events`]: Event schemas for EDA
-//! - [`handler`]: Event handlers and orchestration
-//!
-//! ## References
-//!
-//! - **Specification**: `SPECS/SPEC-17-BLOCK-PRODUCTION.md`
-//! - **Architecture**: `Documentation/System.md` (Subsystem 17)
-//! - **IPC Protocol**: `Documentation/IPC-MATRIX.md` (Subsystem 17)
+//! See [SPEC-17-BLOCK-PRODUCTION.md](../../SPECS/SPEC-17-BLOCK-PRODUCTION.md) for full specification.
 
+// Crate-level lints
 #![warn(missing_docs)]
 #![warn(clippy::all)]
+#![allow(clippy::excessive_nesting)] // Acceptable for mining loops
+#![deny(unsafe_code)]
 
 /// IPC adapters for external communication
 pub mod adapters;

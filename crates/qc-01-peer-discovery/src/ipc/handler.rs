@@ -316,14 +316,12 @@ mod tests {
 
     /// Test-only implementation of PeerDiscoveryApi for IPC handler unit tests.
     /// Uses a real RoutingTable with deterministic timestamps (epoch 1000).
-    #[allow(dead_code)]
     struct TestPeerDiscoveryService {
         routing_table: RoutingTable,
     }
 
     impl TestPeerDiscoveryService {
         /// Creates an empty service with zero-initialized local NodeId.
-        #[allow(dead_code)]
         fn new() -> Self {
             let local_id = NodeId::new([0u8; 32]);
             let config = KademliaConfig::for_testing();
@@ -331,31 +329,8 @@ mod tests {
                 routing_table: RoutingTable::new(local_id, config),
             }
         }
-
-        /// Creates a service pre-populated with verified peers for testing.
-        /// Each peer has unique NodeId and IP address in distinct /24 subnets.
-        #[allow(dead_code)]
-        fn with_peers(peer_count: usize) -> Self {
-            let mut service = Self::new();
-            let now = Timestamp::new(1000);
-
-            for i in 1..=peer_count {
-                let mut id_bytes = [0u8; 32];
-                id_bytes[0] = i as u8;
-                let peer = PeerInfo::new(
-                    NodeId::new(id_bytes),
-                    SocketAddr::new(IpAddr::v4(10, (i / 256) as u8, (i % 256) as u8, 1), 8080),
-                    now,
-                );
-                if let Ok(true) = service.routing_table.stage_peer(peer.clone(), now) {
-                    let _ = service
-                        .routing_table
-                        .on_verification_result(&peer.node_id, true, now);
-                }
-            }
-            service
-        }
     }
+
 
     impl PeerDiscoveryApi for TestPeerDiscoveryService {
         fn find_closest_peers(&self, target_id: NodeId, count: usize) -> Vec<PeerInfo> {

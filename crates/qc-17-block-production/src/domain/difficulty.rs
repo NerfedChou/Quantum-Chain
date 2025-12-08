@@ -50,14 +50,19 @@ impl Default for DifficultyConfig {
             adjustment_period: 100, // Adjust every 100 blocks
             use_dgw: true,          // Enable per-block adjustment
             dgw_window: 24,         // Look at last 24 blocks
-            // Initial target: reasonably easy for single CPU mining
-            // 2^252 means ~4 leading zero bits required
-            initial_difficulty: U256::from(2).pow(U256::from(252)),
+            // Initial target: realistic difficulty for single CPU mining
+            // 2^235 means ~21 leading zero bits required (~2.6 zero bytes)
+            // At 1M hashes/sec, this takes ~2-5 seconds
+            // This prevents the "instant mining" problem on startup
+            initial_difficulty: U256::from(2).pow(U256::from(235)),
             // Hardest allowed (lowest target): 2^200 (~7 leading zero bytes)
+            // This prevents pools from making difficulty too hard
             min_difficulty: U256::from(2).pow(U256::from(200)),
-            // Easiest allowed (highest target): 2^254 (~0.25 leading zero bytes)
-            max_difficulty: U256::from(2).pow(U256::from(254)),
-            // Bitcoin-style: max 4x change per adjustment
+            // Easiest allowed (highest target): 2^248 (~1 leading zero byte)
+            // This prevents difficulty from becoming trivially easy
+            // Changed from 2^254 to prevent near-instant mining even after reset
+            max_difficulty: U256::from(2).pow(U256::from(248)),
+            // Max 4x change per adjustment (Bitcoin-style)
             max_adjustment_factor: 4,
         }
     }

@@ -249,7 +249,7 @@ mod tests {
     fn test_allowed_senders() {
         let validator = SecurityValidator::new(8_000_000, U256::from(1_000_000_000u64));
 
-        // Allowed senders
+        // Allowed senders (per SPEC-17 Appendix B.1)
         assert!(validator.validate_sender(6).is_ok()); // Mempool
         assert!(validator.validate_sender(4).is_ok()); // State Management
         assert!(validator.validate_sender(8).is_ok()); // Consensus
@@ -258,6 +258,71 @@ mod tests {
         // Disallowed senders
         assert!(validator.validate_sender(1).is_err()); // Peer Discovery
         assert!(validator.validate_sender(99).is_err()); // Unknown
+    }
+
+    /// Comprehensive IPC authorization test per IPC-MATRIX.md
+    /// Tests that each unauthorized sender is correctly rejected
+    #[test]
+    fn test_ipc_authorization_comprehensive() {
+        let validator = SecurityValidator::new(30_000_000, U256::from(1_000_000_000u64));
+
+        // === ALLOWED SENDERS ===
+        // Per SPEC-17 Section 4: Only these subsystems can send to Block Production
+        let allowed = [
+            (4, "State Management"),
+            (6, "Mempool"),
+            (8, "Consensus"),
+            (9, "Finality"),
+        ];
+
+        for (id, name) in allowed.iter() {
+            let result = validator.validate_sender(*id);
+            assert!(
+                result.is_ok(),
+                "Expected {} (id {}) to be allowed, but got error: {:?}",
+                name,
+                id,
+                result.err()
+            );
+        }
+
+        // === UNAUTHORIZED SENDERS ===
+        // All other subsystems should be rejected
+        let unauthorized = [
+            (1, "Peer Discovery"),
+            (2, "Block Storage"),
+            (3, "Transaction Indexing"),
+            (5, "Block Propagation"),
+            (7, "Bloom Filters"),
+            (10, "Signature Verification"),
+            (11, "Smart Contracts"),
+            (12, "Cross-Chain Bridges"),
+            (13, "Upgrade Manager"),
+            (14, "Security Monitor"),
+            (15, "Fallback Systems"),
+            (16, "API Gateway"),
+            (17, "Block Production"), // Self-send not allowed
+            (18, "Telemetry"),
+            (0, "Invalid zero"),
+            (255, "Invalid max"),
+        ];
+
+        for (id, name) in unauthorized.iter() {
+            let result = validator.validate_sender(*id);
+            assert!(
+                result.is_err(),
+                "Expected {} (id {}) to be rejected, but it was allowed",
+                name,
+                id
+            );
+
+            // Verify the error type is UnauthorizedSender
+            if let Err(BlockProductionError::UnauthorizedSender { sender_id }) = result {
+                assert_eq!(sender_id, *id);
+            } else {
+                panic!("Expected UnauthorizedSender error for {} (id {})", name, id);
+            }
+        }
     }
 
     #[tokio::test]
@@ -273,6 +338,23 @@ mod tests {
         assert!(validator.check_rate_limit(6).await.is_err());
     }
 
+    /// Test that rate limiting is per-subsystem
+    #[tokio::test]
+    async fn test_rate_limiting_per_subsystem() {
+        let validator = SecurityValidator::new(8_000_000, U256::from(1_000_000_000u64));
+
+        // Exhaust rate limit for subsystem 6
+        for _ in 0..100 {
+            let _ = validator.check_rate_limit(6).await;
+        }
+
+        // Subsystem 6 should be rate limited
+        assert!(validator.check_rate_limit(6).await.is_err());
+
+        // But subsystem 4 should still be allowed
+        assert!(validator.check_rate_limit(4).await.is_ok());
+    }
+
     #[test]
     fn test_gas_price_validation() {
         let min_gas_price = U256::from(1_000_000_000u64);
@@ -283,4 +365,50 @@ mod tests {
         // This test validates the logic structure
         assert!(min_gas_price > U256::zero());
     }
+
+    #[test]
+    fn test_block_template_timestamp_validation() {
+        let validator = SecurityValidator::new(30_000_000, U256::from(1_000_000_000u64));
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Valid template (timestamp is now)
+        let valid_template = crate::domain::BlockTemplate {
+            header: crate::domain::BlockHeader {
+                parent_hash: Hash::zero(),
+                block_number: 1,
+                timestamp: now,
+                beneficiary: [0u8; 20],
+                gas_used: 21000,
+                gas_limit: 10_000_000,
+                difficulty: U256::from(1000),
+                extra_data: vec![],
+                merkle_root: None,
+                state_root: Some(Hash::random()),
+                nonce: Some(12345),
+            },
+            transactions: vec![vec![1, 2, 3]],
+            total_gas_used: 21000,
+            total_fees: U256::from(21000),
+            consensus_mode: crate::ConsensusMode::ProofOfWork,
+            created_at: now,
+        };
+
+        assert!(validator.validate_block_template(&valid_template).is_ok());
+
+        // Invalid template (timestamp too far in future)
+        let mut future_template = valid_template.clone();
+        future_template.header.timestamp = now + 60; // 60 seconds in future
+
+        let result = validator.validate_block_template(&future_template);
+        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(BlockProductionError::InvalidTimestamp { .. })
+        ));
+    }
 }
+
