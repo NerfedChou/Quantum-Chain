@@ -170,6 +170,97 @@ pub struct SubsystemMetrics {
     pub avg_latency_ms: u32,
 }
 
+/// Resilient IPC handler with circuit breaker integration
+///
+/// This wrapper adds circuit breaker protection to IPC requests. When a target
+/// subsystem fails repeatedly, the circuit opens and subsequent requests are
+/// rejected immediately without hitting the network.
+pub struct ResilientIpcHandler {
+    /// Inner IPC handler
+    inner: Arc<IpcHandler>,
+    /// Circuit breaker manager
+    circuit_breaker: Arc<crate::middleware::CircuitBreakerManager>,
+}
+
+impl ResilientIpcHandler {
+    /// Create a new resilient IPC handler
+    pub fn new(
+        inner: Arc<IpcHandler>,
+        circuit_breaker: Arc<crate::middleware::CircuitBreakerManager>,
+    ) -> Self {
+        Self {
+            inner,
+            circuit_breaker,
+        }
+    }
+
+    /// Send request with circuit breaker protection
+    ///
+    /// Returns an error immediately if the target subsystem's circuit is open.
+    pub async fn request(
+        &self,
+        target: &str,
+        payload: RequestPayload,
+        timeout: Option<Duration>,
+    ) -> Result<serde_json::Value, ResponseError> {
+        // Check circuit breaker first
+        if !self.circuit_breaker.should_allow(target) {
+            warn!(
+                target = target,
+                "Circuit breaker is open, rejecting request immediately"
+            );
+            return Err(ResponseError {
+                code: -32007,
+                message: format!("Service unavailable: {} circuit breaker is open", target),
+                data: Some(serde_json::json!({
+                    "circuit_state": "open",
+                    "target": target
+                })),
+            });
+        }
+
+        // Execute the request
+        let result = self.inner.request(target, payload, timeout).await;
+
+        // Record success/failure with circuit breaker
+        match &result {
+            Ok(_) => {
+                self.circuit_breaker.record_success(target);
+            }
+            Err(_) => {
+                self.circuit_breaker.record_failure(target);
+            }
+        }
+
+        result
+    }
+
+    /// Get pending request count
+    pub fn pending_count(&self) -> usize {
+        self.inner.pending_count()
+    }
+
+    /// Health check a subsystem
+    pub async fn health_check(&self, target: &str) -> Result<u64, IpcError> {
+        self.inner.health_check(target).await
+    }
+
+    /// Get IPC metrics
+    pub fn get_metrics(&self) -> IpcHandlerMetrics {
+        self.inner.get_metrics()
+    }
+
+    /// Get circuit breaker state for a target
+    pub fn circuit_state(&self, target: &str) -> crate::middleware::CircuitState {
+        self.circuit_breaker.get_state(target)
+    }
+
+    /// Get all circuit breaker stats
+    pub fn circuit_stats(&self) -> Vec<crate::middleware::CircuitStats> {
+        self.circuit_breaker.get_stats()
+    }
+}
+
 /// Response listener that processes incoming IPC responses
 pub struct ResponseListener {
     pending: Arc<PendingRequestStore>,

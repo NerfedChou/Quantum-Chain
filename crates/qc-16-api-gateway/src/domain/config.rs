@@ -31,6 +31,8 @@ pub struct GatewayConfig {
     pub security: SecurityConfig,
     /// Method whitelist configuration
     pub methods: MethodsConfig,
+    /// Circuit breaker configuration for downstream resilience
+    pub circuit_breaker: CircuitBreakerConfig,
     /// TLS configuration (optional)
     pub tls: Option<TlsConfig>,
 }
@@ -48,6 +50,7 @@ impl Default for GatewayConfig {
             chain: ChainConfig::default(),
             security: SecurityConfig::default(),
             methods: MethodsConfig::default(),
+            circuit_breaker: CircuitBreakerConfig::default(),
             tls: None,
         }
     }
@@ -386,7 +389,7 @@ impl Default for SecurityConfig {
 }
 
 /// Method whitelist configuration per SPEC-16 Section 7.3
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MethodsConfig {
     /// Allow unknown methods (for forward compatibility)
@@ -397,12 +400,47 @@ pub struct MethodsConfig {
     pub disabled_methods: Vec<String>,
 }
 
-impl Default for MethodsConfig {
+/// Circuit breaker configuration for downstream subsystem resilience
+///
+/// The circuit breaker pattern prevents cascading failures when downstream
+/// subsystems become unhealthy. When a subsystem fails repeatedly, the circuit
+/// opens and requests are rejected immediately until the subsystem recovers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CircuitBreakerConfig {
+    /// Enable circuit breaker
+    pub enabled: bool,
+    /// Number of failures before opening the circuit
+    pub failure_threshold: u32,
+    /// Number of successes in half-open state before closing
+    pub success_threshold: u32,
+    /// Duration before half-open from open state (in seconds)
+    pub open_timeout_secs: u64,
+    /// Duration to track failure rate (in seconds)
+    pub failure_window_secs: u64,
+}
+
+impl Default for CircuitBreakerConfig {
     fn default() -> Self {
         Self {
-            allow_unknown: false,
-            extra_methods: Vec::new(),
-            disabled_methods: Vec::new(),
+            enabled: true,
+            failure_threshold: 5,
+            success_threshold: 3,
+            open_timeout_secs: 30,
+            failure_window_secs: 60,
+        }
+    }
+}
+
+impl CircuitBreakerConfig {
+    /// Convert to the middleware CircuitBreakerConfig
+    pub fn to_middleware_config(&self) -> crate::middleware::CircuitBreakerConfig {
+        crate::middleware::CircuitBreakerConfig {
+            enabled: self.enabled,
+            failure_threshold: self.failure_threshold,
+            success_threshold: self.success_threshold,
+            open_timeout: Duration::from_secs(self.open_timeout_secs),
+            failure_window: Duration::from_secs(self.failure_window_secs),
         }
     }
 }

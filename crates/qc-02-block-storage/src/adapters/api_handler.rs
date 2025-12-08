@@ -129,7 +129,7 @@ impl<S: BlockStorageApi> ApiGatewayHandler<S> {
             latest_height,
             finalized_height,
             total_blocks: metadata.total_blocks,
-            genesis_hash: metadata.genesis_hash.map(|h| hex::encode(h)),
+            genesis_hash: metadata.genesis_hash.map(hex::encode),
             storage_version: metadata.storage_version,
             disk_used_bytes: self.disk_used_bytes,
             disk_capacity_bytes: self.disk_capacity_bytes,

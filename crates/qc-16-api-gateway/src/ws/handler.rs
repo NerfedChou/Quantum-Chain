@@ -149,7 +149,7 @@ impl WebSocketHandler {
                 Ok(Message::Text(text)) => {
                     // Check message size
                     if let Some(error_response) = self.check_message_size(text.len()) {
-                        if let Err(e) = socket.send(Message::Text(error_response.into())).await {
+                        if let Err(e) = socket.send(Message::Text(error_response)).await {
                             error!(error = %e, "Failed to send error response");
                             break;
                         }
@@ -159,7 +159,7 @@ impl WebSocketHandler {
                     // Check rate limit
                     if !self.check_rate_limit() {
                         let error = json_rpc_error(None, -32005, "Rate limit exceeded");
-                        if let Err(e) = socket.send(Message::Text(error.into())).await {
+                        if let Err(e) = socket.send(Message::Text(error)).await {
                             error!(error = %e, "Failed to send rate limit error");
                             break;
                         }
@@ -167,7 +167,7 @@ impl WebSocketHandler {
                     }
 
                     let response = self.handle_message(&text).await;
-                    if let Err(e) = socket.send(Message::Text(response.into())).await {
+                    if let Err(e) = socket.send(Message::Text(response)).await {
                         error!(error = %e, "Failed to send WebSocket response");
                         break;
                     }
@@ -175,7 +175,7 @@ impl WebSocketHandler {
                 Ok(Message::Binary(data)) => {
                     // Check message size
                     if let Some(error_response) = self.check_message_size(data.len()) {
-                        if let Err(e) = socket.send(Message::Text(error_response.into())).await {
+                        if let Err(e) = socket.send(Message::Text(error_response)).await {
                             error!(error = %e, "Failed to send error response");
                             break;
                         }
@@ -185,7 +185,7 @@ impl WebSocketHandler {
                     // Check rate limit
                     if !self.check_rate_limit() {
                         let error = json_rpc_error(None, -32005, "Rate limit exceeded");
-                        if let Err(e) = socket.send(Message::Text(error.into())).await {
+                        if let Err(e) = socket.send(Message::Text(error)).await {
                             error!(error = %e, "Failed to send rate limit error");
                             break;
                         }
@@ -195,7 +195,7 @@ impl WebSocketHandler {
                     // Try to parse as JSON
                     if let Ok(text) = String::from_utf8(data) {
                         let response = self.handle_message(&text).await;
-                        if let Err(e) = socket.send(Message::Text(response.into())).await {
+                        if let Err(e) = socket.send(Message::Text(response)).await {
                             error!(error = %e, "Failed to send WebSocket response");
                             break;
                         }

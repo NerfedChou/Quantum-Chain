@@ -29,22 +29,38 @@
 //!                                      ←──MerkleRootComputed──→ [Event Bus] ──→ Block Storage (2)
 //! ```
 //!
-//! ## Domain Invariants
+//! ## Domain Invariants (SPEC-03 Section 2.5)
 //!
-//! | ID | Invariant |
-//! |----|-----------|
-//! | INVARIANT-1 | Power of Two Padding - Leaves padded to 2^ceil(log2(n)) |
-//! | INVARIANT-2 | Proof Validity - All generated proofs MUST verify |
-//! | INVARIANT-3 | Deterministic Hashing - Same tx = same hash (canonical serialization) |
-//! | INVARIANT-4 | Index Consistency - Cached merkle_root == tree.root() |
-//! | INVARIANT-5 | Bounded Tree Cache - trees.len() <= max_cached_trees |
+//! | ID | Invariant | Enforcement | Location |
+//! |----|-----------|-------------|----------|
+//! | INVARIANT-1 | Power of Two Padding | Leaves padded to 2^ceil(log2(n)) | entities.rs:73-80 |
+//! | INVARIANT-2 | Proof Validity | All generated proofs MUST verify | entities.rs:224-235 |
+//! | INVARIANT-3 | Deterministic Hashing | SHA3-256 canonical serialization | entities.rs:241-246 |
+//! | INVARIANT-4 | Index Consistency | Cached merkle_root == tree.root() | handler.rs |
+//! | INVARIANT-5 | Bounded Tree Cache | LRU eviction when full | entities.rs:363-366 |
+//!
+//! ## Proof Size Characteristics
+//!
+//! Proofs scale logarithmically with transaction count:
+//! - 100 transactions → ~231 bytes per proof
+//! - 1,000 transactions → ~330 bytes per proof
+//! - 10,000 transactions → ~462 bytes per proof
+//!
+//! See [`MerkleProof`] documentation for detailed size breakdown.
 //!
 //! ## Hexagonal Architecture
 //!
-//! - **Domain Layer** (`domain/`): Pure Merkle tree logic, no I/O
+//! - **Domain Layer** (`domain/`): Pure Merkle tree logic, no I/O dependencies
 //! - **Ports Layer** (`ports/`): Inbound API traits, Outbound SPI traits
-//! - **IPC Layer** (`ipc/`): Event-driven message handling
-//! - **Adapters Layer** (`adapters/`): Secondary adapters (API Gateway handler)
+//! - **IPC Layer** (`ipc/`): Event-driven message handling with security
+//! - **Adapters Layer** (`adapters/`): API Gateway handler for admin panel
+//!
+//! ## Security
+//!
+//! - **Envelope-Only Identity**: All IPC payloads omit identity fields
+//! - **Sender Authorization**: `BlockValidated` only from Consensus (8)
+//! - **Replay Prevention**: Nonce tracking with 60-second timestamp window
+//! - **Test Mode Bypass**: Signature bypass gated behind `#[cfg(test)]`
 
 pub mod adapters;
 pub mod domain;

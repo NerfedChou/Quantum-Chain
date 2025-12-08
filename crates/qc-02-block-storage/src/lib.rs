@@ -5,32 +5,39 @@
 //!
 //! ## Architecture
 //!
-//! This crate provides **domain logic only**. Choreography (event buffering and
-//! assembly) is handled by `node-runtime::adapters::BlockStorageAdapter`.
+//! This crate provides **domain logic only**. The runtime calls into this crate's
+//! domain APIs, including periodic garbage collection for assembly timeouts.
 //!
 //! ```text
 //! node-runtime
-//! ├── BlockStorageAdapter (choreography, event buffering)
+//! ├── BlockStorageAdapter (choreography, event routing)
 //! │   └── calls qc-02 domain logic
+//! │   └── calls gc_expired_assemblies() periodically (every 5s)
 //! │
 //! qc-02-block-storage
 //! ├── BlockStorageService (write_block, read_block, mark_finalized)
+//! ├── BlockAssemblyBuffer (stateful assembler with timeout/buffer logic)
 //! ├── BlockStorageApi (port trait)
 //! └── Domain invariants (1-8)
 //! ```
 //!
-//! ## Domain Invariants
+//! ## Domain Invariants (SPEC-02 Section 2.6)
 //!
-//! | ID | Invariant | Enforcement |
-//! |----|-----------|-------------|
-//! | 1 | Sequential Blocks | `check_parent_exists()` |
-//! | 2 | Disk Space Safety | `check_disk_space()` |
-//! | 3 | Data Integrity | `verify_block_checksum()` |
-//! | 4 | Atomic Writes | `atomic_batch_write()` |
-//! | 5 | Finalization Monotonicity | `metadata.on_finalized()` |
-//! | 6 | Genesis Immutability | `StorageMetadata::set_genesis()` |
-//! | 7 | Assembly Timeout | Enforced by node-runtime |
-//! | 8 | Bounded Assembly Buffer | Enforced by node-runtime |
+//! | ID | Invariant | Enforcement | Location |
+//! |----|-----------|-------------|----------|
+//! | 1 | Sequential Blocks | `check_parent_exists()` | service.rs |
+//! | 2 | Disk Space Safety | `check_disk_space()` | service.rs |
+//! | 3 | Data Integrity | `verify_block_checksum()` | service.rs |
+//! | 4 | Atomic Writes | `atomic_batch_write()` | service.rs |
+//! | 5 | Finalization Monotonicity | `metadata.on_finalized()` | entities.rs |
+//! | 6 | Genesis Immutability | `StorageMetadata::set_genesis()` | entities.rs |
+//! | 7 | Assembly Timeout | `gc_expired()` logic in crate | assembler.rs (runtime calls periodically) |
+//! | 8 | Bounded Assembly Buffer | `enforce_max_pending()` | assembler.rs |
+//!
+//! **Note on Invariants 7-8:** The timeout and buffer limit logic is fully implemented
+//! in `domain/assembler.rs`. The runtime is responsible for calling `gc_expired_assemblies()`
+//! at regular intervals (recommended: every 5 seconds). This separation follows DDD
+//! principles where domain logic is pure and side-effect-free.
 //!
 //! ## Crate Structure (Hexagonal Architecture)
 //!

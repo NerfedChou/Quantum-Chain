@@ -1,34 +1,68 @@
-//! # Smart Contract Execution (Subsystem 11)
+//! # QC-11 Smart Contracts - Programmable Execution Subsystem
 //!
-//! Provides a sandboxed virtual machine (EVM) for executing deterministic
-//! smart contract code. Manages gas metering, memory allocation, and state access.
+//! **Subsystem ID:** 11  
+//! **Specification:** SPEC-11-SMART-CONTRACTS.md v2.3  
+//! **Architecture:** Architecture.md v2.3, IPC-MATRIX.md v2.3  
+//! **Status:** Production-Ready (Phase 3)
 //!
-//! ## Architecture Compliance (Architecture.md v2.3)
+//! ## Purpose
 //!
-//! - **Bounded Context:** Programmable Execution
-//! - **Hexagonal Architecture:** Domain (pure logic) → Ports (traits) → Adapters
-//! - **EDA Pattern:** Subscribes to events from Event Bus, publishes results
-//! - **Envelope-Only Identity (v2.2):** No `requester_id` in payloads
+//! Provides a sandboxed virtual machine (EVM) for executing deterministic smart
+//! contract code. Manages gas metering, memory allocation, and state access while
+//! ensuring isolation and security.
 //!
-//! ## Dependencies (System.md v2.3)
+//! ## Domain Invariants
 //!
-//! | Dependency | Subsystem | Purpose |
-//! |------------|-----------|---------|
-//! | State Management | 4 | Read/write contract state |
-//! | Signature Verification | 10 | ecrecover precompile |
+//! | ID | Invariant | Enforcement Location |
+//! |----|-----------|---------------------|
+//! | INVARIANT-1 | Gas Limit Enforcement | `domain/invariants.rs:26-28` - `check_gas_limit_invariant()` |
+//! | INVARIANT-2 | Deterministic Execution | `domain/invariants.rs:39-49` - `check_determinism_invariant()` |
+//! | INVARIANT-3 | No State Change on Revert | `domain/invariants.rs:55-63` - `check_revert_rollback_invariant()` |
+//! | INVARIANT-4 | Static Call Purity | `domain/invariants.rs:69-84` - `check_static_purity_invariant()` |
+//! | INVARIANT-5 | Call Depth Limit | `domain/invariants.rs:90-93` - `check_call_depth_invariant()` |
 //!
-//! ## Authorized Senders (IPC-MATRIX.md)
+//! ## Security (IPC-MATRIX.md)
 //!
-//! | Message | Authorized Senders |
-//! |---------|-------------------|
-//! | `ExecuteTransactionRequest` | Consensus (8), Transaction Ordering (12) |
-//! | `ExecuteHTLCRequest` | Cross-Chain (15) |
+//! - **Centralized Security**: Uses `shared-types::security` for envelope validation
+//! - **Envelope-Only Identity**: Identity derived solely from `sender_id`
+//! - **Sandbox Execution**: Untrusted bytecode runs in isolated VM
 //!
-//! ## Phase
+//! ### IPC Authorization Matrix
 //!
-//! This subsystem is in **Phase 3 (Advanced - Weeks 9-12)** per System.md.
+//! | Message | Authorized Sender(s) | Enforcement |
+//! |---------|---------------------|-------------|
+//! | `ExecuteTransactionRequest` | Consensus (8), Tx Ordering (12) | `service.rs:130-143` |
+//! | `ExecuteHTLCRequest` | Cross-Chain (15) ONLY | `service.rs:251-261` |
 //!
-//! ## Example
+//! ### Execution Safety Limits (MANDATORY per System.md)
+//!
+//! | Limit | Value | Purpose |
+//! |-------|-------|---------|
+//! | `max_call_depth` | 1024 | Prevent stack overflow |
+//! | `max_code_size` | 24 KB (EIP-170) | Limit contract size |
+//! | `max_init_code_size` | 48 KB (EIP-3860) | Limit deployment code |
+//! | `max_stack_size` | 1024 | EVM stack limit |
+//! | `max_memory_size` | 16 MB | Memory expansion limit |
+//! | `execution_timeout` | 5 seconds | Hard timeout |
+//!
+//! ## Outbound Dependencies
+//!
+//! | Subsystem | Trait | Purpose |
+//! |-----------|-------|---------|
+//! | 4 (State Mgmt) | `StateAccess` | Read/write contract state |
+//! | 10 (Sig Verify) | `SignatureVerifier` | ecrecover precompile |
+//!
+//! ## EVM Components
+//!
+//! | Component | Location | Purpose |
+//! |-----------|----------|---------|
+//! | Interpreter | `evm/interpreter.rs` | Main execution engine |
+//! | Stack | `evm/stack.rs` | 1024-item stack |
+//! | Memory | `evm/memory.rs` | Dynamic memory with gas |
+//! | Gas | `evm/gas.rs` | Cost tables & calculations |
+//! | Precompiles | `evm/precompiles/` | ecrecover, sha256, modexp |
+//!
+//! ## Usage Example
 //!
 //! ```ignore
 //! use qc_11_smart_contracts::prelude::*;

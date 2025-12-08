@@ -2440,6 +2440,7 @@ dependencies = [
 name = "qc-04-state-management"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "hex",
  "serde",
  "sha3",
@@ -2569,6 +2570,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "primitive-types",
+ "prometheus",
  "serde",
  "serde_json",
  "sha2",

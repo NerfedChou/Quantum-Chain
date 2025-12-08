@@ -34,6 +34,19 @@ pub struct StorageConfig {
 
     /// Assembly buffer configuration (V2.3 Choreography).
     pub assembly_config: AssemblyConfig,
+
+    /// Whether to persist the transaction index to disk (default: false).
+    ///
+    /// When `false` (default): Transaction index is in-memory only.
+    /// - Fast O(1) lookups
+    /// - Suitable for development and light nodes
+    /// - Index lost on restart (rebuilt on demand)
+    ///
+    /// When `true`: Transaction index is persisted to KV store.
+    /// - Survives restarts
+    /// - Required for production nodes with large transaction volumes
+    /// - Uses prefix `t:{tx_hash} -> TransactionLocation`
+    pub persist_transaction_index: bool,
 }
 
 impl StorageConfig {
@@ -53,6 +66,7 @@ impl Default for StorageConfig {
             max_block_size: 10 * 1024 * 1024, // 10 MB
             compaction_strategy: CompactionStrategy::LeveledCompaction,
             assembly_config: AssemblyConfig::default(),
+            persist_transaction_index: false, // Default: in-memory only
         }
     }
 }
@@ -78,6 +92,16 @@ impl StorageConfig {
     /// Set the assembly configuration.
     pub fn with_assembly_config(mut self, config: AssemblyConfig) -> Self {
         self.assembly_config = config;
+        self
+    }
+
+    /// Enable or disable transaction index persistence.
+    ///
+    /// When enabled, the transaction index is persisted to the KV store,
+    /// surviving restarts. Recommended for production nodes with large
+    /// transaction volumes.
+    pub fn with_persist_transaction_index(mut self, persist: bool) -> Self {
+        self.persist_transaction_index = persist;
         self
     }
 }
@@ -150,7 +174,12 @@ impl KeyPrefix {
 /// ## SPEC-02 Section 3.1 (V2.3)
 ///
 /// Used by Transaction Indexing for Merkle proof generation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// ## Persistence
+///
+/// When `StorageConfig::persist_transaction_index` is enabled, this struct
+/// is serialized to the KV store with key prefix `t:{tx_hash}`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TransactionLocation {
     /// Hash of the block containing this transaction.
     pub block_hash: Hash,
@@ -209,21 +238,34 @@ mod tests {
     }
 
     #[test]
+    fn test_key_prefix_transaction() {
+        let tx_hash = [0xDE; 32];
+        let key = KeyPrefix::transaction_key(&tx_hash);
+
+        assert!(key.starts_with(b"t:"));
+        assert_eq!(key.len(), 2 + 32);
+        assert_eq!(&key[2..], &tx_hash);
+    }
+
+    #[test]
     fn test_storage_config_defaults() {
         let config = StorageConfig::default();
 
         assert_eq!(config.min_disk_space_percent, 5);
         assert!(config.verify_checksums()); // Always true (compile-time guarantee)
         assert_eq!(config.max_block_size, 10 * 1024 * 1024);
+        assert!(!config.persist_transaction_index); // Default: off
     }
 
     #[test]
     fn test_storage_config_builder() {
         let config = StorageConfig::new()
             .with_min_disk_space(10)
-            .with_max_block_size(5 * 1024 * 1024);
+            .with_max_block_size(5 * 1024 * 1024)
+            .with_persist_transaction_index(true);
 
         assert_eq!(config.min_disk_space_percent, 10);
         assert_eq!(config.max_block_size, 5 * 1024 * 1024);
+        assert!(config.persist_transaction_index);
     }
 }

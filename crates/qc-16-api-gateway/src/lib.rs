@@ -1,75 +1,150 @@
-// Allow missing docs for internal items in development
-#![allow(missing_docs)]
-
-//! QC-16 API Gateway - External interface for JSON-RPC, WebSocket, and REST APIs.
+//! # QC-16 API Gateway - External Interface Subsystem
 //!
-//! This crate provides the public API for the Quantum Chain blockchain.
+//! **Subsystem ID:** 16  
+//! **Specification:** SPEC-16-API-GATEWAY.md v1.1  
+//! **Architecture:** Architecture.md v2.3, IPC-MATRIX.md v2.3  
+//! **Security Level:** CRITICAL (External-Facing)  
+//! **Status:** Production-Ready (Phase 3)
 //!
-//! # Architecture
+//! ## Purpose
+//!
+//! The API Gateway is the **single entry point** for all external interactions
+//! with the Quantum Chain node. It translates external protocols (JSON-RPC,
+//! WebSocket, REST) into internal event bus messages, enforcing security
+//! boundaries at the network edge.
+//!
+//! ## Domain Invariants
+//!
+//! | ID | Invariant | Enforcement Location |
+//! |----|-----------|---------------------|
+//! | INV-1 | Rate Limit Enforcement | `middleware/rate_limit.rs:102-125` - `RateLimitState::check()` |
+//! | INV-2 | Method Tier Authorization | `middleware/auth.rs:108-145` - `AuthService::call()` |
+//! | INV-3 | Request Size Limits | `middleware/validation.rs:75-100` - `ValidationService::call()` |
+//! | INV-4 | RLP Pre-validation | `ipc/validation.rs:30-120` - `validate_transaction_rlp()` |
+//! | INV-5 | Timeout Enforcement | `middleware/timeout.rs:40-80` - `TimeoutService::call()` |
+//!
+//! ## Security (SPEC-16 Section 5)
+//!
+//! ### Defense in Depth Layers
+//!
+//! ```text
+//! [Request] → Rate Limit → Size Limit → Auth → Timeout → Handler
+//! ```
+//!
+//! | Layer | Purpose | Enforcement |
+//! |-------|---------|-------------|
+//! | Rate Limiting | DDoS prevention | `middleware/rate_limit.rs` - Token bucket per IP |
+//! | Size Limits | Memory exhaustion prevention | `middleware/validation.rs` - Max 1MB request |
+//! | Authentication | Access control | `middleware/auth.rs` - API key + localhost checks |
+//! | Timeout | Resource exhaustion prevention | `middleware/timeout.rs` - Per-method limits |
+//! | RLP Validation | Garbage rejection | `ipc/validation.rs` - Syntactic check before IPC |
+//!
+//! ### Method Tier Matrix
+//!
+//! | Tier | Methods | Auth Required | Localhost Required |
+//! |------|---------|---------------|-------------------|
+//! | Public | `eth_*`, `web3_*`, `net_version` | ❌ | ❌ |
+//! | Protected | `txpool_*`, `net_peerCount` | API Key OR Localhost | ❌ |
+//! | Admin | `admin_*`, `debug_*`, `miner_*` | API Key | ✅ |
+//!
+//! ### Constant-Time API Key Comparison
+//!
+//! Uses `subtle::ConstantTimeEq` to prevent timing attacks:
+//! - Location: `middleware/auth.rs:228-248` - `constant_time_compare()`
+//!
+//! ## IPC Authorization (Outbound Only)
+//!
+//! API Gateway SENDS messages TO other subsystems (it does not receive IPC):
+//!
+//! | Target Subsystem | Message Types | Purpose |
+//! |-----------------|---------------|---------|
+//! | qc-01 Peer Discovery | `GetPeersRequest`, `AddPeerRequest` | Peer management |
+//! | qc-02 Block Storage | `ReadBlockRequest`, `ReadBlockRangeRequest` | Block queries |
+//! | qc-03 Transaction Indexing | `GetTransactionRequest`, `GetLogsRequest` | Tx/receipt queries |
+//! | qc-04 State Management | `StateReadRequest`, `BalanceCheckRequest` | State queries |
+//! | qc-06 Mempool | `AddTransactionRequest`, `GetMempoolStatusRequest` | Tx submission |
+//! | qc-08 Consensus | `StartMiningRequest`, `StopMiningRequest` | Block production (Admin) |
+//! | qc-10 Signature Verify | `VerifyTransactionRequest` | Tx signature validation |
+//! | qc-11 Smart Contracts | `ExecuteCallRequest`, `EstimateGasRequest` | eth_call/estimateGas |
+//!
+//! **IMPORTANT:** Internal IPC messages do NOT require cryptographic signatures.
+//! The Event Bus uses in-memory channels which are process-private (SPEC v1.1 Fix).
+//!
+//! ## Architecture
 //!
 //! ```text
 //! ┌─────────────────────────────────────────────────────────────────────────────┐
 //! │                           API GATEWAY (qc-16)                                │
 //! ├─────────────────────────────────────────────────────────────────────────────┤
-//! │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                         │
-//! │  │   HTTP/RPC  │  │  WebSocket  │  │    Admin    │                         │
-//! │  │  Port 8545  │  │  Port 8546  │  │  Port 8080  │                         │
-//! │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                         │
-//! │         │                │                │                                 │
-//! │  ┌──────┴────────────────┴────────────────┴──────┐                         │
-//! │  │              Middleware Stack                  │                         │
-//! │  │  RateLimit → Validation → Auth → Timeout      │                         │
-//! │  └────────────────────┬───────────────────────────┘                         │
-//! │                       │                                                     │
-//! │  ┌────────────────────┴───────────────────────┐                            │
-//! │  │           Pending Request Store            │                            │
-//! │  │     (Async-to-Sync Bridge via oneshot)     │                            │
-//! │  └────────────────────┬───────────────────────┘                            │
-//! │                       │                                                     │
-//! │  ┌────────────────────┴───────────────────────┐                            │
-//! │  │              IPC Handler                    │                            │
-//! │  │        (Event Bus Integration)             │                            │
-//! │  └────────────────────┬───────────────────────┘                            │
-//! └───────────────────────┼─────────────────────────────────────────────────────┘
-//!                         │
-//!                    Event Bus
-//!                         │
-//!     ┌───────────────────┼───────────────────────┐
-//!     ▼                   ▼                       ▼
-//! qc-04-state      qc-02-block           qc-06-mempool
+//! │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+//! │  │   HTTP/RPC  │  │  WebSocket  │  │    Admin    │  │   Health    │        │
+//! │  │  Port 8545  │  │  Port 8546  │  │  Port 8080  │  │  Port 8081  │        │
+//! │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘        │
+//! │         │                │                │                │                │
+//! │  ┌──────┴────────────────┴────────────────┴────────────────┴──────┐        │
+//! │  │                    Middleware Stack                             │        │
+//! │  │  RateLimit → Validation → Auth → CORS → Timeout → Tracing     │        │
+//! │  └────────────────────────────┬───────────────────────────────────┘        │
+//! │                               │                                            │
+//! │  ┌────────────────────────────┴───────────────────────┐                    │
+//! │  │              Pending Request Store                  │                    │
+//! │  │        (Async-to-Sync Bridge via oneshot)          │                    │
+//! │  │  Implements: Correlation ID → Response Channel     │                    │
+//! │  └────────────────────────────┬───────────────────────┘                    │
+//! │                               │                                            │
+//! │  ┌────────────────────────────┴───────────────────────┐                    │
+//! │  │                  IPC Handler                        │                    │
+//! │  │           (Event Bus Integration)                  │                    │
+//! │  └────────────────────────────┬───────────────────────┘                    │
+//! └───────────────────────────────┼────────────────────────────────────────────┘
+//!                                 │
+//!                            Event Bus
+//!                                 │
+//!     ┌───────────────────────────┼───────────────────────┐
+//!     ▼                           ▼                       ▼
+//! qc-04-state              qc-02-block            qc-06-mempool
 //! ```
 //!
-//! # Method Tiers
+//! ## Rate Limiting Configuration
 //!
-//! - **Tier 1 (Public)**: No authentication required (eth_*, web3_*, net_*)
-//! - **Tier 2 (Protected)**: API key OR localhost (txpool_*, admin_* read-only)
-//! - **Tier 3 (Admin)**: Localhost AND API key (admin_* write, debug_*)
+//! | Category | Default Limit | Methods |
+//! |----------|--------------|---------|
+//! | Public | 100 req/s | Read operations |
+//! | Write | 10 req/s | `eth_sendRawTransaction` |
+//! | Heavy | 20 req/s | `eth_call`, `eth_getLogs` |
 //!
-//! # Usage
+//! ## Timeout Configuration
+//!
+//! | Category | Default | Methods |
+//! |----------|---------|---------|
+//! | Simple | 5s | `eth_getBalance`, `eth_blockNumber` |
+//! | Normal | 10s | `eth_getBlock`, `eth_getTransaction` |
+//! | Heavy | 30s | `eth_call`, `eth_getLogs` |
+//!
+//! ## Usage Example
 //!
 //! ```ignore
 //! use qc_16_api_gateway::{ApiGatewayService, GatewayConfig};
 //!
+//! // Create gateway with default configuration
 //! let config = GatewayConfig::default();
 //! let mut service = ApiGatewayService::new(config, ipc_sender, data_dir)?;
+//!
+//! // Start all servers (HTTP, WebSocket, Admin)
 //! service.start().await?;
+//!
+//! // Graceful shutdown
+//! service.shutdown();
 //! ```
 //!
-//! # Security
-//!
-//! - RLP pre-validation for eth_sendRawTransaction (reject garbage at the gate)
-//! - Per-IP rate limiting with token bucket algorithm
-//! - Method tier enforcement with API key / localhost checks
-//! - Request size and batch limits
-//! - Per-method timeouts
-//!
-//! # SPEC Reference
+//! ## SPEC Reference
 //!
 //! See [SPEC-16-API-GATEWAY.md](../../SPECS/SPEC-16-API-GATEWAY.md) for full specification.
 
-// Note: missing_docs is disabled temporarily for Docker builds with -D warnings
-// #![warn(missing_docs)]
+// Crate-level lints
+#![allow(missing_docs)] // TODO: Enable after full documentation
 #![warn(clippy::all)]
+#![allow(clippy::excessive_nesting)] // Acceptable for middleware chains
 #![deny(unsafe_code)]
 
 pub mod domain;

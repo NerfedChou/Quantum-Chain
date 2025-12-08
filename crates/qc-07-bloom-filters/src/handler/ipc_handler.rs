@@ -404,4 +404,189 @@ mod tests {
         let result = handler.validate_build_filter(&request);
         assert!(matches!(result, Err(FilterError::UnauthorizedSender(_))));
     }
+
+    // =========================================================================
+    // COMPREHENSIVE UNAUTHORIZED SENDER TESTS (IPC-MATRIX.md Compliance)
+    // =========================================================================
+
+    /// Test: BuildFilterRequest rejected from Block Storage (2)
+    #[test]
+    fn test_reject_build_filter_from_block_storage() {
+        let handler = BloomFilterHandler::new();
+        let request = create_authenticated(
+            SubsystemId::BlockStorage.as_u8(),
+            BuildFilterRequest {
+                correlation_id: 1,
+                reply_to: "test".to_string(),
+                watched_addresses: vec![[0xAA; 20]],
+                start_block: 0,
+                end_block: 100,
+                target_fpr: 0.05,
+            },
+        );
+        let result = handler.validate_build_filter(&request);
+        assert!(
+            matches!(result, Err(FilterError::UnauthorizedSender(_))),
+            "Block Storage (2) should NOT be authorized to BuildFilterRequest"
+        );
+    }
+
+    /// Test: BuildFilterRequest rejected from Mempool (6)
+    #[test]
+    fn test_reject_build_filter_from_mempool() {
+        let handler = BloomFilterHandler::new();
+        let request = create_authenticated(
+            SubsystemId::Mempool.as_u8(),
+            BuildFilterRequest {
+                correlation_id: 1,
+                reply_to: "test".to_string(),
+                watched_addresses: vec![[0xAA; 20]],
+                start_block: 0,
+                end_block: 100,
+                target_fpr: 0.05,
+            },
+        );
+        let result = handler.validate_build_filter(&request);
+        assert!(
+            matches!(result, Err(FilterError::UnauthorizedSender(_))),
+            "Mempool (6) should NOT be authorized to BuildFilterRequest"
+        );
+    }
+
+    /// Test: BuildFilterRequest rejected from Transaction Indexing (3)
+    #[test]
+    fn test_reject_build_filter_from_tx_indexing() {
+        let handler = BloomFilterHandler::new();
+        let request = create_authenticated(
+            SUBSYSTEM_TRANSACTION_INDEXING,
+            BuildFilterRequest {
+                correlation_id: 1,
+                reply_to: "test".to_string(),
+                watched_addresses: vec![[0xAA; 20]],
+                start_block: 0,
+                end_block: 100,
+                target_fpr: 0.05,
+            },
+        );
+        let result = handler.validate_build_filter(&request);
+        assert!(
+            matches!(result, Err(FilterError::UnauthorizedSender(_))),
+            "Transaction Indexing (3) should NOT be authorized to BuildFilterRequest"
+        );
+    }
+
+    /// Test: TransactionHashUpdate rejected from Light Clients (13)
+    #[test]
+    fn test_reject_tx_update_from_light_clients() {
+        let handler = BloomFilterHandler::new();
+        let update = create_authenticated(
+            SUBSYSTEM_LIGHT_CLIENT,
+            TransactionHashUpdate {
+                block_number: 100,
+                hashes: vec![[0xAA; 32]],
+            },
+        );
+        let result = handler.validate_tx_hash_update(&update);
+        assert!(
+            matches!(result, Err(FilterError::UnauthorizedSender(_))),
+            "Light Clients (13) should NOT be authorized to TransactionHashUpdate"
+        );
+    }
+
+    /// Test: TransactionHashUpdate rejected from Block Storage (2)
+    #[test]
+    fn test_reject_tx_update_from_block_storage() {
+        let handler = BloomFilterHandler::new();
+        let update = create_authenticated(
+            SubsystemId::BlockStorage.as_u8(),
+            TransactionHashUpdate {
+                block_number: 100,
+                hashes: vec![[0xAA; 32]],
+            },
+        );
+        let result = handler.validate_tx_hash_update(&update);
+        assert!(
+            matches!(result, Err(FilterError::UnauthorizedSender(_))),
+            "Block Storage (2) should NOT be authorized to TransactionHashUpdate"
+        );
+    }
+
+    /// Test: UpdateFilterRequest rejected from Transaction Indexing (3)
+    #[test]
+    fn test_reject_update_filter_from_tx_indexing() {
+        let handler = BloomFilterHandler::new();
+        let request = create_authenticated(
+            SUBSYSTEM_TRANSACTION_INDEXING,
+            UpdateFilterRequest {
+                correlation_id: 1,
+                reply_to: "test".to_string(),
+                filter_id: 1,
+                add_addresses: vec![[0xAA; 20]],
+                remove_addresses: vec![],
+            },
+        );
+        let result = handler.validate_update_filter(&request, "client_1");
+        assert!(
+            matches!(result, Err(FilterError::UnauthorizedSender(_))),
+            "Transaction Indexing (3) should NOT be authorized to UpdateFilterRequest"
+        );
+    }
+
+    /// Test: Verify only Light Clients (13) can build filters (documentation test)
+    #[test]
+    fn test_only_light_clients_authorized_for_build_filter() {
+        let handler = BloomFilterHandler::new();
+
+        // Per IPC-MATRIX.md Subsystem 7:
+        // BuildFilterRequest: Light Clients (13) ONLY
+        let valid_request = create_authenticated(
+            SUBSYSTEM_LIGHT_CLIENT,
+            BuildFilterRequest {
+                correlation_id: 1,
+                reply_to: "test".to_string(),
+                watched_addresses: vec![[0xAA; 20]],
+                start_block: 0,
+                end_block: 100,
+                target_fpr: 0.05,
+            },
+        );
+        assert!(
+            handler.validate_build_filter(&valid_request).is_ok(),
+            "Light Clients (13) MUST be authorized for BuildFilterRequest"
+        );
+
+        // All other subsystems should be rejected
+        let unauthorized_ids = [1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        for sender_id in unauthorized_ids {
+            assert!(
+                !handler.is_authorized_for_build_filter(sender_id),
+                "Subsystem {} should NOT be authorized for BuildFilterRequest",
+                sender_id
+            );
+        }
+    }
+
+    /// Test: Verify only Transaction Indexing (3) can send hash updates
+    #[test]
+    fn test_only_tx_indexing_authorized_for_hash_update() {
+        let handler = BloomFilterHandler::new();
+
+        // Per IPC-MATRIX.md Subsystem 7:
+        // TransactionHashUpdate: Transaction Indexing (3) ONLY
+        assert!(
+            handler.is_authorized_for_tx_update(SUBSYSTEM_TRANSACTION_INDEXING),
+            "Transaction Indexing (3) MUST be authorized for TransactionHashUpdate"
+        );
+
+        // All other subsystems should be rejected
+        let unauthorized_ids = [1u8, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+        for sender_id in unauthorized_ids {
+            assert!(
+                !handler.is_authorized_for_tx_update(sender_id),
+                "Subsystem {} should NOT be authorized for TransactionHashUpdate",
+                sender_id
+            );
+        }
+    }
 }
+

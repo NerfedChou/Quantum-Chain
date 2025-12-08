@@ -252,6 +252,32 @@ impl MerkleTree {
 /// in a block without having access to all other transactions.
 ///
 /// ## SPEC-03 Section 2.2
+///
+/// ## Proof Size Characteristics
+///
+/// The proof size scales logarithmically with the number of transactions:
+///
+/// | Transactions | Tree Depth | Path Size | Total Proof Size |
+/// |--------------|------------|-----------|------------------|
+/// | 1-2          | 1          | ~33 bytes | ~165 bytes       |
+/// | 3-4          | 2          | ~66 bytes | ~198 bytes       |
+/// | 5-8          | 3          | ~99 bytes | ~231 bytes       |
+/// | 9-16         | 4          | ~132 bytes| ~264 bytes       |
+/// | 17-32        | 5          | ~165 bytes| ~297 bytes       |
+/// | 1,000        | 10         | ~330 bytes| ~462 bytes       |
+/// | 10,000       | 14         | ~462 bytes| ~594 bytes       |
+///
+/// Each `ProofNode` is 33 bytes (32-byte hash + 1-byte position).
+/// Base proof overhead is ~132 bytes (3 hashes + height + index).
+///
+/// ## Verification
+///
+/// To verify a proof:
+/// 1. Start with `leaf_hash`
+/// 2. For each node in `path`, compute: `H(left || right)` based on `position`
+/// 3. Compare final hash with `root`
+///
+/// Use `MerkleTree::verify_proof_static()` for verification without tree instance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MerkleProof {
     /// Hash of the transaction being proven.
@@ -265,6 +291,8 @@ pub struct MerkleProof {
     /// The Merkle root this proof verifies against.
     pub root: Hash,
     /// Path of sibling hashes from leaf to root.
+    ///
+    /// Length = ceil(log2(padded_leaf_count)) = tree depth.
     pub path: Vec<ProofNode>,
 }
 

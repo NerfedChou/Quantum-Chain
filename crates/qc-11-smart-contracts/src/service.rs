@@ -535,4 +535,212 @@ mod tests {
         let stats = service.stats().await;
         assert_eq!(stats.transactions_executed, 1);
     }
+
+    // =========================================================================
+    // COMPREHENSIVE UNAUTHORIZED SENDER TESTS (IPC-MATRIX.md Compliance)
+    // =========================================================================
+
+    /// Test: ExecuteTransactionRequest rejected from Block Storage (2)
+    #[tokio::test]
+    async fn test_reject_tx_request_from_block_storage() {
+        let service = create_test_service();
+        let payload = create_test_tx_payload();
+
+        let result = service
+            .handle_execute_transaction(2, Uuid::new_v4(), payload) // Block Storage
+            .await;
+
+        assert!(
+            matches!(result, Err(IpcError::UnauthorizedSender { .. })),
+            "Block Storage (2) should NOT be authorized to send ExecuteTransactionRequest"
+        );
+    }
+
+    /// Test: ExecuteTransactionRequest rejected from State Management (4)
+    #[tokio::test]
+    async fn test_reject_tx_request_from_state_management() {
+        let service = create_test_service();
+        let payload = create_test_tx_payload();
+
+        let result = service
+            .handle_execute_transaction(4, Uuid::new_v4(), payload) // State Management
+            .await;
+
+        assert!(
+            matches!(result, Err(IpcError::UnauthorizedSender { .. })),
+            "State Management (4) should NOT be authorized to send ExecuteTransactionRequest"
+        );
+    }
+
+    /// Test: ExecuteTransactionRequest rejected from Finality (9)
+    #[tokio::test]
+    async fn test_reject_tx_request_from_finality() {
+        let service = create_test_service();
+        let payload = create_test_tx_payload();
+
+        let result = service
+            .handle_execute_transaction(9, Uuid::new_v4(), payload) // Finality
+            .await;
+
+        assert!(
+            matches!(result, Err(IpcError::UnauthorizedSender { .. })),
+            "Finality (9) should NOT be authorized to send ExecuteTransactionRequest"
+        );
+    }
+
+    /// Test: ExecuteTransactionRequest rejected from Cross-Chain (15)
+    #[tokio::test]
+    async fn test_reject_tx_request_from_cross_chain() {
+        let service = create_test_service();
+        let payload = create_test_tx_payload();
+
+        let result = service
+            .handle_execute_transaction(15, Uuid::new_v4(), payload) // Cross-Chain
+            .await;
+
+        assert!(
+            matches!(result, Err(IpcError::UnauthorizedSender { .. })),
+            "Cross-Chain (15) should NOT be authorized to send ExecuteTransactionRequest"
+        );
+    }
+
+    /// Test: ExecuteTransactionRequest accepted from Consensus (8)
+    #[tokio::test]
+    async fn test_tx_request_accepted_from_consensus() {
+        let service = create_test_service();
+        let payload = create_test_tx_payload();
+
+        let result = service
+            .handle_execute_transaction(8, Uuid::new_v4(), payload) // Consensus
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "Consensus (8) should be authorized for ExecuteTransactionRequest"
+        );
+    }
+
+    /// Test: ExecuteTransactionRequest accepted from Transaction Ordering (12)
+    #[tokio::test]
+    async fn test_tx_request_accepted_from_tx_ordering() {
+        let service = create_test_service();
+        let payload = create_test_tx_payload();
+
+        let result = service
+            .handle_execute_transaction(12, Uuid::new_v4(), payload) // Tx Ordering
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "Transaction Ordering (12) should be authorized for ExecuteTransactionRequest"
+        );
+    }
+
+    /// Test: ExecuteHTLCRequest rejected from Consensus (8)
+    #[tokio::test]
+    async fn test_reject_htlc_request_from_consensus() {
+        let service = create_test_service();
+        let payload = create_test_htlc_payload();
+
+        let result = service
+            .handle_execute_htlc(8, Uuid::new_v4(), payload) // Consensus
+            .await;
+
+        assert!(
+            matches!(result, Err(IpcError::UnauthorizedSender { .. })),
+            "Consensus (8) should NOT be authorized to send ExecuteHTLCRequest"
+        );
+    }
+
+    /// Test: ExecuteHTLCRequest rejected from Transaction Ordering (12)
+    #[tokio::test]
+    async fn test_reject_htlc_request_from_tx_ordering() {
+        let service = create_test_service();
+        let payload = create_test_htlc_payload();
+
+        let result = service
+            .handle_execute_htlc(12, Uuid::new_v4(), payload) // Tx Ordering
+            .await;
+
+        assert!(
+            matches!(result, Err(IpcError::UnauthorizedSender { .. })),
+            "Transaction Ordering (12) should NOT be authorized to send ExecuteHTLCRequest"
+        );
+    }
+
+    /// Test: ExecuteHTLCRequest rejected from Block Storage (2)
+    #[tokio::test]
+    async fn test_reject_htlc_request_from_block_storage() {
+        let service = create_test_service();
+        let payload = create_test_htlc_payload();
+
+        let result = service
+            .handle_execute_htlc(2, Uuid::new_v4(), payload) // Block Storage
+            .await;
+
+        assert!(
+            matches!(result, Err(IpcError::UnauthorizedSender { .. })),
+            "Block Storage (2) should NOT be authorized to send ExecuteHTLCRequest"
+        );
+    }
+
+    /// Test: Verify only Consensus (8) and Transaction Ordering (12) can send ExecuteTransactionRequest
+    #[test]
+    fn test_only_consensus_and_tx_ordering_authorized_for_execute_tx() {
+        use crate::events::subsystem_ids;
+
+        // Authorized senders
+        assert!(subsystem_ids::is_authorized_execution_sender(8));
+        assert!(subsystem_ids::is_authorized_execution_sender(12));
+
+        // All others rejected
+        for id in [1u8, 2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 15] {
+            assert!(
+                !subsystem_ids::is_authorized_execution_sender(id),
+                "Subsystem {} should NOT be authorized for ExecuteTransactionRequest",
+                id
+            );
+        }
+    }
+
+    /// Test: Verify only Cross-Chain (15) can send ExecuteHTLCRequest
+    #[test]
+    fn test_only_cross_chain_authorized_for_htlc() {
+        use crate::events::subsystem_ids;
+
+        // Authorized sender
+        assert!(subsystem_ids::is_authorized_htlc_sender(15));
+
+        // All others rejected
+        for id in [1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14] {
+            assert!(
+                !subsystem_ids::is_authorized_htlc_sender(id),
+                "Subsystem {} should NOT be authorized for ExecuteHTLCRequest",
+                id
+            );
+        }
+    }
+
+    /// Test: Rejected requests increment stats counter
+    #[tokio::test]
+    async fn test_rejected_requests_stats() {
+        let service = create_test_service();
+        let payload = create_test_tx_payload();
+
+        // Multiple unauthorized senders
+        let _ = service
+            .handle_execute_transaction(1, Uuid::new_v4(), payload.clone())
+            .await;
+        let _ = service
+            .handle_execute_transaction(2, Uuid::new_v4(), payload.clone())
+            .await;
+        let _ = service
+            .handle_execute_transaction(3, Uuid::new_v4(), payload)
+            .await;
+
+        let stats = service.stats().await;
+        assert_eq!(stats.rejected_requests, 3, "Should have 3 rejected requests");
+        assert_eq!(stats.transactions_executed, 0, "No transactions should have executed");
+    }
 }
+

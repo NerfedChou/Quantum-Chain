@@ -5,8 +5,10 @@
 /// EVM Opcode enumeration.
 ///
 /// Complete list of EVM opcodes up to Shanghai hard fork.
+/// Opcode semantics are defined in the Ethereum Yellow Paper.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
+#[allow(missing_docs)]
 pub enum Opcode {
     // 0x00 - Stop and Arithmetic
     Stop = 0x00,
