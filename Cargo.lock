@@ -2391,10 +2391,8 @@ checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 name = "qc-01-peer-discovery"
 version = "0.1.0"
 dependencies = [
- "hmac",
  "serde",
  "serde_json",
- "sha2",
  "shared-types",
  "tokio",
  "toml",

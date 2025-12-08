@@ -88,7 +88,6 @@ impl VerificationRequestPublisher for RuntimeVerificationPublisher {
             node_id: shared_types::entities::NodeId(request.node_id),
             // Use direct conversion to Vec, bypassing Serde limitation & truncation
             public_key: request.claimed_pubkey.to_vec(),
-            challenge: [0u8; 32],
             signature: request.signature,
         };
 

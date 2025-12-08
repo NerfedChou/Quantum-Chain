@@ -20,7 +20,7 @@ default = []
 
 # IPC integration with shared event bus (requires shared-types)
 # Enables: ipc/handler.rs, ipc/security.rs with MessageVerifier
-ipc = ["dep:shared-types", "dep:hmac", "dep:sha2"]
+ipc = ["dep:shared-types", "dep:uuid"]
 
 # RPC/API Gateway integration (JSON responses)
 # Enables: adapters/api_handler.rs
@@ -32,7 +32,7 @@ bootstrap = ["dep:uuid"]
 
 # Network adapters (UDP socket, TOML config)
 # Enables: UdpNetworkSocket, TomlConfigProvider
-network = ["dep:tokio", "dep:toml"]
+network = ["dep:tokio", "dep:toml", "dep:serde"]
 
 # Test utilities (FixedTimeSource)
 test-utils = []
@@ -47,8 +47,7 @@ full = ["ipc", "rpc", "bootstrap", "network", "test-utils"]
 [dependencies]
 # IPC security module (optional - for event bus integration)
 shared-types = { path = "../shared-types", optional = true }
-hmac = { version = "0.12", optional = true }
-sha2 = { version = "0.10", optional = true }
+
 
 # Correlation ID generation (optional - for bootstrap handler)
 uuid = { version = "1.0", features = ["v4"], optional = true }

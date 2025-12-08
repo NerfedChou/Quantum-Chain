@@ -430,14 +430,15 @@ impl<S: SignatureVerificationApi> IpcHandler<S> {
         s.copy_from_slice(&payload.signature[32..]);
 
         let ecdsa_sig = EcdsaSignature { r, s, v: 27 };
-        let result = self.service.verify_ecdsa_signer(&payload.challenge, &ecdsa_sig, expected_address);
+        // Signature signs the node_id (as the message hash)
+        let result = self.service.verify_ecdsa_signer(&payload.node_id.0, &ecdsa_sig, expected_address);
 
         // Try v=28 if v=27 failed
         let final_result = if result.valid {
             result
         } else {
             let ecdsa_sig_28 = EcdsaSignature { r, s, v: 28 };
-            self.service.verify_ecdsa_signer(&payload.challenge, &ecdsa_sig_28, expected_address)
+            self.service.verify_ecdsa_signer(&payload.node_id.0, &ecdsa_sig_28, expected_address)
         };
 
         Ok(VerifyNodeIdentityResponse {

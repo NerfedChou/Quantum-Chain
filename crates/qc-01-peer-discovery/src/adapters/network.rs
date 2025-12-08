@@ -245,6 +245,7 @@ mod udp_socket {
         Pong = 0x02,
         FindNode = 0x03,
         Nodes = 0x04,
+        Bootstrap = 0x05,
     }
 
     /// UDP-based network socket for Kademlia protocol.
@@ -258,6 +259,13 @@ mod udp_socket {
     /// - Byte 0: Message type (PING=0x01, PONG=0x02, FIND_NODE=0x03, NODES=0x04)
     /// - Bytes 1-32: Our NodeId (for PING/PONG/FIND_NODE)
     /// - Bytes 33-64: Target NodeId (for FIND_NODE only)
+    /// - For BOOTSTRAP (0x05):
+    ///   - Bytes 1-32: NodeId
+    ///   - Bytes 33-64: Proof of Work
+    ///   - Bytes 65-97: Claimed PubKey
+    ///   - Bytes 98-161: Signature (64 bytes)
+    ///   - Bytes 162-163: Port
+    ///   - Remaining: IP Address (4 or 16 bytes)
     ///
     /// # Example
     ///
@@ -374,10 +382,67 @@ mod udp_socket {
             }
         }
     }
+
+
+    /// Parse a raw Bootstrap message.
+    ///
+    /// # Protocol
+    /// [Type(1)][NodeId(32)][PoW(32)][PubKey(33)][Sig(64)][Port(2)][IP(4/16)]
+    #[cfg(feature = "ipc")]
+    pub fn parse_bootstrap_request(data: &[u8]) -> Result<crate::ipc::BootstrapRequest, NetworkError> {
+        if data.len() < 167 { // Min size (IPv4)
+            return Err(NetworkError::MessageTooLarge); // Actually TooSmall, but using available error
+        }
+
+        if data[0] != MessageType::Bootstrap as u8 {
+            return Err(NetworkError::InvalidAddress); // Wrong type
+        }
+
+        let mut node_id = [0u8; 32];
+        node_id.copy_from_slice(&data[1..33]);
+
+        let mut proof_of_work = [0u8; 32];
+        proof_of_work.copy_from_slice(&data[33..65]);
+
+        let mut claimed_pubkey = [0u8; 33];
+        claimed_pubkey.copy_from_slice(&data[65..98]);
+
+        let mut signature = [0u8; 64];
+        signature.copy_from_slice(&data[98..162]);
+
+        let port_bytes: [u8; 2] = data[162..164].try_into().unwrap();
+        let port = u16::from_be_bytes(port_bytes);
+
+        // IP Address (remaining bytes)
+        let ip_bytes = &data[164..];
+        let ip_address = if ip_bytes.len() == 4 {
+             let mut b = [0u8; 4];
+             b.copy_from_slice(ip_bytes);
+             crate::domain::IpAddr::V4(b)
+        } else if ip_bytes.len() == 16 {
+             let mut b = [0u8; 16];
+             b.copy_from_slice(ip_bytes);
+             crate::domain::IpAddr::V6(b)
+        } else {
+             return Err(NetworkError::InvalidAddress);
+        };
+
+        Ok(crate::ipc::BootstrapRequest::new(
+            node_id,
+            ip_address,
+            port,
+            proof_of_work,
+            claimed_pubkey,
+            signature,
+        ))
+    }
 }
 
 #[cfg(feature = "network")]
 pub use udp_socket::{MessageType, UdpNetworkSocket};
+
+#[cfg(all(feature = "network", feature = "ipc"))]
+pub use udp_socket::parse_bootstrap_request;
 
 // ============================================================================
 // TomlConfigProvider - Production Config Loading (requires "network" feature)
