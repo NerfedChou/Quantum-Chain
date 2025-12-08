@@ -108,7 +108,7 @@ pub struct PendingPeer {
 /// Reference: SPEC-01 Section 2.2
 #[derive(Debug, Clone, Default)]
 pub struct BannedPeers {
-    entries: Vec<BannedEntry>,
+    entries: HashMap<NodeId, BannedEntry>,
 }
 
 /// Individual ban entry
@@ -242,15 +242,13 @@ impl Default for KBucket {
 impl BannedPeers {
     pub fn new() -> Self {
         Self {
-            entries: Vec::new(),
+            entries: HashMap::new(),
         }
     }
 
     /// Add a ban entry
     pub fn ban(&mut self, node_id: NodeId, until: Timestamp, reason: BanReason) {
-        // Remove existing ban if any
-        self.entries.retain(|e| e.node_id != node_id);
-        self.entries.push(BannedEntry {
+        self.entries.insert(node_id, BannedEntry {
             node_id,
             banned_until: until,
             reason,
@@ -259,21 +257,23 @@ impl BannedPeers {
 
     /// Check if a peer is currently banned
     pub fn is_banned(&self, node_id: &NodeId, now: Timestamp) -> bool {
-        self.entries
-            .iter()
-            .any(|e| &e.node_id == node_id && e.banned_until > now)
+        if let Some(entry) = self.entries.get(node_id) {
+            entry.banned_until > now
+        } else {
+            false
+        }
     }
 
     /// Remove expired bans
     pub fn gc_expired(&mut self, now: Timestamp) -> usize {
         let before = self.entries.len();
-        self.entries.retain(|e| e.banned_until > now);
+        self.entries.retain(|_, e| e.banned_until > now);
         before - self.entries.len()
     }
 
     /// Get count of active bans
     pub fn count(&self, now: Timestamp) -> usize {
-        self.entries.iter().filter(|e| e.banned_until > now).count()
+        self.entries.values().filter(|e| e.banned_until > now).count()
     }
 }
 

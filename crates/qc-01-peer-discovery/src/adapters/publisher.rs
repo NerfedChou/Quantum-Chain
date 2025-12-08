@@ -229,6 +229,119 @@ impl PeerDiscoveryEventPublisher for InMemoryEventPublisher {
     }
 }
 
+// =============================================================================
+// VERIFICATION REQUEST PUBLISHER (Outbound to Subsystem 10)
+// =============================================================================
+
+
+use crate::ipc::VerifyNodeIdentityRequest;
+
+/// Publisher for sending verification requests to Subsystem 10.
+///
+/// This is the EDA outbound port for the DDoS defense flow.
+/// When a new peer connects via `BootstrapRequest`, we stage them
+/// and send a verification request to Subsystem 10.
+///
+/// ## Flow
+///
+/// ```text
+/// BootstrapRequest → stage peer → publish_verification_request → Subsystem 10
+/// ```
+pub trait VerificationRequestPublisher: Send + Sync {
+    /// Send a verification request to Subsystem 10.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The verification request payload
+    /// * `correlation_id` - ID to correlate with the eventual response
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) if published successfully
+    fn publish_verification_request(
+        &self,
+        request: VerifyNodeIdentityRequest,
+        correlation_id: [u8; 16],
+    ) -> Result<(), String>;
+}
+
+/// No-op verification request publisher for testing.
+#[derive(Debug, Default)]
+pub struct NoOpVerificationPublisher {
+    /// Count of requests published.
+    pub request_count: std::sync::atomic::AtomicUsize,
+}
+
+impl NoOpVerificationPublisher {
+    /// Create a new no-op publisher.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            request_count: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    /// Get the count of published requests.
+    #[must_use]
+    pub fn get_request_count(&self) -> usize {
+        self.request_count
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl VerificationRequestPublisher for NoOpVerificationPublisher {
+    fn publish_verification_request(
+        &self,
+        _request: VerifyNodeIdentityRequest,
+        _correlation_id: [u8; 16],
+    ) -> Result<(), String> {
+        self.request_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+/// In-memory verification publisher for testing.
+#[derive(Debug, Default)]
+pub struct InMemoryVerificationPublisher {
+    requests: std::sync::Mutex<Vec<(VerifyNodeIdentityRequest, [u8; 16])>>,
+}
+
+impl InMemoryVerificationPublisher {
+    /// Create a new in-memory publisher.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            requests: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Get all published requests.
+    #[must_use]
+    pub fn get_requests(&self) -> Vec<(VerifyNodeIdentityRequest, [u8; 16])> {
+        self.requests.lock().unwrap().clone()
+    }
+
+    /// Clear all stored requests.
+    pub fn clear(&self) {
+        self.requests.lock().unwrap().clear();
+    }
+}
+
+impl VerificationRequestPublisher for InMemoryVerificationPublisher {
+    fn publish_verification_request(
+        &self,
+        request: VerifyNodeIdentityRequest,
+        correlation_id: [u8; 16],
+    ) -> Result<(), String> {
+        self.requests
+            .lock()
+            .unwrap()
+            .push((request, correlation_id));
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -9,23 +9,57 @@ description = "Kademlia DHT-based peer discovery for Quantum-Chain"
 keywords = ["blockchain", "peer-discovery", "kademlia", "dht"]
 categories = ["network-programming", "cryptography"]
 
+# =============================================================================
+# FEATURES: Zero mandatory dependencies architecture
+# =============================================================================
+# The core library (domain, ports, service) has ZERO external dependencies.
+# All adapters and integrations are feature-gated for true plug-and-play.
+
+[features]
+default = []
+
+# IPC integration with shared event bus (requires shared-types)
+# Enables: ipc/handler.rs, ipc/security.rs with MessageVerifier
+ipc = ["dep:shared-types", "dep:uuid"]
+
+# RPC/API Gateway integration (JSON responses)
+# Enables: adapters/api_handler.rs
+rpc = ["dep:serde", "dep:serde_json"]
+
+# Bootstrap handler with correlation ID generation
+# Enables: adapters/bootstrap_handler.rs
+bootstrap = ["dep:uuid"]
+
+# Network adapters (UDP socket, TOML config)
+# Enables: UdpNetworkSocket, TomlConfigProvider
+network = ["dep:tokio", "dep:toml", "dep:serde"]
+
+# Test utilities (FixedTimeSource)
+test-utils = []
+
+# Full feature set (all adapters enabled)
+full = ["ipc", "rpc", "bootstrap", "network", "test-utils"]
+
+# =============================================================================
+# DEPENDENCIES: All optional except for core library
+# =============================================================================
+
 [dependencies]
-# Shared types including centralized IPC security module
-shared-types = { path = "../shared-types" }
+# IPC security module (optional - for event bus integration)
+shared-types = { path = "../shared-types", optional = true }
 
-# HMAC for IPC message signature verification (Architecture.md Section 3.5)
-hmac = "0.12"
-sha2 = "0.10"
 
-# UUID for nonce handling
-uuid = { version = "1.0", features = ["v4"] }
+# Correlation ID generation (optional - for bootstrap handler)
+uuid = { version = "1.0", features = ["v4"], optional = true }
 
-# Serialization for API responses
-serde.workspace = true
-serde_json.workspace = true
+# RPC responses (optional - for API gateway)
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
-# Hex encoding for node IDs
-hex = "0.4"
+# Network adapters (optional)
+tokio = { workspace = true, optional = true }
+toml = { version = "0.8", optional = true }
 
 [dev-dependencies]
-# Testing utilities will be added as needed
+# Testing utilities (always available for tests)
+tokio = { workspace = true, features = ["rt", "macros", "time"] }

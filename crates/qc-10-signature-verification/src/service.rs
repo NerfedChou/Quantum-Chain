@@ -31,6 +31,7 @@ use shared_types::{Hash, Transaction};
 ///
 /// The mempool gateway is used for the async `verify_and_submit` flow
 /// per SPEC-10 Section 4.1 (AddTransactionRequest to Mempool).
+#[derive(Clone)]
 pub struct SignatureVerificationService<M: MempoolGateway> {
     mempool: M,
 }
@@ -84,6 +85,22 @@ impl<M: MempoolGateway> SignatureVerificationApi for SignatureVerificationServic
         signature: &EcdsaSignature,
     ) -> Result<Address, SignatureError> {
         ecdsa::recover_address(message_hash, signature)
+    }
+
+    fn derive_address(&self, pubkey: &[u8]) -> Result<Address, SignatureError> {
+        if pubkey.len() == 33 {
+            // Compressed secp256k1 key (0x02 or 0x03 prefix)
+            let mut bytes = [0u8; 33];
+            bytes.copy_from_slice(pubkey);
+            derive_address_from_compressed_pubkey(&bytes)
+        } else if pubkey.len() == 32 {
+            // Implied even parity (0x02) - existing behavior for Transaction.from
+            let mut bytes = [0u8; 32];
+            bytes.copy_from_slice(pubkey);
+            Ok(derive_address_from_pubkey(&bytes))
+        } else {
+            Err(SignatureError::InvalidFormat)
+        }
     }
 
     fn batch_verify_ecdsa(&self, request: &BatchVerificationRequest) -> BatchVerificationResult {
@@ -207,6 +224,35 @@ fn extract_rs_from_signature(tx: &Transaction) -> Result<([u8; 32], [u8; 32]), S
     s.copy_from_slice(&tx.signature[32..]);
 
     Ok((r, s))
+}
+
+/// Derive Ethereum-style address from a 33-byte compressed public key.
+fn derive_address_from_compressed_pubkey(pubkey: &[u8; 33]) -> Result<Address, SignatureError> {
+    use k256::elliptic_curve::sec1::FromEncodedPoint;
+    use k256::{AffinePoint, EncodedPoint};
+    use sha3::{Digest, Keccak256};
+
+    // Try to decompress the point
+    if let Ok(encoded) = EncodedPoint::from_bytes(*pubkey) {
+        let ct_option = AffinePoint::from_encoded_point(&encoded);
+        if ct_option.is_some().into() {
+            let point: AffinePoint = ct_option.unwrap();
+            let uncompressed = EncodedPoint::from(point);
+            let pubkey_bytes = uncompressed.as_bytes();
+
+            // Keccak256 hash of uncompressed public key (skip 0x04 prefix)
+            let mut hasher = Keccak256::new();
+            hasher.update(&pubkey_bytes[1..]);
+            let result = hasher.finalize();
+
+            let mut address = [0u8; 20];
+            address.copy_from_slice(&result[12..]);
+            return Ok(address);
+        }
+    }
+
+    // Invalid point or format
+    Err(SignatureError::InvalidFormat)
 }
 
 /// Derive Ethereum-style address from a 32-byte public key.

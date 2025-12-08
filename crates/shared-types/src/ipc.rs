@@ -27,10 +27,9 @@ pub struct VerifyNodeIdentityPayload {
     /// The node ID to verify.
     pub node_id: NodeId,
     /// The claimed public key.
-    pub public_key: PublicKey,
-    /// The challenge nonce.
-    pub challenge: [u8; 32],
-    /// Signature over the challenge.
+    pub public_key: Vec<u8>,
+    /// Signature over the envelope fields (correlation_id, timestamp, node_id, pubkey).
+    /// Reference: IPC-MATRIX.md Subsystem 1 (DDoS Defense).
     #[serde_as(as = "Bytes")]
     pub signature: Signature,
 }

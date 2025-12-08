@@ -1,10 +1,12 @@
-//! # Signature Verification Adapter
-//! Stub adapter for Signature Verification (qc-10) subsystem.
-
 use crate::adapters::EventBusAdapter;
 use crate::wiring::EventRouter;
 use shared_types::SubsystemId;
 use std::sync::Arc;
+use shared_bus::{InMemoryEventBus, events::BlockchainEvent, EventPublisher};
+use qc_10_signature_verification::ports::outbound::{MempoolGateway, MempoolError};
+use qc_10_signature_verification::domain::entities::VerifiedTransaction;
+use shared_types::entities::ValidatedTransaction;
+use sha3::{Digest, Keccak256};
 
 /// Signature verification adapter - ECDSA operations.
 ///
@@ -25,4 +27,55 @@ impl SignatureAdapter {
     pub fn event_bus(&self) -> &EventBusAdapter {
         &self.event_bus
     }
+}
+
+/// Runtime implementation of MempoolGateway using the Event Bus.
+///
+/// This allows the Signature Verification service to "submit" transactions
+/// by publishing events, decoupling it from the Mempool subsystem.
+#[derive(Clone)]
+pub struct RuntimeMempoolGateway {
+    bus: Arc<InMemoryEventBus>,
+}
+
+impl RuntimeMempoolGateway {
+    pub fn new(bus: Arc<InMemoryEventBus>) -> Self {
+        Self { bus }
+    }
+}
+
+#[async_trait::async_trait]
+impl MempoolGateway for RuntimeMempoolGateway {
+    async fn submit_verified_transaction(
+        &self,
+        transaction: VerifiedTransaction,
+    ) -> Result<(), MempoolError> {
+        let tx_hash = compute_transaction_hash(&transaction.transaction);
+        let validated = ValidatedTransaction {
+            inner: transaction.transaction,
+            tx_hash,
+        };
+        let event = BlockchainEvent::TransactionVerified(validated);
+        // Publish returns number of subscribers - we ignore it
+        self.bus.publish(event).await;
+        Ok(())
+    }
+}
+
+/// Compute transaction hash compatible with qc-10/service.rs logic.
+fn compute_transaction_hash(tx: &shared_types::Transaction) -> shared_types::Hash {
+    let mut hasher = Keccak256::new();
+    // Hash the transaction fields (excluding signature)
+    hasher.update(tx.from);
+    if let Some(ref to) = tx.to {
+        hasher.update(to);
+    }
+    hasher.update(tx.value.to_le_bytes());
+    hasher.update(tx.nonce.to_le_bytes());
+    hasher.update(&tx.data);
+
+    let result = hasher.finalize();
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&result);
+    hash
 }

@@ -18,10 +18,15 @@
 //!
 //! All messages wrapped in `AuthenticatedMessage<T>` envelope per Architecture.md v2.2.
 
+pub mod bootstrap;
 pub mod handler;
 pub mod payloads;
 pub mod security;
+pub mod verify_node_identity;
 
+pub use bootstrap::*;
 pub use handler::*;
 pub use payloads::*;
 pub use security::*;
+pub use verify_node_identity::*;
+

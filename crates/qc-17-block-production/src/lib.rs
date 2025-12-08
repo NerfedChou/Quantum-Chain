@@ -110,8 +110,8 @@ pub use domain::{
 };
 
 pub use ports::{
-    BlockProducerService, ConsensusSubmitter, EventPublisher, MempoolReader, ProductionConfig,
-    ProductionStatus, SignatureProvider, StateReader,
+    BlockProducerService, ConsensusSubmitter, EventPublisher, HistoricalBlockInfo, MinedBlockInfo,
+    MempoolReader, ProductionConfig, ProductionStatus, SignatureProvider, StateReader,
 };
 
 pub use events::{

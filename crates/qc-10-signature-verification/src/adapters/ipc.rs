@@ -420,21 +420,25 @@ impl<S: SignatureVerificationApi> IpcHandler<S> {
         // Step 4: Extract payload
         let payload = &msg.payload;
 
-        // Step 5: Verify the signature over the challenge
+        // Step 5: Derive sender address from claimed public key & Verify
+        // We now enforce that the signature matches the claimed key
+        let expected_address = self.service.derive_address(&payload.public_key)?;
+
         let mut r = [0u8; 32];
         let mut s = [0u8; 32];
         r.copy_from_slice(&payload.signature[..32]);
         s.copy_from_slice(&payload.signature[32..]);
 
         let ecdsa_sig = EcdsaSignature { r, s, v: 27 };
-        let result = self.service.verify_ecdsa(&payload.challenge, &ecdsa_sig);
+        // Signature signs the node_id (as the message hash)
+        let result = self.service.verify_ecdsa_signer(&payload.node_id.0, &ecdsa_sig, expected_address);
 
         // Try v=28 if v=27 failed
         let final_result = if result.valid {
             result
         } else {
             let ecdsa_sig_28 = EcdsaSignature { r, s, v: 28 };
-            self.service.verify_ecdsa(&payload.challenge, &ecdsa_sig_28)
+            self.service.verify_ecdsa_signer(&payload.node_id.0, &ecdsa_sig_28, expected_address)
         };
 
         Ok(VerifyNodeIdentityResponse {

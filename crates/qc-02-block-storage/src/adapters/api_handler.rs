@@ -305,7 +305,7 @@ mod tests {
     use crate::domain::entities::{StorageMetadata, StoredBlock};
     use crate::domain::errors::StorageError;
     use crate::domain::value_objects::TransactionLocation;
-    use shared_types::{BlockHeader, ConsensusProof, ValidatedBlock};
+    use shared_types::{BlockHeader, ConsensusProof, ValidatedBlock, U256};
 
     /// Mock service for testing
     struct MockStorageService {
@@ -348,6 +348,8 @@ mod tests {
                             state_root: [0xBB; 32],
                             timestamp: 1700000000 + height,
                             proposer: [0; 32],
+                            difficulty: U256::from(2).pow(U256::from(252)),
+                            nonce: 0,
                         },
                         transactions: vec![],
                         consensus_proof: ConsensusProof::default(),

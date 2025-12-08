@@ -13,3 +13,8 @@ pub use api_query::ApiQueryHandler;
 
 pub mod choreography;
 pub use choreography::*;
+
+#[cfg(feature = "qc-10")]
+pub mod signature_verification;
+#[cfg(feature = "qc-10")]
+pub use signature_verification::SignatureVerificationHandler;

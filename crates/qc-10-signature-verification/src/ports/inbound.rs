@@ -49,6 +49,9 @@ pub trait SignatureVerificationApi: Send + Sync {
         signature: &EcdsaSignature,
     ) -> Result<Address, SignatureError>;
 
+    /// Derive address from a public key (supporting 32-byte implied or 33-byte compressed).
+    fn derive_address(&self, pubkey: &[u8]) -> Result<Address, SignatureError>;
+
     /// Batch verify multiple ECDSA signatures in parallel.
     ///
     /// Reference: SPEC-10 Section 3.1 `batch_verify_ecdsa`

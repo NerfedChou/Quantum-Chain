@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use shared_types::entities::{Hash, PeerId, PeerInfo, ValidatedBlock, ValidatedTransaction};
+use shared_types::ipc::{VerifyNodeIdentityPayload, VerifyNodeIdentityResponse};
 
 /// All events that can be published to the event bus.
 ///
@@ -20,6 +21,20 @@ pub enum BlockchainEvent {
 
     /// A peer disconnected or was evicted.
     PeerDisconnected(PeerId),
+
+    /// Request to verify node identity.
+    /// Source: Subsystem 1 | Target: Subsystem 10
+    VerifyNodeIdentity {
+        correlation_id: String,
+        payload: VerifyNodeIdentityPayload,
+    },
+
+    /// Result of node identity verification.
+    /// Source: Subsystem 10 | Target: Subsystem 1
+    NodeIdentityVerified {
+        correlation_id: String,
+        payload: VerifyNodeIdentityResponse,
+    },
 
     // =========================================================================
     // SUBSYSTEM 8: CONSENSUS (Choreography Trigger)
@@ -150,7 +165,10 @@ impl BlockchainEvent {
     #[must_use]
     pub fn topic(&self) -> EventTopic {
         match self {
-            Self::PeerDiscovered(_) | Self::PeerDisconnected(_) => EventTopic::PeerDiscovery,
+            Self::PeerDiscovered(_)
+            | Self::PeerDisconnected(_)
+            | Self::VerifyNodeIdentity { .. }
+            | Self::NodeIdentityVerified { .. } => EventTopic::PeerDiscovery,
             Self::BlockValidated(_) | Self::BlockRejected { .. } => EventTopic::Consensus,
             Self::MerkleRootComputed { .. } => EventTopic::TransactionIndexing,
             Self::StateRootComputed { .. } => EventTopic::StateManagement,
@@ -168,7 +186,10 @@ impl BlockchainEvent {
     #[must_use]
     pub fn source_subsystem(&self) -> u8 {
         match self {
-            Self::PeerDiscovered(_) | Self::PeerDisconnected(_) => 1,
+            Self::PeerDiscovered(_)
+            | Self::PeerDisconnected(_)
+            | Self::VerifyNodeIdentity { .. } => 1,
+            Self::NodeIdentityVerified { .. } => 10,
             Self::BlockStored { .. } => 2,
             Self::MerkleRootComputed { .. } => 3,
             Self::StateRootComputed { .. } => 4,

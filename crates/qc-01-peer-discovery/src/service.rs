@@ -1,10 +1,15 @@
 //! # Peer Discovery Service
 //!
-//! High-level service implementing the `PeerDiscoveryApi` port.
+//! High-level service implementing the `PeerDiscoveryApi` and `VerificationHandler` ports.
 //!
 //! This service wraps the domain `RoutingTable` and provides a clean API
 //! for consumers, hiding the internal complexity of time management and
 //! the verification workflow.
+//!
+//! ## EDA Integration
+//!
+//! The service implements `VerificationHandler` to receive verification events
+//! from Subsystem 10 via the event bus.
 //!
 //! Reference: SPEC-01-PEER-DISCOVERY.md Section 3.1
 
@@ -12,7 +17,8 @@ use crate::domain::{
     BanReason, KademliaConfig, NodeId, PeerDiscoveryError, PeerInfo, RoutingTable,
     RoutingTableStats, Timestamp,
 };
-use crate::ports::{PeerDiscoveryApi, TimeSource};
+use crate::ports::{PeerDiscoveryApi, TimeSource, VerificationHandler};
+
 
 /// Peer Discovery Service implementing the driving port.
 ///
@@ -182,6 +188,17 @@ impl PeerDiscoveryApi for PeerDiscoveryService {
     }
 }
 
+// EDA Integration: Implement VerificationHandler for event-driven processing
+impl VerificationHandler for PeerDiscoveryService {
+    fn handle_verification(
+        &mut self,
+        node_id: &NodeId,
+        identity_valid: bool,
+    ) -> Result<Option<NodeId>, PeerDiscoveryError> {
+        self.on_verification_result(node_id, identity_valid)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +246,8 @@ mod tests {
             Timestamp::new(1000),
         )
     }
+
+
 
     #[test]
     fn test_service_add_peer_stages_for_verification() {

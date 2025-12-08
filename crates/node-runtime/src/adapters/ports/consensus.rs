@@ -63,6 +63,9 @@ impl EventBus for ConsensusEventBusAdapter {
                 state_root: block.header.state_root.unwrap_or([0u8; 32]),
                 timestamp: block.header.timestamp,
                 proposer: block.header.proposer,
+                // Use initial difficulty for consensus-validated blocks
+                difficulty: primitive_types::U256::from(2).pow(primitive_types::U256::from(252)),
+                nonce: 0,
             },
             transactions: vec![],
             consensus_proof: shared_types::ConsensusProof::default(),

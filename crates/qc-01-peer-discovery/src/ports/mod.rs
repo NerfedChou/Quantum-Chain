@@ -18,5 +18,5 @@
 pub mod inbound;
 pub mod outbound;
 
-pub use inbound::PeerDiscoveryApi;
+pub use inbound::{PeerDiscoveryApi, VerificationHandler};
 pub use outbound::{ConfigProvider, NetworkError, NetworkSocket, NodeIdValidator, TimeSource};

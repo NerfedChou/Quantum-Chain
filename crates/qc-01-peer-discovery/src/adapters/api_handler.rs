@@ -142,7 +142,7 @@ impl<S: PeerDiscoveryApi> ApiGatewayHandler<S> {
 
     /// Handle get_node_info request (admin_nodeInfo).
     pub fn handle_get_node_info(&self) -> serde_json::Value {
-        let node_id_hex = hex::encode(self.local_node_id.as_bytes());
+        let node_id_hex = encode_hex(self.local_node_id.as_bytes());
         let enode = format!("enode://{}@0.0.0.0:{}", node_id_hex, self.listen_port);
 
         let info = RpcNodeInfo {
@@ -198,7 +198,7 @@ impl<S: PeerDiscoveryApi> ApiGatewayHandler<S> {
 
     /// Convert internal PeerInfo to RPC format.
     fn peer_to_rpc(&self, peer: &PeerInfo) -> RpcPeerInfo {
-        let node_id_hex = hex::encode(peer.node_id.as_bytes());
+        let node_id_hex = encode_hex(peer.node_id.as_bytes());
         let addr = format_socket_addr(&peer.socket_addr);
         let enode = format!("enode://{}@{}", node_id_hex, addr);
 
@@ -237,6 +237,16 @@ fn format_socket_addr(addr: &crate::domain::SocketAddr) -> String {
         }
     };
     format!("{}:{}", ip_str, addr.port)
+}
+
+/// Helper to encode bytes as hex string.
+fn encode_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        write!(s, "{:02x}", b).unwrap();
+    }
+    s
 }
 
 /// Handle an API query from the event bus.

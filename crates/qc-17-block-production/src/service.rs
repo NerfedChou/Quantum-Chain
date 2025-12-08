@@ -10,7 +10,7 @@ use crate::{
         BlockHeader, BlockTemplate, ConsensusMode, DifficultyAdjuster, DifficultyConfig, PoWMiner,
     },
     error::{BlockProductionError, Result},
-    ports::{BlockProducerService, ProductionConfig, ProductionStatus},
+    ports::{BlockProducerService, MinedBlockInfo, ProductionConfig, ProductionStatus},
     security::SecurityValidator,
 };
 use async_trait::async_trait;
@@ -71,6 +71,9 @@ impl ConcreteBlockProducer {
             total_fees: U256::zero(),
             hashrate: None,
             last_block_at: None,
+            current_difficulty: None,
+            last_nonce: None,
+            pending_blocks: Vec::new(),
         };
 
         // Initialize PoW miner with number of threads from config or default
@@ -148,18 +151,27 @@ impl BlockProducerService for ConcreteBlockProducer {
 
         self.is_active
             .store(true, std::sync::atomic::Ordering::SeqCst);
+        
+        // Get starting height from config (resuming from persisted chain)
+        let starting_height = config.starting_height;
+        let initial_difficulty = config.last_difficulty
+            .unwrap_or_else(|| U256::from(2).pow(U256::from(252)));
+        
         {
             let mut status = self.status.write().unwrap();
             status.active = true;
             status.mode = Some(mode);
+            // CRITICAL: Initialize blocks_produced to starting_height so Bridge syncs correctly
+            status.blocks_produced = starting_height;
+            // CRITICAL: Initialize difficulty for Bridge to use on first block
+            status.current_difficulty = Some(initial_difficulty);
         }
 
-        // Get starting height from config (resuming from persisted chain)
-        let starting_height = config.starting_height;
         if starting_height > 0 {
             info!(
-                "[qc-17] 💾 Resuming from height {} (loaded from storage)",
-                starting_height
+                "[qc-17] 💾 Resuming from height {} with initial difficulty: {}",
+                starting_height,
+                DifficultyAdjuster::describe_difficulty(initial_difficulty)
             );
         }
 
@@ -193,7 +205,41 @@ impl BlockProducerService for ConcreteBlockProducer {
                     let start_time = std::time::Instant::now();
 
                     // Track recent blocks for difficulty adjustment
-                    let mut recent_blocks: Vec<crate::domain::difficulty::BlockInfo> = Vec::new();
+                    // Initialize with historical blocks from config if resuming
+                    let mut recent_blocks: Vec<crate::domain::difficulty::BlockInfo> = config
+                        .recent_blocks
+                        .iter()
+                        .map(|b| crate::domain::difficulty::BlockInfo {
+                            height: b.height,
+                            timestamp: b.timestamp,
+                            difficulty: b.difficulty,
+                        })
+                        .collect();
+
+                    // If we have historical blocks, log the resumption info
+                    if !recent_blocks.is_empty() {
+                        let last_diff = &recent_blocks[0].difficulty;
+                        info!(
+                            "[qc-17] 📊 Resuming with {} historical blocks, last difficulty: {}",
+                            recent_blocks.len(),
+                            DifficultyAdjuster::describe_difficulty(*last_diff)
+                        );
+                    } else if let Some(last_diff) = config.last_difficulty {
+                        // If we have last_difficulty but no recent blocks, create a synthetic entry
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs();
+                        recent_blocks.push(crate::domain::difficulty::BlockInfo {
+                            height: starting_height,
+                            timestamp,
+                            difficulty: last_diff,
+                        });
+                        info!(
+                            "[qc-17] 📊 Resuming with last difficulty: {}",
+                            DifficultyAdjuster::describe_difficulty(last_diff)
+                        );
+                    }
 
                     while is_active_clone.load(std::sync::atomic::Ordering::Relaxed) {
                         // Step 1: Get pending transactions from mempool
@@ -245,9 +291,9 @@ impl BlockProducerService for ConcreteBlockProducer {
                         let difficulty = if let Some(ref adjuster) = difficulty_adjuster {
                             let calculated = adjuster.calculate_next_difficulty(&recent_blocks);
                             let desc = DifficultyAdjuster::describe_difficulty(calculated);
-                            if block_number % 10 == 1 {
-                                // Log every 10 blocks
-                                info!("[qc-17] 📊 Difficulty adjusted: {}", desc);
+                            // Log difficulty on first block or every 10 blocks
+                            if block_number == starting_height + 1 || block_number % 10 == 1 {
+                                info!("[qc-17] 📊 Difficulty: {} (window: {} blocks)", desc, recent_blocks.len());
                             }
                             calculated
                         } else {
@@ -277,11 +323,10 @@ impl BlockProducerService for ConcreteBlockProducer {
                         };
 
                         // Step 7: Mine with calculated difficulty
+                        // Log includes difficulty description for debugging
+                        let diff_desc = DifficultyAdjuster::describe_difficulty(difficulty);
+                        info!("[qc-17] ⛏️  Mining block #{}...", block_number);
 
-                        info!("[qc-17] Mining block #{} (reward: {} + fees: {}) with difficulty target: {:?}", 
-                              block_number, base_reward, transaction_fees, difficulty);
-
-                        let difficulty_for_log = format!("{}", difficulty);
                         match pow_miner.mine_block(template.clone(), difficulty) {
                             Some(nonce) => {
                                 blocks_mined += 1;
@@ -294,8 +339,8 @@ impl BlockProducerService for ConcreteBlockProducer {
                                 };
 
                                 info!(
-                                    "[qc-17] ✓ Block #{} mined! Nonce: {}, Total blocks: {}",
-                                    block_number, nonce, blocks_mined
+                                    "[qc-17] Block #{} mined! | nonce: {}",
+                                    block_number, nonce
                                 );
 
                                 // Track this block for difficulty adjustment
@@ -312,7 +357,8 @@ impl BlockProducerService for ConcreteBlockProducer {
                                     recent_blocks.truncate(50);
                                 }
 
-                                // JSON EVENT LOG
+                                // Compute difficulty description for logs
+                                let difficulty_for_log = diff_desc.clone();
                                 let correlation_id = uuid::Uuid::new_v4().to_string();
                                 let block_hash_str = format!("{:016x}", nonce);
                                 let event = serde_json::json!({
@@ -333,15 +379,28 @@ impl BlockProducerService for ConcreteBlockProducer {
                                 });
                                 info!("EVENT_FLOW_JSON {}", event);
 
-                                // Update status
+                                // Update status with difficulty and nonce for bridge
+                                // CRITICAL: Push to pending_blocks queue so bridge gets each block's correct data
                                 {
                                     let mut status_guard = status.write().unwrap();
                                     status_guard.blocks_produced = blocks_mined;
                                     status_guard.hashrate = hashrate;
                                     status_guard.last_block_at = Some(timestamp);
+                                    status_guard.current_difficulty = Some(difficulty);
+                                    status_guard.last_nonce = Some(nonce);
+                                    
+                                    // Push this block's info to pending queue for bridge
+                                    status_guard.pending_blocks.push(MinedBlockInfo {
+                                        height: block_number,
+                                        timestamp,
+                                        difficulty,
+                                        nonce,
+                                        parent_hash: parent_hash.0,
+                                    });
+                                    
                                     info!(
-                                        "[qc-17] 📊 Status updated: blocks_produced={}",
-                                        status_guard.blocks_produced
+                                        "[qc-17] 📊 Status updated: blocks_produced={}, pending_queue={}",
+                                        status_guard.blocks_produced, status_guard.pending_blocks.len()
                                     );
                                 }
 
@@ -407,6 +466,11 @@ impl BlockProducerService for ConcreteBlockProducer {
 
     async fn get_status(&self) -> ProductionStatus {
         self.status.read().unwrap().clone()
+    }
+    
+    async fn drain_pending_blocks(&self) -> Vec<MinedBlockInfo> {
+        let mut status = self.status.write().unwrap();
+        std::mem::take(&mut status.pending_blocks)
     }
 
     async fn update_gas_limit(&self, new_limit: u64) -> Result<()> {
