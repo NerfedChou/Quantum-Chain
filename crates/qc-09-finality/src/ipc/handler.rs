@@ -362,4 +362,195 @@ mod tests {
             Err(FinalityError::IpcSecurityViolation { .. })
         ));
     }
+
+    // =========================================================================
+    // COMPREHENSIVE UNAUTHORIZED SENDER TESTS (IPC-MATRIX.md Compliance)
+    // =========================================================================
+
+    /// Test: AttestationBatch rejected from Block Storage (2)
+    #[tokio::test]
+    async fn test_reject_attestation_batch_from_block_storage() {
+        let handler = create_test_handler();
+
+        let batch = AttestationBatch::new(vec![], 1, 32);
+        let (message, bytes) = create_authenticated_message(batch, 2, &[1u8; 32]); // Block Storage
+
+        let result = handler.handle_attestation_batch(message, &bytes).await;
+        assert!(
+            matches!(result, Err(FinalityError::UnauthorizedSender { .. })),
+            "Block Storage (2) should NOT be authorized to send AttestationBatch"
+        );
+    }
+
+    /// Test: AttestationBatch rejected from State Management (4)
+    #[tokio::test]
+    async fn test_reject_attestation_batch_from_state_management() {
+        let handler = create_test_handler();
+
+        let batch = AttestationBatch::new(vec![], 1, 32);
+        let (message, bytes) = create_authenticated_message(batch, 4, &[1u8; 32]); // State Management
+
+        let result = handler.handle_attestation_batch(message, &bytes).await;
+        assert!(
+            matches!(result, Err(FinalityError::UnauthorizedSender { .. })),
+            "State Management (4) should NOT be authorized to send AttestationBatch"
+        );
+    }
+
+    /// Test: AttestationBatch rejected from Cross-Chain (15)
+    #[tokio::test]
+    async fn test_reject_attestation_batch_from_cross_chain() {
+        let handler = create_test_handler();
+
+        let batch = AttestationBatch::new(vec![], 1, 32);
+        let (message, bytes) = create_authenticated_message(batch, CROSS_CHAIN_SUBSYSTEM, &[1u8; 32]);
+
+        let result = handler.handle_attestation_batch(message, &bytes).await;
+        assert!(
+            matches!(result, Err(FinalityError::UnauthorizedSender { .. })),
+            "Cross-Chain (15) should NOT be authorized to send AttestationBatch"
+        );
+    }
+
+    /// Test: FinalityCheckRequest rejected from Block Storage (2)
+    #[tokio::test]
+    async fn test_reject_finality_check_from_block_storage() {
+        let handler = create_test_handler();
+
+        let request = FinalityCheckRequest {
+            block_hash: [0u8; 32],
+            block_height: 100,
+        };
+        let (message, bytes) = create_authenticated_message(request, 2, &[1u8; 32]); // Block Storage
+
+        let result = handler.handle_finality_check(message, &bytes).await;
+        assert!(
+            matches!(result, Err(FinalityError::UnauthorizedSender { .. })),
+            "Block Storage (2) should NOT be authorized to send FinalityCheckRequest"
+        );
+    }
+
+    /// Test: FinalityCheckRequest rejected from Cross-Chain (15)
+    #[tokio::test]
+    async fn test_reject_finality_check_from_cross_chain() {
+        let handler = create_test_handler();
+
+        let request = FinalityCheckRequest {
+            block_hash: [0u8; 32],
+            block_height: 100,
+        };
+        let (message, bytes) = create_authenticated_message(request, CROSS_CHAIN_SUBSYSTEM, &[1u8; 32]);
+
+        let result = handler.handle_finality_check(message, &bytes).await;
+        assert!(
+            matches!(result, Err(FinalityError::UnauthorizedSender { .. })),
+            "Cross-Chain (15) should NOT be authorized to send FinalityCheckRequest"
+        );
+    }
+
+    /// Test: FinalityProofRequest rejected from Consensus (8)
+    #[tokio::test]
+    async fn test_reject_finality_proof_from_consensus() {
+        let handler = create_test_handler();
+
+        let request = FinalityProofRequest {
+            block_hash: [0u8; 32],
+            block_height: 100,
+        };
+        let (message, bytes) = create_authenticated_message(request, CONSENSUS_SUBSYSTEM, &[1u8; 32]);
+
+        let result = handler.handle_finality_proof_request(message, &bytes).await;
+        assert!(
+            matches!(result, Err(FinalityError::UnauthorizedSender { .. })),
+            "Consensus (8) should NOT be authorized to send FinalityProofRequest"
+        );
+    }
+
+    /// Test: FinalityProofRequest rejected from Block Storage (2)
+    #[tokio::test]
+    async fn test_reject_finality_proof_from_block_storage() {
+        let handler = create_test_handler();
+
+        let request = FinalityProofRequest {
+            block_hash: [0u8; 32],
+            block_height: 100,
+        };
+        let (message, bytes) = create_authenticated_message(request, 2, &[1u8; 32]); // Block Storage
+
+        let result = handler.handle_finality_proof_request(message, &bytes).await;
+        assert!(
+            matches!(result, Err(FinalityError::UnauthorizedSender { .. })),
+            "Block Storage (2) should NOT be authorized to send FinalityProofRequest"
+        );
+    }
+
+    /// Test: Verify only Consensus (8) can send AttestationBatch
+    #[test]
+    fn test_only_consensus_authorized_for_attestation_batch() {
+        // Per IPC-MATRIX.md Subsystem 9:
+        // AttestationBatch: Consensus (8) ONLY
+        let authorized_sender = CONSENSUS_SUBSYSTEM;
+
+        // All other subsystems should be rejected
+        let unauthorized_ids = [1u8, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15];
+        for sender_id in unauthorized_ids {
+            assert_ne!(
+                sender_id, authorized_sender,
+                "Subsystem {} should NOT be authorized for AttestationBatch",
+                sender_id
+            );
+        }
+    }
+
+    /// Test: Verify only Consensus (8) can send FinalityCheckRequest
+    #[test]
+    fn test_only_consensus_authorized_for_finality_check() {
+        // Per IPC-MATRIX.md Subsystem 9:
+        // FinalityCheckRequest: Consensus (8) ONLY
+        let authorized_sender = CONSENSUS_SUBSYSTEM;
+
+        // All other subsystems should be rejected
+        let unauthorized_ids = [1u8, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15];
+        for sender_id in unauthorized_ids {
+            assert_ne!(
+                sender_id, authorized_sender,
+                "Subsystem {} should NOT be authorized for FinalityCheckRequest",
+                sender_id
+            );
+        }
+    }
+
+    /// Test: Verify only Cross-Chain (15) can send FinalityProofRequest
+    #[test]
+    fn test_only_cross_chain_authorized_for_finality_proof() {
+        // Per IPC-MATRIX.md Subsystem 9:
+        // FinalityProofRequest: Cross-Chain (15) ONLY
+        let authorized_sender = CROSS_CHAIN_SUBSYSTEM;
+
+        // All other subsystems should be rejected
+        let unauthorized_ids = [1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+        for sender_id in unauthorized_ids {
+            assert_ne!(
+                sender_id, authorized_sender,
+                "Subsystem {} should NOT be authorized for FinalityProofRequest",
+                sender_id
+            );
+        }
+    }
+
+    /// Test: Finality check with correct sender from Consensus
+    #[tokio::test]
+    async fn test_finality_check_correct_sender() {
+        let handler = create_test_handler();
+
+        let request = FinalityCheckRequest {
+            block_hash: [0u8; 32],
+            block_height: 100,
+        };
+        let (message, bytes) = create_authenticated_message(request, CONSENSUS_SUBSYSTEM, &[1u8; 32]);
+
+        let result = handler.handle_finality_check(message, &bytes).await;
+        assert!(result.is_ok(), "Consensus (8) should be authorized for FinalityCheckRequest");
+    }
 }
+

@@ -211,7 +211,7 @@ where
                 .headers()
                 .get("x-rpc-method")
                 .and_then(|h| h.to_str().ok())
-                .map(|m| is_write_method(m))
+                .map(is_write_method)
                 .unwrap_or(false);
 
             // Check rate limit
@@ -285,7 +285,7 @@ fn rate_limit_response(retry_after_ms: u64) -> Response {
         .insert("Content-Type", "application/json".parse().unwrap());
     response.headers_mut().insert(
         "Retry-After",
-        ((retry_after_ms + 999) / 1000).to_string().parse().unwrap(),
+        retry_after_ms.div_ceil(1000).to_string().parse().unwrap(),
     );
 
     response

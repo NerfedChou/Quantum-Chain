@@ -1,94 +1,96 @@
-//! # QC-07 Bloom Filters
+//! # QC-07 Bloom Filters - Transaction Filtering Subsystem
 //!
-//! Transaction Filtering subsystem using Bloom filters for light client support.
+//! **Subsystem ID:** 7  
+//! **Specification:** SPEC-07-BLOOM-FILTERS.md v2.3  
+//! **Architecture:** Architecture.md v2.3, IPC-MATRIX.md v2.3  
+//! **Status:** Production-Ready
 //!
-//! ## Architecture
+//! ## Purpose
 //!
-//! This crate follows Hexagonal Architecture (Ports & Adapters):
+//! Provides Bloom filter-based probabilistic filtering for light clients,
+//! enabling efficient SPV (Simplified Payment Verification) by matching
+//! transactions against watched addresses without downloading full blocks.
 //!
-//! - **Domain Layer** (`domain/`): Pure business logic, no I/O
-//!   - `BloomFilter`: Core probabilistic data structure
-//!   - `BlockFilter`: Block-level filter containing transaction addresses
-//!   - `BloomConfig`: Configuration with validation
-//!   - `BloomConfigBuilder`: Fluent builder for configuration
+//! ## Domain Invariants
 //!
-//! - **Ports Layer** (`ports/`): Trait definitions
-//!   - `BloomFilterApi`: Driving port (inbound API)
-//!   - `TransactionDataProvider`: Driven port (dependency on qc-03)
+//! | ID | Invariant | Enforcement Location |
+//! |----|-----------|---------------------|
+//! | INVARIANT-1 | FPR ≤ target_fpr | `domain/bloom_filter.rs:283-310` - statistical test |
+//! | INVARIANT-2 | No False Negatives | `domain/bloom_filter.rs:115-118` - `contains()` guaranteed |
 //!
-//! - **Service Layer** (`service/`): Orchestration
-//!   - `BloomFilterService`: Implements `BloomFilterApi`
+//! ## Security (IPC-MATRIX.md)
 //!
-//! - **Handler Layer** (`handler/`): IPC security
-//!   - `BloomFilterHandler`: Validates messages per IPC-MATRIX.md
+//! - **Centralized Security**: Uses `shared-types::AuthenticatedMessage` for IPC
+//! - **Envelope-Only Identity**: Identity derived solely from `sender_id`
+//! - **Rate Limiting**: Max 1 filter update per 10 blocks per client
 //!
-//! - **Events Layer** (`events/`): IPC message types
+//! ### IPC Authorization Matrix
 //!
-//! - **Adapters Layer** (`adapters/`): External connections
-//!   - `TxIndexingAdapter`: Queries qc-03 via shared-bus
-//!   - `BloomFilterBusAdapter`: Event bus subscriber for API queries
-//!   - `ApiGatewayHandler`: Exposes operations to qc-16
+//! | Message | Authorized Sender(s) | Enforcement |
+//! |---------|---------------------|-------------|
+//! | `BuildFilterRequest` | Light Clients (13) ONLY | `handler/ipc_handler.rs:60-69` |
+//! | `UpdateFilterRequest` | Light Clients (13) ONLY | `handler/ipc_handler.rs:103-113` |
+//! | `TransactionHashUpdate` | Transaction Indexing (3) ONLY | `handler/ipc_handler.rs:143-155` |
 //!
-//! ## Security
+//! ### Privacy Protections
 //!
-//! Per IPC-MATRIX.md Subsystem 7:
-//! - Accept `BuildFilterRequest` from Subsystem 13 (Light Clients) ONLY
-//! - Accept `UpdateFilterRequest` from Subsystem 13 ONLY
-//! - Accept `TransactionHashUpdate` from Subsystem 3 (Transaction Indexing) ONLY
-//! - Reject filters with >1000 watched addresses
-//! - Reject FPR <0.01 or >0.1
-//! - Reject >1 filter update per 10 blocks per client
+//! | Defense | Description | Enforcement |
+//! |---------|-------------|-------------|
+//! | FPR Bounds | Reject FPR <0.01 (too precise) or >0.1 (too noisy) | `handler/ipc_handler.rs:82-93` |
+//! | Address Limit | Reject >1000 watched addresses | `handler/ipc_handler.rs:74-79` |
+//! | Rate Limiting | Max 1 update per 10 blocks | `handler/ipc_handler.rs:119-134` |
+//! | Privacy Noise | Add random fake elements | `service/bloom_filter_service.rs:47-71` |
+//! | Filter Rotation | Tweak changes bit positions | `domain/bloom_filter.rs:86-94` |
 //!
-//! ## Invariants
+//! ## Outbound Dependencies
 //!
-//! - **INVARIANT-1**: FPR = (1 - e^(-kn/m))^k <= target_fpr
-//! - **INVARIANT-2**: No false negatives - if inserted, contains() MUST return true
+//! | Subsystem | Trait | Purpose |
+//! |-----------|-------|---------|
+//! | 3 (Transaction Indexing) | `TransactionDataProvider` | Transaction hashes for filter population |
+//!
+//! ## Module Structure (Hexagonal Architecture)
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────────┐
+//! │                      OUTER LAYER                                │
+//! │  adapters/ - Event bus, API gateway connections                 │
+//! └─────────────────────────────────────────────────────────────────┘
+//!                          ↑ implements ↑
+//! ┌─────────────────────────────────────────────────────────────────┐
+//! │                      MIDDLE LAYER                               │
+//! │  ports/inbound.rs  - BloomFilterApi trait                       │
+//! │  ports/outbound.rs - TransactionDataProvider trait              │
+//! └─────────────────────────────────────────────────────────────────┘
+//!                          ↑ uses ↑
+//! ┌─────────────────────────────────────────────────────────────────┐
+//! │                      INNER LAYER                                │
+//! │  domain/bloom_filter.rs  - Core BloomFilter implementation      │
+//! │  domain/block_filter.rs  - BlockFilter for per-block filtering  │
+//! │  domain/config.rs        - BloomConfig with validation          │
+//! │  domain/hash_functions.rs - MurmurHash3 with double hashing     │
+//! │  domain/parameters.rs    - Optimal FPR parameter calculation    │
+//! └─────────────────────────────────────────────────────────────────┘
+//! ```
+//!
+//! ## Algorithm (System.md)
+//!
+//! - **Hash Function**: MurmurHash3 with double hashing technique
+//! - **FPR Formula**: FPR = (1 - e^(-kn/m))^k
+//! - **Optimal m**: m = -n*ln(fpr) / (ln(2)^2)
+//! - **Optimal k**: k = (m/n) * ln(2)
 //!
 //! ## Usage Example
 //!
-//! ```ignore
+//! ```rust,ignore
 //! use qc_07_bloom_filters::{BloomFilter, BloomConfigBuilder};
 //!
-//! // Create a filter using the builder
-//! let config = BloomConfigBuilder::new()
-//!     .target_fpr(0.05)
-//!     .max_elements(100)
-//!     .build()?;
-//!
-//! // Create filter and insert addresses
+//! // Create a filter with optimal parameters for 50 elements, 1% FPR
 //! let mut filter = BloomFilter::new_with_fpr(50, 0.01);
-//! filter.insert(b"0xABCD...");
+//! filter.insert(b"0xABCD1234...");
 //!
-//! // Check membership
-//! assert!(filter.contains(b"0xABCD..."));
+//! // Check membership (guaranteed no false negatives)
+//! assert!(filter.contains(b"0xABCD1234..."));
 //! ```
-//!
-//! ## Wiring to Runtime (Phase 4)
-//!
-//! ```ignore
-//! use qc_07_bloom_filters::{
-//!     BloomFilterBusAdapter, TxIndexingAdapter, BloomFilterService, BloomFilterHandler
-//! };
-//! use shared_bus::InMemoryEventBus;
-//! use std::sync::Arc;
-//!
-//! // Create event bus and adapters
-//! let bus = Arc::new(InMemoryEventBus::new());
-//! let tx_adapter = TxIndexingAdapter::new(bus.clone());
-//! let service = BloomFilterService::new(tx_adapter);
-//! let handler = BloomFilterHandler::new();
-//!
-//! // Create and run the bus adapter
-//! let adapter = Arc::new(BloomFilterBusAdapter::new(bus.clone(), service, handler));
-//! tokio::spawn(adapter.run());
-//! ```
-//!
-//! ## References
-//!
-//! - SPEC-07-BLOOM-FILTERS.md
-//! - System.md, Subsystem 7
-//! - IPC-MATRIX.md, Subsystem 7
-//! - Architecture.md
 
 pub mod adapters;
 pub mod domain;

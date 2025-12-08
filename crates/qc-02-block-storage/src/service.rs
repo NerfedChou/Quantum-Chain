@@ -32,7 +32,45 @@ pub mod subsystem_ids {
 
 /// The Block Storage Service.
 ///
-/// Implements both `BlockStorageApi` and `BlockAssemblerApi`.
+/// Implements both `BlockStorageApi` (read/write operations) and `BlockAssemblerApi`
+/// (V2.3 choreography event handling).
+///
+/// ## Architecture (Hexagonal + DDD)
+///
+/// This service is the **application layer** that orchestrates domain logic. It:
+/// - Enforces all 8 domain invariants (SPEC-02 Section 2.6)
+/// - Provides dependency injection for all external dependencies
+/// - Separates pure domain logic from infrastructure concerns
+///
+/// ## Transaction Index Design (V2.3)
+///
+/// The transaction index (`tx_hash -> TransactionLocation`) is currently **in-memory**
+/// for the following reasons:
+///
+/// 1. **Performance**: O(1) lookup without disk I/O for Merkle proof generation
+/// 2. **Simplicity**: No additional persistence complexity
+/// 3. **Current Scope**: Suitable for development and light production nodes
+///
+/// **Future Scalability Consideration (per SPEC-02):**
+/// For chains with millions of transactions, the index can be persisted using the
+/// same `KeyValueStore` with prefix `t:{tx_hash} -> TransactionLocation`. The
+/// current design is intentionally simple following YAGNI principles, with a clear
+/// migration path when needed.
+///
+/// ## Usage
+///
+/// ```rust,ignore
+/// use qc_02_block_storage::{BlockStorageService, StorageConfig};
+///
+/// let service = BlockStorageService::new(
+///     kv_store,      // KeyValueStore implementation
+///     fs_adapter,    // FileSystemAdapter implementation
+///     checksum,      // ChecksumProvider implementation
+///     time_source,   // TimeSource implementation
+///     serializer,    // BlockSerializer implementation
+///     StorageConfig::default(),
+/// );
+/// ```
 pub struct BlockStorageService<KV, FS, CS, TS, BS>
 where
     KV: KeyValueStore,
@@ -43,23 +81,27 @@ where
 {
     /// Key-value store for persistence.
     kv_store: KV,
-    /// Filesystem adapter for disk space checks.
+    /// Filesystem adapter for disk space checks (INVARIANT-2).
     fs_adapter: FS,
-    /// Checksum provider for data integrity.
+    /// Checksum provider for data integrity (INVARIANT-3).
     checksum: CS,
     /// Time source for timestamps.
     time_source: TS,
-    /// Block serializer.
+    /// Block serializer for StoredBlock encoding/decoding.
     serializer: BS,
     /// Service configuration.
     config: StorageConfig,
-    /// Assembly buffer for V2.3 choreography.
+    /// Assembly buffer for V2.3 choreography (INVARIANT-7, INVARIANT-8).
     assembly_buffer: BlockAssemblyBuffer,
     /// In-memory block index (height -> hash).
+    /// Persisted to KV store for durability, loaded on startup.
     block_index: BlockIndex,
-    /// In-memory metadata.
+    /// In-memory storage metadata.
     metadata: StorageMetadata,
-    /// Transaction index (tx_hash -> location).
+    /// Transaction index for Merkle proof generation (V2.3).
+    ///
+    /// Currently in-memory for performance. See struct-level documentation
+    /// for scalability considerations.
     tx_index: HashMap<Hash, TransactionLocation>,
 }
 
@@ -72,6 +114,10 @@ where
     BS: BlockSerializer,
 {
     /// Create a new Block Storage Service with the given dependencies.
+    ///
+    /// On construction, this will:
+    /// 1. Load the block index from persistent storage
+    /// 2. Load the transaction index (if `persist_transaction_index` is enabled)
     pub fn new(
         kv_store: KV,
         fs_adapter: FS,
@@ -95,9 +141,14 @@ where
             tx_index: HashMap::new(),
         };
 
-        // Load existing index from persistent storage
+        // Load existing block index from persistent storage
         if let Err(e) = service.load_index_from_storage() {
-            tracing::warn!("[qc-02] Failed to load index from storage: {:?}", e);
+            tracing::warn!("[qc-02] Failed to load block index from storage: {:?}", e);
+        }
+
+        // Load transaction index if persistence is enabled
+        if let Err(e) = service.load_transaction_index_from_storage() {
+            tracing::warn!("[qc-02] Failed to load transaction index from storage: {:?}", e);
         }
 
         service
@@ -252,6 +303,9 @@ where
     }
 
     /// Index transactions in a block.
+    ///
+    /// If `persist_transaction_index` is enabled in config, writes to KV store.
+    /// Otherwise, only updates in-memory index.
     fn index_transactions(&mut self, block: &ValidatedBlock, block_hash: Hash) {
         for (index, tx) in block.transactions.iter().enumerate() {
             let location = TransactionLocation::new(
@@ -260,8 +314,76 @@ where
                 index,
                 block.header.merkle_root,
             );
-            self.tx_index.insert(tx.tx_hash, location);
+
+            // Always update in-memory index for fast lookups
+            self.tx_index.insert(tx.tx_hash, location.clone());
+
+            // Optionally persist to KV store
+            if self.config.persist_transaction_index {
+                let key = KeyPrefix::transaction_key(&tx.tx_hash);
+                if let Ok(value) = bincode::serialize(&location) {
+                    if let Err(e) = self.kv_store.put(&key, &value) {
+                        tracing::warn!(
+                            "[qc-02] Failed to persist tx index for {:x?}: {:?}",
+                            &tx.tx_hash[..4],
+                            e
+                        );
+                    }
+                }
+            }
         }
+    }
+
+    /// Load transaction index from persistent storage (if enabled).
+    ///
+    /// Called during service initialization when `persist_transaction_index` is true.
+    fn load_transaction_index_from_storage(&mut self) -> Result<(), StorageError> {
+        if !self.config.persist_transaction_index {
+            return Ok(());
+        }
+
+        let tx_prefix = KeyPrefix::Transaction.as_bytes();
+        let entries = self
+            .kv_store
+            .prefix_scan(tx_prefix)
+            .map_err(StorageError::from)?;
+
+        if entries.is_empty() {
+            tracing::info!("[qc-02] No existing transaction index found");
+            return Ok(());
+        }
+
+        let mut loaded_count = 0u64;
+
+        for (key, value) in entries {
+            // Key format: "t:" + 32-byte tx_hash
+            if key.len() != 34 {
+                continue; // Skip malformed keys
+            }
+
+            let tx_hash: Hash = key[2..34]
+                .try_into()
+                .map_err(|_| StorageError::DatabaseError {
+                    message: "Invalid tx hash format".to_string(),
+                })?;
+
+            let location: TransactionLocation =
+                bincode::deserialize(&value).map_err(|e| StorageError::SerializationError {
+                    message: format!("Failed to deserialize tx location: {}", e),
+                })?;
+
+            self.tx_index.insert(tx_hash, location);
+            loaded_count += 1;
+        }
+
+        if loaded_count > 0 {
+            tracing::info!(
+                "[qc-02] 📇 Loaded {} transaction index entries from storage",
+                loaded_count
+            );
+        }
+
+        Ok(())
     }
 
     /// Try to complete an assembly and write the block.
@@ -1150,12 +1272,61 @@ mod tests {
         let block = make_test_block(0, [0; 32]);
 
         // First write succeeds
-        let hash = service
+        let _hash = service
             .write_block(block.clone(), [0xAA; 32], [0xBB; 32])
             .unwrap();
 
         // Second write with same block should fail
         let result = service.write_block(block, [0xAA; 32], [0xBB; 32]);
         assert!(matches!(result, Err(StorageError::BlockExists { .. })));
+    }
+
+    #[test]
+    fn test_persistent_transaction_index() {
+        use shared_types::{Transaction, ValidatedTransaction};
+
+        // Create service with persistent tx index enabled
+        let config = StorageConfig::new().with_persist_transaction_index(true);
+        let kv_store = InMemoryKVStore::new();
+
+        let mut service = BlockStorageService::new(
+            kv_store,
+            MockFileSystemAdapter::new(50),
+            DefaultChecksumProvider,
+            SystemTimeSource,
+            BincodeBlockSerializer,
+            config,
+        );
+
+        // Create block with a transaction
+        let mut block = make_test_block(0, [0; 32]);
+        let tx_hash = [0xDE; 32];
+        let inner_tx = Transaction {
+            from: [0xAA; 32],
+            to: Some([0xBB; 32]),
+            value: 100,
+            nonce: 0,
+            data: vec![],
+            signature: [0u8; 64],
+        };
+        let validated_tx = ValidatedTransaction {
+            inner: inner_tx,
+            tx_hash,
+        };
+        block.transactions.push(validated_tx);
+
+        // Write block
+        let _hash = service
+            .write_block(block, [0xAA; 32], [0xBB; 32])
+            .unwrap();
+
+        // Verify transaction is indexed and can be found
+        let location = service.get_transaction_location(&tx_hash).unwrap();
+        assert_eq!(location.block_height, 0);
+        assert_eq!(location.transaction_index, 0);
+
+        // Verify transaction was persisted to KV store
+        let tx_key = KeyPrefix::transaction_key(&tx_hash);
+        assert!(service.kv_store.exists(&tx_key).unwrap());
     }
 }

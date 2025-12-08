@@ -393,3 +393,211 @@ impl<K: KeyProvider> IpcHandler<K> {
         Ok(trie.root_hash())
     }
 }
+
+// =============================================================================
+// IPC AUTHORIZATION TESTS
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::{BalanceCheckRequestPayload, StateWriteRequestPayload};
+    use uuid::Uuid;
+
+    /// Create a test IPC handler with default configuration.
+    fn create_test_handler() -> IpcHandler<StaticKeyProvider> {
+        let nonce_cache = NonceCache::new_shared();
+        let key_provider = StaticKeyProvider::new(&[0x42; 32]);
+        IpcHandler::new(nonce_cache, key_provider)
+    }
+
+    /// Create a test message with the specified sender_id.
+    /// Uses all-zero signature which the MessageVerifier should reject
+    /// unless explicitly bypassed in test mode.
+    fn create_test_message<T: Clone>(sender_id: u8, payload: T) -> AuthenticatedMessage<T> {
+        AuthenticatedMessage {
+            version: 1,
+            correlation_id: Uuid::new_v4(),
+            sender_id,
+            recipient_id: 4, // State Management
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            nonce: Uuid::new_v4(),
+            signature: [0u8; 64],
+            reply_to: None,
+            payload,
+        }
+    }
+
+    // =========================================================================
+    // BlockValidated Authorization Tests
+    // =========================================================================
+
+    #[test]
+    fn test_block_validated_rejects_non_consensus() {
+        let handler = create_test_handler();
+
+        let payload = BlockValidatedPayload {
+            block_hash: [0u8; 32],
+            block_height: 1,
+            transactions: vec![],
+        };
+
+        // Create message from Mempool (6) - should be rejected
+        let msg = create_test_message(MEMPOOL, payload.clone());
+        let msg_bytes = bincode::serialize(&msg).unwrap_or_default();
+
+        let result = handler.handle_block_validated(&msg, &msg_bytes);
+        assert!(
+            matches!(result, Err(StateError::UnauthorizedSender(6))),
+            "BlockValidated should reject sender 6 (Mempool)"
+        );
+
+        // Create message from Smart Contracts (11) - should be rejected
+        let msg = create_test_message(SMART_CONTRACTS, payload);
+        let msg_bytes = bincode::serialize(&msg).unwrap_or_default();
+
+        let result = handler.handle_block_validated(&msg, &msg_bytes);
+        assert!(
+            matches!(result, Err(StateError::UnauthorizedSender(11))),
+            "BlockValidated should reject sender 11 (Smart Contracts)"
+        );
+    }
+
+    // =========================================================================
+    // StateWriteRequest Authorization Tests
+    // =========================================================================
+
+    #[test]
+    fn test_state_write_rejects_non_smart_contracts() {
+        let handler = create_test_handler();
+
+        let payload = StateWriteRequestPayload {
+            address: [0x42u8; 20],
+            storage_key: [0x01u8; 32],
+            value: [0xFFu8; 32],
+            block_height: 1,
+            tx_hash: [0u8; 32],
+        };
+
+        // Create message from Mempool (6) - should be rejected
+        let msg = create_test_message(MEMPOOL, payload.clone());
+        let msg_bytes = bincode::serialize(&msg).unwrap_or_default();
+
+        let result = handler.handle_state_write(&msg, &msg_bytes);
+        assert!(
+            matches!(result, Err(StateError::UnauthorizedSender(6))),
+            "StateWrite should reject sender 6 (Mempool)"
+        );
+
+        // Create message from Consensus (8) - should be rejected
+        let msg = create_test_message(CONSENSUS, payload.clone());
+        let msg_bytes = bincode::serialize(&msg).unwrap_or_default();
+
+        let result = handler.handle_state_write(&msg, &msg_bytes);
+        assert!(
+            matches!(result, Err(StateError::UnauthorizedSender(8))),
+            "StateWrite should reject sender 8 (Consensus)"
+        );
+
+        // Create message from Tx Ordering (12) - should be rejected
+        let msg = create_test_message(TX_ORDERING, payload);
+        let msg_bytes = bincode::serialize(&msg).unwrap_or_default();
+
+        let result = handler.handle_state_write(&msg, &msg_bytes);
+        assert!(
+            matches!(result, Err(StateError::UnauthorizedSender(12))),
+            "StateWrite should reject sender 12 (Tx Ordering)"
+        );
+    }
+
+    // =========================================================================
+    // BalanceCheckRequest Authorization Tests
+    // =========================================================================
+
+    #[test]
+    fn test_balance_check_rejects_non_mempool() {
+        let handler = create_test_handler();
+
+        let payload = BalanceCheckRequestPayload {
+            address: [0x42u8; 20],
+            required_balance: 1000,
+        };
+
+        // Create message from Consensus (8) - should be rejected
+        let msg = create_test_message(CONSENSUS, payload.clone());
+        let msg_bytes = bincode::serialize(&msg).unwrap_or_default();
+
+        let result = handler.handle_balance_check(&msg, &msg_bytes);
+        assert!(
+            matches!(result, Err(StateError::UnauthorizedSender(8))),
+            "BalanceCheck should reject sender 8 (Consensus)"
+        );
+
+        // Create message from Smart Contracts (11) - should be rejected
+        let msg = create_test_message(SMART_CONTRACTS, payload.clone());
+        let msg_bytes = bincode::serialize(&msg).unwrap_or_default();
+
+        let result = handler.handle_balance_check(&msg, &msg_bytes);
+        assert!(
+            matches!(result, Err(StateError::UnauthorizedSender(11))),
+            "BalanceCheck should reject sender 11 (Smart Contracts)"
+        );
+
+        // Create message from Tx Ordering (12) - should be rejected  
+        let msg = create_test_message(TX_ORDERING, payload);
+        let msg_bytes = bincode::serialize(&msg).unwrap_or_default();
+
+        let result = handler.handle_balance_check(&msg, &msg_bytes);
+        assert!(
+            matches!(result, Err(StateError::UnauthorizedSender(12))),
+            "BalanceCheck should reject sender 12 (Tx Ordering)"
+        );
+    }
+
+    // =========================================================================
+    // ConflictDetectionRequest Authorization Tests
+    // =========================================================================
+
+    #[test]
+    fn test_conflict_detection_rejects_non_tx_ordering() {
+        let handler = create_test_handler();
+
+        let payload = ConflictDetectionRequestPayload {
+            transactions: vec![],
+        };
+
+        // Create message from Mempool (6) - should be rejected
+        let msg = create_test_message(MEMPOOL, payload.clone());
+        let msg_bytes = bincode::serialize(&msg).unwrap_or_default();
+
+        let result = handler.handle_conflict_detection(&msg, &msg_bytes);
+        assert!(
+            matches!(result, Err(StateError::UnauthorizedSender(6))),
+            "ConflictDetection should reject sender 6 (Mempool)"
+        );
+
+        // Create message from Consensus (8) - should be rejected
+        let msg = create_test_message(CONSENSUS, payload.clone());
+        let msg_bytes = bincode::serialize(&msg).unwrap_or_default();
+
+        let result = handler.handle_conflict_detection(&msg, &msg_bytes);
+        assert!(
+            matches!(result, Err(StateError::UnauthorizedSender(8))),
+            "ConflictDetection should reject sender 8 (Consensus)"
+        );
+
+        // Create message from Smart Contracts (11) - should be rejected
+        let msg = create_test_message(SMART_CONTRACTS, payload);
+        let msg_bytes = bincode::serialize(&msg).unwrap_or_default();
+
+        let result = handler.handle_conflict_detection(&msg, &msg_bytes);
+        assert!(
+            matches!(result, Err(StateError::UnauthorizedSender(11))),
+            "ConflictDetection should reject sender 11 (Smart Contracts)"
+        );
+    }
+}
+

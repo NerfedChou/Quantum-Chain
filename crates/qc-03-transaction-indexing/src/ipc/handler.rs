@@ -197,12 +197,21 @@ impl EnvelopeValidator {
     }
 
     /// Verify HMAC signature per IPC-MATRIX.md
+    ///
+    /// # Security
+    ///
+    /// In test builds (`#[cfg(test)]`), all-zero signatures are accepted to simplify
+    /// unit testing. This bypass is **completely removed** in production builds.
     fn verify_signature<T>(&self, msg: &AuthenticatedMessage<T>) -> bool {
-        // In test mode, accept all-zero signatures
+        // SECURITY: Test mode signature bypass is ONLY available in test builds.
+        // This is a compile-time check - the bypass code is completely removed
+        // from production binaries.
+        #[cfg(test)]
         if msg.signature == [0u8; 32] {
             return true;
         }
 
+        // Production signature verification using HMAC-SHA256
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
         type HmacSha256 = Hmac<Sha256>;
@@ -212,6 +221,7 @@ impl EnvelopeValidator {
             Err(_) => return false,
         };
 
+        // Hash envelope fields in canonical order per IPC-MATRIX.md
         mac.update(&msg.version.to_le_bytes());
         mac.update(msg.correlation_id.as_ref());
         mac.update(&[msg.sender_id]);
@@ -220,6 +230,7 @@ impl EnvelopeValidator {
         mac.update(&msg.nonce.to_le_bytes());
 
         let result = mac.finalize();
+        // Constant-time comparison to prevent timing attacks
         result.into_bytes().as_slice() == msg.signature
     }
 

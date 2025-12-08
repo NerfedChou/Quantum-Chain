@@ -15,21 +15,12 @@ use tower::{Layer, Service};
 use tracing::warn;
 
 /// Whitelist layer configuration
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct WhitelistConfig {
     /// Allow unknown methods (for forward compatibility)
     pub allow_unknown: bool,
     /// Additional allowed methods (not in registry)
     pub extra_methods: Vec<String>,
-}
-
-impl Default for WhitelistConfig {
-    fn default() -> Self {
-        Self {
-            allow_unknown: false,
-            extra_methods: Vec::new(),
-        }
-    }
 }
 
 /// Whitelist enforcement layer

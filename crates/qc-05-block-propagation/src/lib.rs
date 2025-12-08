@@ -24,15 +24,45 @@
 //!                                   CompactBlock      CompactBlock
 //! ```
 //!
-//! ## Security Boundaries (IPC-MATRIX.md)
+//! ## Domain Invariants
 //!
-//! | Rule | Description |
-//! |------|-------------|
-//! | **Authorized Senders** | Only Consensus (8) can request block propagation |
-//! | **Signature Verification** | All network blocks verified via Subsystem 10 |
-//! | **Invalid Signatures** | SILENT DROP (IP spoofing defense per Architecture.md) |
-//! | **Rate Limiting** | Max 1 announcement per peer per second |
-//! | **Size Limit** | Blocks >10MB are rejected |
+//! | ID | Invariant | Enforcement Location |
+//! |----|-----------|---------------------|
+//! | INVARIANT-1 | Deduplication | `domain/invariants.rs` - `invariant_no_duplicate_processing()` |
+//! | INVARIANT-2 | Rate Limiting | `domain/invariants.rs` - `invariant_rate_limit()` |
+//! | INVARIANT-3 | Size Limit | `domain/invariants.rs` - `invariant_size_limit()` |
+//!
+//! All invariants are combined in `check_all_invariants()` for efficient validation.
+//!
+//! ## Security (IPC-MATRIX.md)
+//!
+//! - **Centralized Security**: Uses `MessageVerifier` from `shared-types` crate
+//! - **Envelope-Only Identity**: Identity derived solely from `AuthenticatedMessage.sender_id`
+//! - **Replay Prevention**: Nonce tracking via centralized `NonceCache`
+//!
+//! ### IPC Authorization Matrix
+//!
+//! | Operation | Authorized Sender(s) | Enforcement |
+//! |-----------|---------------------|-------------|
+//! | `PropagateBlockRequest` | Consensus (8) only | `ipc/handler.rs:77-80` |
+//!
+//! ### Network Security
+//!
+//! | Rule | Description | Enforcement |
+//! |------|-------------|-------------|
+//! | **Signature Verification** | All network blocks verified via Subsystem 10 | `service.rs:453-467` |
+//! | **Invalid Signatures** | SILENT DROP (IP spoofing defense) | `service.rs:461-467` |
+//! | **Rate Limiting** | Max 1 announcement per peer per second | `service.rs:283-286` |
+//! | **Size Limit** | Blocks >10MB are rejected | `service.rs:181-186` |
+//!
+//! ## Outbound Dependencies
+//!
+//! | Subsystem | Trait | Purpose |
+//! |-----------|-------|---------|
+//! | 1 (Peer Discovery) | `PeerNetwork` | Get connected peers for gossip |
+//! | 6 (Mempool) | `MempoolGateway` | Transaction lookup for compact blocks |
+//! | 8 (Consensus) | `ConsensusGateway` | Submit validated blocks |
+//! | 10 (Sig Verify) | `SignatureVerifier` | Block signature verification |
 //!
 //! ## Module Structure (Hexagonal Architecture)
 //!
@@ -99,6 +129,7 @@
 //! // Handle authenticated message from Consensus
 //! handler.handle_propagate_block(authenticated_message, &raw_bytes)?;
 //! ```
+
 
 pub mod domain;
 pub mod events;

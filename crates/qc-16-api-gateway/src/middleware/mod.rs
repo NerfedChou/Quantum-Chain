@@ -1,8 +1,16 @@
 //! Middleware stack for the API Gateway per SPEC-16 Section 7.
 //!
 //! Layer order: Request → IpProtection → RateLimit → Whitelist → Validation → Auth → Timeout → Tracing → Handler
+//!
+//! ## Circuit Breaker
+//!
+//! The circuit breaker pattern prevents cascading failures when downstream
+//! subsystems become unhealthy. It tracks failures per-subsystem and opens
+//! the circuit when a threshold is exceeded, rejecting requests immediately
+//! until the service recovers.
 
 pub mod auth;
+pub mod circuit_breaker;
 pub mod cors;
 pub mod ip_protection;
 pub mod metrics;
@@ -13,6 +21,7 @@ pub mod validation;
 pub mod whitelist;
 
 pub use auth::{constant_time_compare, AuthConfig, AuthLayer};
+pub use circuit_breaker::{CircuitBreakerConfig, CircuitBreakerManager, CircuitState, CircuitStats};
 pub use cors::create_cors_layer;
 pub use ip_protection::{IpProtectionLayer, TrustedProxyConfig};
 pub use metrics::{GatewayMetrics, RequestTimer};
@@ -35,6 +44,7 @@ pub struct MiddlewareStack {
     pub timeout: TimeoutLayer,
     pub tracing: TracingLayer,
     pub metrics: Arc<GatewayMetrics>,
+    pub circuit_breaker: Arc<CircuitBreakerManager>,
 }
 
 impl MiddlewareStack {
@@ -61,6 +71,7 @@ impl MiddlewareStack {
             timeout: TimeoutLayer::new(config.timeouts.clone()),
             tracing: TracingLayer::new(),
             metrics: Arc::new(GatewayMetrics::new()),
+            circuit_breaker: Arc::new(CircuitBreakerManager::new(config.circuit_breaker.to_middleware_config())),
         }
     }
 
@@ -73,4 +84,10 @@ impl MiddlewareStack {
     pub fn rate_limit_state(&self) -> Arc<RateLimitState> {
         self.rate_limit.state()
     }
+
+    /// Get circuit breaker manager
+    pub fn circuit_breaker(&self) -> Arc<CircuitBreakerManager> {
+        Arc::clone(&self.circuit_breaker)
+    }
 }
+

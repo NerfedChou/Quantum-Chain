@@ -16,21 +16,12 @@ use tower::{Layer, Service};
 use tracing::{debug, warn};
 
 /// Authentication configuration
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AuthConfig {
     /// API key for protected/admin access (None = no key required)
     pub api_key: Option<String>,
     /// Allow admin access from non-localhost (DANGEROUS)
     pub allow_external_admin: bool,
-}
-
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self {
-            api_key: None,
-            allow_external_admin: false,
-        }
-    }
 }
 
 /// Authentication layer

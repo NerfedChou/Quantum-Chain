@@ -101,7 +101,7 @@ impl DebugRpc {
             pending_requests: 0,
             avg_latency_ms: latency_ms.unwrap_or(0) as u32,
             connections: vec![],
-            last_heartbeat_ms: latency_ms.map(|l| l as u64),
+            last_heartbeat_ms: latency_ms,
             specific_metrics,
         }
     }

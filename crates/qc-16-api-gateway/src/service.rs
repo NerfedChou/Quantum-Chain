@@ -32,6 +32,7 @@ pub struct ApiGatewayService {
     subscription_manager: Arc<SubscriptionManager>,
     pending_store: Arc<PendingRequestStore>,
     metrics: Arc<GatewayMetrics>,
+    circuit_breaker: Arc<crate::middleware::CircuitBreakerManager>,
     shutdown_tx: Option<oneshot::Sender<()>>,
 }
 
@@ -68,12 +69,18 @@ impl ApiGatewayService {
         // Create metrics
         let metrics = Arc::new(GatewayMetrics::new());
 
+        // Create circuit breaker manager from config
+        let circuit_breaker = Arc::new(crate::middleware::CircuitBreakerManager::new(
+            config.circuit_breaker.to_middleware_config(),
+        ));
+
         Ok(Self {
             config,
             rpc_handlers,
             subscription_manager,
             pending_store,
             metrics,
+            circuit_breaker,
             shutdown_tx: None,
         })
     }
@@ -174,6 +181,11 @@ impl ApiGatewayService {
         Arc::clone(&self.pending_store)
     }
 
+    /// Get circuit breaker manager (for IPC integration)
+    pub fn circuit_breaker(&self) -> Arc<crate::middleware::CircuitBreakerManager> {
+        Arc::clone(&self.circuit_breaker)
+    }
+
     /// Build HTTP router for JSON-RPC
     fn build_http_router(&self) -> Router {
         let state = AppState {
@@ -215,6 +227,9 @@ impl ApiGatewayService {
     fn build_admin_router(&self) -> Router {
         let metrics = Arc::clone(&self.metrics);
         let pending_store = Arc::clone(&self.pending_store);
+        let circuit_breaker = Arc::clone(&self.circuit_breaker);
+        let circuit_breaker_for_metrics = Arc::clone(&self.circuit_breaker);
+        let circuit_breaker_for_reset = Arc::clone(&self.circuit_breaker);
 
         Router::new()
             .route("/health", get(health_check))
@@ -222,7 +237,18 @@ impl ApiGatewayService {
                 "/metrics",
                 get(move || {
                     let metrics = Arc::clone(&metrics);
-                    async move { Json(metrics.to_json()) }
+                    let cb = Arc::clone(&circuit_breaker_for_metrics);
+                    async move {
+                        let mut json = metrics.to_json();
+                        // Add circuit breaker stats to metrics
+                        if let Some(obj) = json.as_object_mut() {
+                            obj.insert(
+                                "circuit_breakers".to_string(),
+                                serde_json::to_value(cb.get_stats()).unwrap_or_default(),
+                            );
+                        }
+                        Json(json)
+                    }
                 }),
             )
             .route(
@@ -237,6 +263,26 @@ impl ApiGatewayService {
                                 "completed": pending.stats().total_completed.load(std::sync::atomic::Ordering::Relaxed),
                                 "timeouts": pending.stats().total_timeouts.load(std::sync::atomic::Ordering::Relaxed),
                             }
+                        }))
+                    }
+                }),
+            )
+            .route(
+                "/circuits",
+                get(move || {
+                    let cb = Arc::clone(&circuit_breaker);
+                    async move { Json(cb.get_stats()) }
+                }),
+            )
+            .route(
+                "/circuits/reset/:subsystem",
+                axum::routing::post(move |axum::extract::Path(subsystem): axum::extract::Path<String>| {
+                    let cb = Arc::clone(&circuit_breaker_for_reset);
+                    async move {
+                        cb.reset(&subsystem);
+                        Json(serde_json::json!({
+                            "reset": true,
+                            "subsystem": subsystem
                         }))
                     }
                 }),

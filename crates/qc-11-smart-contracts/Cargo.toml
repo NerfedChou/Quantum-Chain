@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 description = "Smart Contract Execution (Subsystem 11) - EVM implementation"
 
+[features]
+default = []
+metrics = ["prometheus"]
+
 [dependencies]
 # Shared types from the project
 shared-types = { path = "../shared-types" }
@@ -34,6 +38,10 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # Logging
 tracing = "0.1"
 
+# Metrics (optional)
+prometheus = { version = "0.13", optional = true }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+

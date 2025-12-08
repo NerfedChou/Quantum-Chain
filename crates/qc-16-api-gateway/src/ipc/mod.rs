@@ -13,7 +13,7 @@ pub use bus_adapter::{
     BlockQuery, EventBusReceiver, EventBusSender, MempoolQuery, PeerDiscoveryQuery, QueryRouter,
     ResponseRouter, StateQuery, TxIndexQuery,
 };
-pub use handler::{IpcError, IpcHandler, IpcReceiver, IpcSender, ResponseListener};
+pub use handler::{IpcError, IpcHandler, IpcReceiver, IpcSender, ResilientIpcHandler, ResponseListener};
 pub use requests::{IpcRequest, RequestPayload, SubmitTransactionRequest};
 pub use responses::{IpcResponse, ResponsePayload, SuccessData};
 pub use validation::{create_submit_request, validate_raw_transaction, ValidatedTransaction};
