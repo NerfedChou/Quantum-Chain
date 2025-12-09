@@ -58,6 +58,12 @@ impl Default for PropagationConfig {
 }
 
 /// Per-peer propagation state.
+///
+/// ## Security: Reputation Decay
+///
+/// - Reputation decays 5% per minute to prevent accumulation  
+/// - Reset to 0 after 3 rate limit violations
+/// - Used for gossip peer selection (higher = priority)
 #[derive(Clone, Debug)]
 pub struct PeerPropagationState {
     pub peer_id: PeerId,
@@ -69,9 +75,21 @@ pub struct PeerPropagationState {
     pub window_start: Instant,
     /// Peer latency estimate in ms
     pub latency_ms: u64,
-    /// Reputation score (higher = faster/more reliable)
+    /// Reputation score (0.0 to 1.0)
     pub reputation: f64,
+    /// Rate limit violations count
+    pub rate_violations: u32,
+    /// Total blocks received
+    pub blocks_received: u64,
+    /// Total invalid blocks (PoW failures)
+    pub invalid_blocks: u64,
 }
+
+/// Reputation decay rate per minute (5%).
+pub const REPUTATION_DECAY_RATE: f64 = 0.95;
+
+/// Maximum rate violations before reputation reset.
+pub const MAX_RATE_VIOLATIONS: u32 = 3;
 
 impl PeerPropagationState {
     pub fn new(peer_id: PeerId) -> Self {
@@ -82,6 +100,9 @@ impl PeerPropagationState {
             window_start: Instant::now(),
             latency_ms: 100,
             reputation: 0.5,
+            rate_violations: 0,
+            blocks_received: 0,
+            invalid_blocks: 0,
         }
     }
 
@@ -106,6 +127,41 @@ impl PeerPropagationState {
     /// Update reputation based on behavior.
     pub fn update_reputation(&mut self, delta: f64) {
         self.reputation = (self.reputation + delta).clamp(0.0, 1.0);
+    }
+
+    /// Apply reputation decay (5% per minute).
+    pub fn apply_decay(&mut self, elapsed_minutes: u32) {
+        for _ in 0..elapsed_minutes.min(60) {
+            self.reputation *= REPUTATION_DECAY_RATE;
+        }
+    }
+
+    /// Record a rate limit violation. Returns true if peer should be deprioritized.
+    pub fn record_rate_violation(&mut self) -> bool {
+        self.rate_violations += 1;
+        if self.rate_violations >= MAX_RATE_VIOLATIONS {
+            self.reputation = 0.0;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Record a valid block received.
+    pub fn record_valid_block(&mut self) {
+        self.blocks_received += 1;
+        self.reputation = (self.reputation + 0.01).min(1.0);
+    }
+
+    /// Record an invalid block (PoW failure).
+    pub fn record_invalid_block(&mut self) {
+        self.invalid_blocks += 1;
+        self.reputation = (self.reputation - 0.1).max(0.0);
+    }
+
+    /// Check if peer is eligible for gossip.
+    pub fn is_eligible(&self) -> bool {
+        self.reputation > 0.0 && self.rate_violations < MAX_RATE_VIOLATIONS
     }
 }
 
@@ -295,5 +351,54 @@ mod tests {
 
         state.update_reputation(-2.0);
         assert_eq!(state.reputation, 0.0); // Clamped
+    }
+
+    #[test]
+    fn test_reputation_decay() {
+        let peer_id = PeerId::new([1u8; 32]);
+        let mut state = PeerPropagationState::new(peer_id);
+        
+        let initial = state.reputation;
+        state.apply_decay(1); // 1 minute
+        
+        // Should decay by 5%
+        assert!((state.reputation - initial * REPUTATION_DECAY_RATE).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_rate_violation_threshold() {
+        let peer_id = PeerId::new([1u8; 32]);
+        let mut state = PeerPropagationState::new(peer_id);
+        
+        assert!(!state.record_rate_violation());
+        assert!(!state.record_rate_violation());
+        assert!(state.record_rate_violation()); // 3rd violation resets
+        
+        assert_eq!(state.reputation, 0.0);
+        assert!(!state.is_eligible());
+    }
+
+    #[test]
+    fn test_valid_block_reputation_increase() {
+        let peer_id = PeerId::new([1u8; 32]);
+        let mut state = PeerPropagationState::new(peer_id);
+        
+        let initial = state.reputation;
+        state.record_valid_block();
+        
+        assert!(state.reputation > initial);
+        assert_eq!(state.blocks_received, 1);
+    }
+
+    #[test]
+    fn test_invalid_block_reputation_penalty() {
+        let peer_id = PeerId::new([1u8; 32]);
+        let mut state = PeerPropagationState::new(peer_id);
+        
+        let initial = state.reputation;
+        state.record_invalid_block();
+        
+        assert!(state.reputation < initial);
+        assert_eq!(state.invalid_blocks, 1);
     }
 }
