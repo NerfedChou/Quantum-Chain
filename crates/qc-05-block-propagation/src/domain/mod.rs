@@ -9,6 +9,7 @@
 //! - **value_objects**: Configuration and state (`PropagationConfig`, `SeenBlockCache`)
 //! - **services**: Domain operations (`calculate_short_id`, `reconstruct_block`)
 //! - **invariants**: Security invariant checks (deduplication, rate limiting, size)
+//! - **security**: Advanced security (Header-First, Stalling, Unsolicited Filter)
 //!
 //! ## Design Principles
 //!
@@ -18,10 +19,12 @@
 
 mod entities;
 mod invariants;
+mod security;
 mod services;
 mod value_objects;
 
 pub use entities::*;
 pub use invariants::*;
+pub use security::*;
 pub use services::*;
 pub use value_objects::*;

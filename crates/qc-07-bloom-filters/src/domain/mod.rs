@@ -7,6 +7,9 @@
 //! - Hash functions
 //! - Parameter calculations
 //! - Configuration
+//! - Gap limit enforcer (anti-dusting)
+//! - GCS filters (BIP 158)
+//! - Counting Bloom filter (incremental updates)
 //!
 //! RULES:
 //! - No I/O operations
@@ -16,10 +19,18 @@
 pub mod block_filter;
 pub mod bloom_filter;
 pub mod config;
+pub mod counting_bloom;
+pub mod gap_limit;
+pub mod gcs_filter;
 pub mod hash_functions;
 pub mod parameters;
 
 pub use block_filter::BlockFilter;
 pub use bloom_filter::BloomFilter;
 pub use config::{BloomConfig, BloomConfigBuilder};
-pub use parameters::{calculate_optimal_parameters, BloomFilterParams};
+pub use counting_bloom::CountingBloomFilter;
+pub use gap_limit::{ClientMatchHistory, GapLimitEnforcer, ThrottleReason};
+pub use gcs_filter::{GcsFilter, GOLOMB_P, GCS_FPR};
+pub use parameters::{calculate_optimal_parameters, AdaptiveBloomParams, BloomFilterParams};
+
+

@@ -32,6 +32,29 @@ pub const EMPTY_TRIE_ROOT: Hash = [
     0x5b, 0x48, 0xe0, 0x1b, 0x99, 0x6c, 0xad, 0xc0, 0x01, 0x62, 0x2f, 0xb5, 0xe3, 0x63, 0xb4, 0x21,
 ];
 
+// =============================================================================
+// SECURITY HARDENING CONSTANTS
+// =============================================================================
+
+/// Maximum proof depth for state proofs (anti-DoS).
+///
+/// 20-byte address = 40 nibbles, but with extensions/branches
+/// actual depth can vary. 64 provides safety margin.
+pub const MAX_PROOF_DEPTH: usize = 64;
+
+/// Domain byte for leaf node hashing (anti-second-preimage).
+/// Prevents leaf nodes from masquerading as internal nodes.
+pub const LEAF_DOMAIN: u8 = 0x00;
+
+/// Domain byte for extension node hashing.
+pub const EXTENSION_DOMAIN: u8 = 0x01;
+
+/// Domain byte for branch node hashing.
+pub const BRANCH_DOMAIN: u8 = 0x02;
+
+/// Maximum cached accounts in LRU cache.
+pub const MAX_CACHED_ACCOUNTS: usize = 10_000;
+
 /// Account state stored in the Patricia Merkle Trie.
 ///
 /// Each account in the blockchain has this state structure. The account
@@ -267,5 +290,140 @@ impl Default for StateConfig {
             pruning_depth: 1000,
             max_storage_slots_per_contract: 10_000,
         }
+    }
+}
+
+// =============================================================================
+// SECURE PATH HASHING (Anti-Grinding / Anti-Deep-Trie)
+// =============================================================================
+
+use sha3::{Digest, Keccak256};
+
+/// Hash an address to get secure trie path.
+///
+/// ## Security: Anti-Grinding Attack
+///
+/// Attackers cannot generate addresses with specific prefixes that
+/// would create deep trie paths. Keccak256 uniformly distributes keys.
+///
+/// ## Breaking Change
+///
+/// This MUST be implemented before Genesis. Changing after would
+/// invalidate all state roots.
+pub fn hash_path(address: &Address) -> Hash {
+    let mut hasher = Keccak256::new();
+    hasher.update(address);
+    hasher.finalize().into()
+}
+
+/// Hash a leaf node with domain separation.
+///
+/// LeafHash = Keccak256(0x00 || RLP(data))
+pub fn hash_leaf(data: &[u8]) -> Hash {
+    let mut hasher = Keccak256::new();
+    hasher.update(&[LEAF_DOMAIN]);
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
+/// Hash an extension node with domain separation.
+///
+/// ExtensionHash = Keccak256(0x01 || RLP(data))
+pub fn hash_extension(data: &[u8]) -> Hash {
+    let mut hasher = Keccak256::new();
+    hasher.update(&[EXTENSION_DOMAIN]);
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
+/// Hash a branch node with domain separation.
+///
+/// BranchHash = Keccak256(0x02 || RLP(data))
+pub fn hash_branch(data: &[u8]) -> Hash {
+    let mut hasher = Keccak256::new();
+    hasher.update(&[BRANCH_DOMAIN]);
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
+// =============================================================================
+// TESTS (TDD)
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_domain_separation_constants() {
+        // All domain bytes must be unique
+        assert_ne!(LEAF_DOMAIN, EXTENSION_DOMAIN);
+        assert_ne!(LEAF_DOMAIN, BRANCH_DOMAIN);
+        assert_ne!(EXTENSION_DOMAIN, BRANCH_DOMAIN);
+        
+        // Standard values
+        assert_eq!(LEAF_DOMAIN, 0x00);
+        assert_eq!(EXTENSION_DOMAIN, 0x01);
+        assert_eq!(BRANCH_DOMAIN, 0x02);
+    }
+
+    #[test]
+    fn test_max_proof_depth() {
+        // 64 supports 32-byte keys (64 nibbles)
+        assert_eq!(MAX_PROOF_DEPTH, 64);
+    }
+
+    #[test]
+    fn test_hash_path_deterministic() {
+        let address = [0x01; 20];
+        let hash1 = hash_path(&address);
+        let hash2 = hash_path(&address);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hash_path_different_addresses() {
+        let addr1 = [0x01; 20];
+        let addr2 = [0x02; 20];
+        assert_ne!(hash_path(&addr1), hash_path(&addr2));
+    }
+
+    #[test]
+    fn test_hash_path_uniform_distribution() {
+        // Similar addresses should produce very different hashes
+        let mut addr1 = [0x00; 20];
+        let mut addr2 = [0x00; 20];
+        addr1[19] = 0x01;
+        addr2[19] = 0x02;
+        
+        let h1 = hash_path(&addr1);
+        let h2 = hash_path(&addr2);
+        
+        // First bytes should differ (high probability with good hash)
+        // This prevents prefix grinding attacks
+        assert_ne!(h1[0], h2[0]);
+    }
+
+    #[test]
+    fn test_domain_separation_hashes() {
+        let data = b"test_node_data";
+        
+        let leaf = hash_leaf(data);
+        let ext = hash_extension(data);
+        let branch = hash_branch(data);
+        
+        // Same data, different hashes due to domain separation
+        assert_ne!(leaf, ext);
+        assert_ne!(leaf, branch);
+        assert_ne!(ext, branch);
+    }
+
+    #[test]
+    fn test_account_state_default() {
+        let state = AccountState::default();
+        assert_eq!(state.balance, 0);
+        assert_eq!(state.nonce, 0);
+        assert_eq!(state.code_hash, EMPTY_CODE_HASH);
+        assert_eq!(state.storage_root, EMPTY_TRIE_ROOT);
     }
 }

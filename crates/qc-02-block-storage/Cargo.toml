@@ -36,6 +36,12 @@ hex = "0.4"
 # Logging
 tracing = "0.1"
 
+# Process locking (cross-platform flock)
+fs2 = "0.4"
+
+# Dictionary compression (Phase 3)
+zstd = "0.13"
+
 [dev-dependencies]
 # Testing
 tokio = { version = "1", features = ["full", "test-util"] }

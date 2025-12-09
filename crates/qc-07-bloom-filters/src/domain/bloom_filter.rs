@@ -117,6 +117,31 @@ impl BloomFilter {
         positions.iter().all(|&pos| self.bits[pos])
     }
 
+    /// Test if an element might be in the filter (constant-time)
+    ///
+    /// **SECURITY**: This method provides side-channel resistance by:
+    /// 1. Always checking ALL hash positions (no early exit)
+    /// 2. Using bitwise AND accumulator (branchless)
+    /// 3. Ensuring constant CPU cycles regardless of match
+    ///
+    /// Use this method when the filter is being queried by external parties
+    /// to prevent timing attacks that could reveal filter contents.
+    ///
+    /// Reference: SPEC-07 Appendix B.3 - Privacy Considerations
+    pub fn contains_constant_time(&self, element: &[u8]) -> bool {
+        let positions = compute_hash_positions(element, self.k, self.m, self.tweak);
+        
+        // Branchless accumulator - always accesses all positions
+        let mut result: u8 = 1;
+        for &pos in &positions {
+            // Always read the bit, always AND with accumulator
+            let bit = self.bits[pos] as u8;
+            result &= bit;
+        }
+        
+        result == 1
+    }
+
     /// Merge another filter into this one (OR operation)
     ///
     /// After merge, this filter will match all elements from both filters.
