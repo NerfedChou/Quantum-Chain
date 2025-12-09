@@ -33,6 +33,8 @@ pub enum IndexingError {
     CommunicationError { message: String },
     /// Request timed out.
     Timeout { operation: String },
+    /// Proof depth exceeds maximum allowed (DoS protection).
+    ProofTooDeep { depth: usize, max: usize },
 }
 
 impl std::fmt::Display for IndexingError {
@@ -75,6 +77,9 @@ impl std::fmt::Display for IndexingError {
             }
             Self::Timeout { operation } => {
                 write!(f, "Operation timed out: {}", operation)
+            }
+            Self::ProofTooDeep { depth, max } => {
+                write!(f, "Proof depth {} exceeds maximum {} (DoS protection)", depth, max)
             }
         }
     }
@@ -153,6 +158,12 @@ impl From<IndexingError> for IndexingErrorPayload {
                 transaction_hash: None,
                 block_hash: None,
             },
+            IndexingError::ProofTooDeep { depth, max } => Self {
+                error_type: IndexingErrorType::ProofTooDeep,
+                message: format!("Proof depth {} exceeds max {}", depth, max),
+                transaction_hash: None,
+                block_hash: None,
+            },
         }
     }
 }
@@ -169,6 +180,7 @@ pub enum IndexingErrorType {
     UnauthorizedSender,
     CommunicationError,
     Timeout,
+    ProofTooDeep,
 }
 
 #[cfg(test)]

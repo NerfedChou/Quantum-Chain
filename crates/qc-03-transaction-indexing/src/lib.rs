@@ -72,6 +72,10 @@ pub use domain::{
     HashAlgorithm, IndexConfig, IndexingError, IndexingErrorPayload, IndexingErrorType,
     IndexingStats, MerkleConfig, MerkleProof, MerkleTree, ProofNode, SiblingPosition,
     TransactionIndex, TransactionLocation, SENTINEL_HASH,
+    // Security hardening (Phase 2)
+    LEAF_DOMAIN, NODE_DOMAIN, MAX_PROOF_DEPTH, PARALLEL_THRESHOLD,
+    // Advanced features (Phase 1)
+    MultiProof, sort_canonically,
 };
 
 pub use ports::{

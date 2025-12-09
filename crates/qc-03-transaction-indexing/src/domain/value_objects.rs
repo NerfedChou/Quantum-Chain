@@ -9,6 +9,37 @@
 use serde::{Deserialize, Serialize};
 use shared_types::Hash;
 
+// =============================================================================
+// DOMAIN SEPARATION (Anti-Second-Preimage Attack)
+// =============================================================================
+
+/// Domain byte for leaf hashing.
+/// 
+/// Used to prevent second-preimage attacks by ensuring leaf hashes
+/// and internal node hashes cannot collide.
+pub const LEAF_DOMAIN: u8 = 0x00;
+
+/// Domain byte for internal node hashing.
+pub const NODE_DOMAIN: u8 = 0x01;
+
+// =============================================================================
+// BOUNDED VERIFICATION (Anti-Stack-Overflow)
+// =============================================================================
+
+/// Maximum proof depth (supports 2^32 transactions).
+/// 
+/// Prevents DoS attacks via deeply nested proofs.
+pub const MAX_PROOF_DEPTH: usize = 32;
+
+/// Minimum threshold for parallel tree construction.
+/// 
+/// Below this, thread overhead exceeds speedup benefit.
+pub const PARALLEL_THRESHOLD: usize = 1024;
+
+// =============================================================================
+// EXISTING CONSTANTS
+// =============================================================================
+
 /// Sentinel hash used for padding Merkle tree leaves (all zeros).
 ///
 /// ## SPEC-03 Section 2.4

@@ -71,6 +71,19 @@ pub enum StorageError {
         expected_id: u8,
         operation: &'static str,
     },
+
+    /// Non-canonical encoding detected (Anti-Malleability defense).
+    ///
+    /// Input bytes differ from re-serialized canonical form.
+    /// Accepting non-canonical data could cause hash mismatches with network.
+    NonCanonicalEncoding {
+        reason: &'static str,
+    },
+
+    /// Database lock could not be acquired (process already running).
+    DatabaseLocked {
+        message: String,
+    },
 }
 
 impl fmt::Display for StorageError {
@@ -150,6 +163,12 @@ impl fmt::Display for StorageError {
                     "Unauthorized sender {} for {}: expected subsystem {}",
                     sender_id, operation, expected_id
                 )
+            }
+            StorageError::NonCanonicalEncoding { reason } => {
+                write!(f, "Non-canonical encoding detected: {} (Anti-Malleability)", reason)
+            }
+            StorageError::DatabaseLocked { message } => {
+                write!(f, "Database locked: {}", message)
             }
         }
     }
