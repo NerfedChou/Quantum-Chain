@@ -76,6 +76,13 @@ impl ValidatorSet {
         required.max(1)
     }
 
+    /// Get stake for a validator
+    ///
+    /// Used by LMD-GHOST for weight calculation.
+    pub fn get_stake(&self, validator_id: &ValidatorId) -> Option<u128> {
+        self.get(validator_id).map(|v| v.stake)
+    }
+
     /// Calculate required votes for PBFT (2f+1)
     pub fn required_pbft_votes(&self, byzantine_threshold: usize) -> usize {
         2 * byzantine_threshold + 1
