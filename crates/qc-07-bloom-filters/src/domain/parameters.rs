@@ -87,6 +87,75 @@ pub fn minimum_bits(n: usize, target_fpr: f64) -> usize {
     (-(n as f64) * target_fpr.ln() / ln2_squared).ceil() as usize
 }
 
+/// Density-Adaptive FPR Auto-Tuning.
+///
+/// Dynamically adjusts filter parameters based on block density.
+///
+/// ## Algorithm
+///
+/// - If block has < SKIP_THRESHOLD transactions, return None (skip filter)
+/// - If block is dense, increase bits to maintain FPR
+/// - If block is sparse, reduce bits to save bandwidth
+///
+/// ## Reference
+/// 
+/// SPEC-07 Phase 4 - False Positive Auto-Tuning
+pub struct AdaptiveBloomParams {
+    /// Target FPR
+    pub target_fpr: f64,
+    /// Average transactions per block (for normalization)
+    pub avg_block_size: usize,
+    /// Below this, skip filter entirely
+    pub skip_threshold: usize,
+    /// Maximum bits (cap for dense blocks)
+    pub max_bits: usize,
+}
+
+impl AdaptiveBloomParams {
+    /// Create with defaults.
+    pub fn new(target_fpr: f64, avg_block_size: usize) -> Self {
+        Self {
+            target_fpr,
+            avg_block_size,
+            skip_threshold: 10,
+            max_bits: 100_000,
+        }
+    }
+
+    /// Calculate parameters for a specific block.
+    ///
+    /// Returns None if filter should be skipped (send raw hashes instead).
+    pub fn for_block(&self, tx_count: usize) -> Option<BloomFilterParams> {
+        if tx_count < self.skip_threshold {
+            return None; // Skip filter, send raw hashes
+        }
+
+        let mut params = calculate_optimal_parameters(tx_count, self.target_fpr);
+
+        // Cap maximum bits
+        if params.size_bits > self.max_bits {
+            params.size_bits = self.max_bits;
+            params.expected_fpr = calculate_fpr(params.size_bits, tx_count, params.hash_count);
+        }
+
+        Some(params)
+    }
+
+    /// Estimate bandwidth savings vs raw transactions.
+    ///
+    /// Positive = filter is smaller, negative = raw is smaller.
+    pub fn bandwidth_savings(&self, tx_count: usize, avg_tx_hash_size: usize) -> i64 {
+        match self.for_block(tx_count) {
+            None => 0, // Skip case - same size
+            Some(params) => {
+                let filter_bytes = params.size_bits / 8;
+                let raw_bytes = tx_count * avg_tx_hash_size;
+                raw_bytes as i64 - filter_bytes as i64
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

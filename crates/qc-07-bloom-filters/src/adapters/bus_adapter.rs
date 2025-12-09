@@ -40,7 +40,6 @@ where
     /// The bloom filter service
     service: Arc<RwLock<BloomFilterService<P>>>,
     /// IPC handler for validation
-    #[allow(dead_code)]
     handler: Arc<BloomFilterHandler>,
     /// Active filters by client ID
     active_filters: Arc<RwLock<std::collections::HashMap<String, BloomFilter>>>,
@@ -65,6 +64,13 @@ where
             active_filters: Arc::new(RwLock::new(std::collections::HashMap::new())),
             default_config: BloomConfig::default(),
         }
+    }
+
+    /// Check if a sender is authorized for filter operations
+    /// 
+    /// Per IPC-MATRIX.md Subsystem 7 security boundaries
+    pub fn is_authorized_for_filter(&self, sender_id: u8) -> bool {
+        self.handler.is_authorized_for_build_filter(sender_id)
     }
 
     /// Start listening for events

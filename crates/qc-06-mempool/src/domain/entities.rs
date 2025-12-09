@@ -21,6 +21,26 @@ pub use shared_types::{Address, Hash, SignedTransaction, U256};
 /// Timestamp in milliseconds since UNIX epoch.
 pub type Timestamp = u64;
 
+// =============================================================================
+// SECURITY HARDENING CONSTANTS
+// =============================================================================
+
+/// Maximum transaction size in bytes (128KB).
+/// Prevents memory exhaustion from oversized transactions.
+pub const MAX_TX_SIZE: usize = 128 * 1024;
+
+/// Maximum number of ancestors a transaction can have.
+/// Prevents mempool bombs via long unconfirmed chains.
+pub const MAX_ANCESTORS: usize = 25;
+
+/// Maximum number of descendants a transaction can have.
+/// Prevents mempool bombs via wide transaction trees.
+pub const MAX_DESCENDANTS: usize = 25;
+
+/// Maximum gas limit per transaction (30M).
+/// Already enforced in MempoolConfig, constant for validation.
+pub const MAX_GAS_LIMIT: u64 = 30_000_000;
+
 /// Transaction state in the Two-Phase Commit protocol.
 ///
 /// State machine (SPEC-06 Section 1.3):

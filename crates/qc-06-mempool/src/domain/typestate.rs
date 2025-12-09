@@ -103,7 +103,6 @@ enum StateData {
     },
     Confirmed {
         block_height: u64,
-        #[allow(dead_code)]
         confirmed_at: Timestamp,
     },
 }
@@ -255,6 +254,14 @@ impl TypeStateTx<Confirmed> {
     pub fn confirmed_block(&self) -> u64 {
         match self.state_data {
             StateData::Confirmed { block_height, .. } => block_height,
+            _ => unreachable!("Type system guarantees Confirmed state"),
+        }
+    }
+
+    /// Get the timestamp when confirmed.
+    pub fn confirmed_at(&self) -> Timestamp {
+        match self.state_data {
+            StateData::Confirmed { confirmed_at, .. } => confirmed_at,
             _ => unreachable!("Type system guarantees Confirmed state"),
         }
     }

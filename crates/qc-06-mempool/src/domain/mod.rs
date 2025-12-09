@@ -9,7 +9,11 @@
 //! - `services`: Domain services (RBF calculation, nonce validation)
 //! - `value_objects`: PricedTransaction, ShortTxId, MempoolStatus
 //! - `errors`: MempoolError enumeration
-//! - `typestate`: **NEW** Compile-time enforced state machine (Wormhole-safe)
+//! - `typestate`: Compile-time enforced state machine (Wormhole-safe)
+//! - `cpfp`: Child-Pays-For-Parent ancestor fee tracking
+//! - `dmmf`: Dynamic Minimum Mempool Fee (congestion management)
+//! - `dos_protection`: Rejection Cache and Dust Filter (DoS protection)
+//! - `persistence`: Persistent mempool for fast restart
 //!
 //! ## Data Types (IPC-MATRIX.md Compliance)
 //!
@@ -26,15 +30,23 @@
 //! For new code, prefer `TypeStateTx` and `TypeStatePool` over `MempoolTransaction`
 //! and `TransactionPool` when strict safety is required.
 
+pub mod cpfp;
+pub mod dmmf;
+pub mod dos_protection;
 pub mod entities;
 pub mod errors;
+pub mod persistence;
 pub mod pool;
 pub mod services;
 pub mod typestate;
 pub mod value_objects;
 
+pub use cpfp::*;
+pub use dmmf::*;
+pub use dos_protection::*;
 pub use entities::*;
 pub use errors::*;
+pub use persistence::*;
 pub use pool::*;
 pub use services::*;
 pub use typestate::{Confirmed, Pending, Proposed, TypeStatePool, TypeStateTx};
