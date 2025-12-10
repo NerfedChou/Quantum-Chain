@@ -1,0 +1,78 @@
+/* ==========================================================================
+   Component: Metric Chart
+   BEM: .metric-chart, .metric-chart__bar, .metric-chart__label
+   ========================================================================== */
+
+.metric-chart {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.metric-chart__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.metric-chart__label {
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+}
+
+.metric-chart__value {
+    font-size: var(--text-sm);
+    font-weight: var(--font-semibold);
+    color: var(--color-text-primary);
+    font-family: var(--font-mono);
+}
+
+.metric-chart__track {
+    height: 6px;
+    background-color: var(--color-bg-primary);
+    border-radius: var(--border-radius-full);
+    overflow: hidden;
+}
+
+.metric-chart__bar {
+    height: 100%;
+    border-radius: var(--border-radius-full);
+    transition: width var(--transition-base);
+}
+
+.metric-chart__bar--success {
+    background: linear-gradient(90deg, var(--color-success-muted), var(--color-success));
+}
+
+.metric-chart__bar--warning {
+    background: linear-gradient(90deg, var(--color-warning-muted), var(--color-warning));
+}
+
+.metric-chart__bar--error {
+    background: linear-gradient(90deg, var(--color-error-muted), var(--color-error));
+}
+
+.metric-chart__bar--info {
+    background: linear-gradient(90deg, var(--color-info-muted), var(--color-info));
+}
+
+/* Sparkline variant */
+.metric-chart--sparkline {
+    height: 40px;
+}
+
+.metric-chart__sparkline {
+    width: 100%;
+    height: 100%;
+}
+
+.metric-chart__sparkline-path {
+    fill: none;
+    stroke: var(--color-accent);
+    stroke-width: 1.5;
+}
+
+.metric-chart__sparkline-area {
+    fill: url(#sparkline-gradient);
+    opacity: 0.2;
+}

@@ -1,0 +1,94 @@
+/* ==========================================================================
+   Utility Classes - Colors
+   ========================================================================== */
+
+/* Text Colors */
+.text-primary {
+    color: var(--color-text-primary);
+}
+
+.text-secondary {
+    color: var(--color-text-secondary);
+}
+
+.text-muted {
+    color: var(--color-text-muted);
+}
+
+.text-success {
+    color: var(--color-success);
+}
+
+.text-warning {
+    color: var(--color-warning);
+}
+
+.text-error {
+    color: var(--color-error);
+}
+
+.text-info {
+    color: var(--color-info);
+}
+
+.text-accent {
+    color: var(--color-accent);
+}
+
+/* Background Colors */
+.bg-primary {
+    background-color: var(--color-bg-primary);
+}
+
+.bg-secondary {
+    background-color: var(--color-bg-secondary);
+}
+
+.bg-surface {
+    background-color: var(--color-surface);
+}
+
+.bg-success {
+    background-color: var(--color-success);
+}
+
+.bg-success-muted {
+    background-color: var(--color-success-muted);
+}
+
+.bg-warning {
+    background-color: var(--color-warning);
+}
+
+.bg-warning-muted {
+    background-color: var(--color-warning-muted);
+}
+
+.bg-error {
+    background-color: var(--color-error);
+}
+
+.bg-error-muted {
+    background-color: var(--color-error-muted);
+}
+
+.bg-info {
+    background-color: var(--color-info);
+}
+
+.bg-info-muted {
+    background-color: var(--color-info-muted);
+}
+
+/* Border Colors */
+.border {
+    border: 1px solid var(--color-border);
+}
+
+.border-subtle {
+    border: 1px solid var(--color-border-subtle);
+}
+
+.border-accent {
+    border-color: var(--color-accent);
+}

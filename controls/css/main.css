@@ -1,0 +1,31 @@
+/* ==========================================================================
+   QC-Controls: CSS Entry Point
+   Using CSS @layers for cascade management
+   ========================================================================== */
+
+@layer reset, base, utilities, components, pages, overrides;
+
+/* Base Imports */
+@import url('./base/reset.css') layer(reset);
+@import url('./base/variables.css') layer(base);
+@import url('./base/typography.css') layer(base);
+
+/* Utilities Layer */
+@import url('./utilities/spacing.css') layer(utilities);
+@import url('./utilities/flex.css') layer(utilities);
+@import url('./utilities/colors.css') layer(utilities);
+@import url('./utilities/visibility.css') layer(utilities);
+
+/* Components Layer (BEM) */
+@import url('./components/sidebar.css') layer(components);
+@import url('./components/card.css') layer(components);
+@import url('./components/status-dot.css') layer(components);
+@import url('./components/button.css') layer(components);
+@import url('./components/log-console.css') layer(components);
+@import url('./components/metric-chart.css') layer(components);
+
+/* Pages Layer */
+@import url('./pages/dashboard.css') layer(pages);
+@import url('./pages/subsystems.css') layer(pages);
+@import url('./pages/anomalies.css') layer(pages);
+@import url('./pages/settings.css') layer(pages);

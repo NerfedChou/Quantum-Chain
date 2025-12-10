@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Quantum-Chain Node Administration Interface">
+  <title>QC-Controls | Quantum-Chain Admin</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+
+<body>
+  <!-- Skip Link for Accessibility -->
+  <a href="#main-content" class="sr-only focus-visible">Skip to main content</a>
+
+  <div class="app flex">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar" role="navigation" aria-label="Main navigation">
+      <header class="sidebar__header">
+        <div class="sidebar__logo">
+          <div class="sidebar__logo-icon" aria-hidden="true"></div>
+          <span>QC-Controls</span>
+        </div>
+      </header>
+
+      <nav class="sidebar__nav">
+        <div class="sidebar__section">
+          <h2 class="sidebar__section-title">Overview</h2>
+          <a href="#dashboard" class="sidebar__item sidebar__item--active" data-page="dashboard" role="button"
+            aria-current="page">
+            <svg class="sidebar__icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <rect x="14" y="14" width="7" height="7" rx="1" />
+            </svg>
+            <span>Dashboard</span>
+          </a>
+          <a href="#subsystems" class="sidebar__item" data-page="subsystems" role="button">
+            <svg class="sidebar__icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 2v4m0 12v4M2 12h4m12 0h4" />
+            </svg>
+            <span>Subsystems</span>
+          </a>
+          <a href="#anomalies" class="sidebar__item" data-page="anomalies" role="button">
+            <svg class="sidebar__icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>Anomalies</span>
+          </a>
+        </div>
+
+        <div class="sidebar__section">
+          <h2 class="sidebar__section-title">System</h2>
+          <a href="#settings" class="sidebar__item" data-page="settings" role="button">
+            <svg class="sidebar__icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
+              <path
+                d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+            </svg>
+            <span>Settings</span>
+          </a>
+        </div>
+      </nav>
+
+      <footer class="sidebar__footer">
+        <div class="text-xs text-muted">
+          <p>API: <span id="api-status" class="text-success">Connected</span></p>
+          <p class="mt-1">v0.1.0</p>
+        </div>
+      </footer>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main id="main-content" class="main-content flex-1" style="margin-left: var(--sidebar-width);">
+      <div class="main-content__inner p-6">
+
+        <!-- Dashboard Page -->
+        <section id="page-dashboard" class="page dashboard" aria-labelledby="dashboard-title">
+          <header class="dashboard__header mb-6">
+            <div>
+              <h1 id="dashboard-title" class="dashboard__title">Blockchain Overview</h1>
+              <p class="text-secondary text-sm mt-1">Real-time network health and performance metrics</p>
+            </div>
+            <div class="dashboard__status">
+              <span class="status-dot status-dot--healthy status-dot--pulse status-dot--lg" aria-hidden="true"></span>
+              <span>Network Healthy</span>
+            </div>
+          </header>
+
+          <!-- Primary Metrics Row -->
+          <div class="dashboard__metrics-grid mb-6">
+            <article class="dashboard__metric-card dashboard__metric-card--primary">
+              <div class="dashboard__metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path
+                    d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
+                </svg>
+              </div>
+              <div class="dashboard__metric-content">
+                <p class="dashboard__metric-label">Block Height</p>
+                <p class="dashboard__metric-value" id="stat-block-height">1,284,739</p>
+                <p class="dashboard__metric-trend dashboard__metric-trend--up">
+                  <span>↑</span> 12 blocks/min
+                </p>
+              </div>
+            </article>
+            <article class="dashboard__metric-card">
+              <div class="dashboard__metric-icon dashboard__metric-icon--peers">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3" />
+                  <circle cx="19" cy="5" r="2" />
+                  <circle cx="5" cy="5" r="2" />
+                  <circle cx="19" cy="19" r="2" />
+                  <circle cx="5" cy="19" r="2" />
+                  <path d="M12 9V5M12 15v4M9 12H5M15 12h4" />
+                </svg>
+              </div>
+              <div class="dashboard__metric-content">
+                <p class="dashboard__metric-label">Connected Peers</p>
+                <p class="dashboard__metric-value" id="stat-peers">24</p>
+                <p class="dashboard__metric-subtext">3 in / 21 out</p>
+              </div>
+            </article>
+            <article class="dashboard__metric-card">
+              <div class="dashboard__metric-icon dashboard__metric-icon--mempool">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                </svg>
+              </div>
+              <div class="dashboard__metric-content">
+                <p class="dashboard__metric-label">Pending Transactions</p>
+                <p class="dashboard__metric-value" id="stat-mempool">1,429</p>
+                <p class="dashboard__metric-subtext">~2.4 MB</p>
+              </div>
+            </article>
+            <article class="dashboard__metric-card">
+              <div class="dashboard__metric-icon dashboard__metric-icon--finality">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+                  <polyline points="22 4 12 14.01 9 11.01" />
+                </svg>
+              </div>
+              <div class="dashboard__metric-content">
+                <p class="dashboard__metric-label">Finalized Block</p>
+                <p class="dashboard__metric-value" id="stat-finalized">1,284,733</p>
+                <p class="dashboard__metric-subtext">6 confirmations behind</p>
+              </div>
+            </article>
+            <article class="dashboard__metric-card">
+              <div class="dashboard__metric-icon dashboard__metric-icon--tps">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+                  <polyline points="17 6 23 6 23 12" />
+                </svg>
+              </div>
+              <div class="dashboard__metric-content">
+                <p class="dashboard__metric-label">Throughput (TPS)</p>
+                <p class="dashboard__metric-value" id="stat-tps">847</p>
+                <p class="dashboard__metric-trend dashboard__metric-trend--up">
+                  <span>↑</span> 12% from avg
+                </p>
+              </div>
+            </article>
+            <article class="dashboard__metric-card">
+              <div class="dashboard__metric-icon dashboard__metric-icon--latency">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+              </div>
+              <div class="dashboard__metric-content">
+                <p class="dashboard__metric-label">Block Latency</p>
+                <p class="dashboard__metric-value" id="stat-latency">1.2s</p>
+                <p class="dashboard__metric-subtext">avg block time</p>
+              </div>
+            </article>
+          </div>
+
+          <!-- Main Dashboard Grid -->
+          <div class="dashboard__grid">
+            <!-- Left Column: System Architecture -->
+            <section class="dashboard__section">
+              <header class="dashboard__section-header">
+                <h2 class="dashboard__section-title">Live Subsystem Map</h2>
+                <span class="dashboard__section-badge">Live IPC</span>
+              </header>
+              <div class="dashboard__topology-container">
+                <canvas id="network-topology" class="dashboard__topology-canvas"
+                  aria-label="System architecture topology"></canvas>
+                <div class="dashboard__topology-legend">
+                  <div class="dashboard__legend-item">
+                    <span class="dashboard__legend-dot"
+                      style="background-color: #8b5cf6; box-shadow: 0 0 4px #8b5cf6;"></span>
+                    <span>Gateway</span>
+                  </div>
+                  <div class="dashboard__legend-item">
+                    <span class="dashboard__legend-dot" style="background-color: #22c55e;"></span>
+                    <span>Core</span>
+                  </div>
+                  <div class="dashboard__legend-item">
+                    <span class="dashboard__legend-dot" style="background-color: #3b82f6;"></span>
+                    <span>Data</span>
+                  </div>
+                  <div class="dashboard__legend-item">
+                    <span class="dashboard__legend-dot" style="background-color: #f97316;"></span>
+                    <span>Network</span>
+                  </div>
+                  <div class="dashboard__legend-item">
+                    <span class="dashboard__legend-dot" style="background-color: #ec4899;"></span>
+                    <span>Security</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Right Column: Resource Usage + Anomalies -->
+            <div class="dashboard__right-column">
+              <!-- Resource Usage -->
+              <section class="dashboard__section dashboard__section--compact">
+                <header class="dashboard__section-header">
+                  <h2 class="dashboard__section-title">System Resources</h2>
+                </header>
+                <div class="dashboard__resources">
+                  <div class="dashboard__resource">
+                    <div class="dashboard__resource-header">
+                      <span class="dashboard__resource-label">CPU</span>
+                      <span class="dashboard__resource-value" id="metric-cpu">23%</span>
+                    </div>
+                    <div class="dashboard__resource-track">
+                      <div class="dashboard__resource-bar dashboard__resource-bar--cpu" style="width: 23%"></div>
+                    </div>
+                  </div>
+                  <div class="dashboard__resource">
+                    <div class="dashboard__resource-header">
+                      <span class="dashboard__resource-label">Memory</span>
+                      <span class="dashboard__resource-value" id="metric-memory">1.2 GB / 4 GB</span>
+                    </div>
+                    <div class="dashboard__resource-track">
+                      <div class="dashboard__resource-bar dashboard__resource-bar--memory" style="width: 30%"></div>
+                    </div>
+                  </div>
+                  <div class="dashboard__resource">
+                    <div class="dashboard__resource-header">
+                      <span class="dashboard__resource-label">Disk I/O</span>
+                      <span class="dashboard__resource-value" id="metric-disk">42 MB/s</span>
+                    </div>
+                    <div class="dashboard__resource-track">
+                      <div class="dashboard__resource-bar dashboard__resource-bar--disk" style="width: 55%"></div>
+                    </div>
+                  </div>
+                  <div class="dashboard__resource">
+                    <div class="dashboard__resource-header">
+                      <span class="dashboard__resource-label">Network</span>
+                      <span class="dashboard__resource-value" id="metric-network">8.4 MB/s</span>
+                    </div>
+                    <div class="dashboard__resource-track">
+                      <div class="dashboard__resource-bar dashboard__resource-bar--network" style="width: 42%"></div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Recent Anomalies -->
+              <section class="dashboard__section dashboard__section--anomalies">
+                <header class="dashboard__section-header">
+                  <h2 class="dashboard__section-title">Recent Anomalies</h2>
+                  <a href="#anomalies" class="dashboard__section-link" data-page="anomalies">View All →</a>
+                </header>
+                <div class="dashboard__anomalies-list" id="anomalies-list" role="log" aria-live="polite">
+                  <article class="dashboard__anomaly dashboard__anomaly--warning">
+                    <div class="dashboard__anomaly-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                        <line x1="12" y1="9" x2="12" y2="13" />
+                        <line x1="12" y1="17" x2="12.01" y2="17" />
+                      </svg>
+                    </div>
+                    <div class="dashboard__anomaly-content">
+                      <p class="dashboard__anomaly-title">High Mempool Congestion</p>
+                      <p class="dashboard__anomaly-meta">QC-06 Mempool • 2 min ago</p>
+                    </div>
+                  </article>
+                  <article class="dashboard__anomaly dashboard__anomaly--info">
+                    <div class="dashboard__anomaly-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="16" x2="12" y2="12" />
+                        <line x1="12" y1="8" x2="12.01" y2="8" />
+                      </svg>
+                    </div>
+                    <div class="dashboard__anomaly-content">
+                      <p class="dashboard__anomaly-title">Peer Reconnection Attempt</p>
+                      <p class="dashboard__anomaly-meta">QC-01 Peer Discovery • 5 min ago</p>
+                    </div>
+                  </article>
+                  <article class="dashboard__anomaly dashboard__anomaly--success">
+                    <div class="dashboard__anomaly-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+                        <polyline points="22 4 12 14.01 9 11.01" />
+                      </svg>
+                    </div>
+                    <div class="dashboard__anomaly-content">
+                      <p class="dashboard__anomaly-title">Chain Sync Complete</p>
+                      <p class="dashboard__anomaly-meta">QC-13 Light Client • 12 min ago</p>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <!-- Subsystems Page (hidden by default) -->
+        <section id="page-subsystems" class="page subsystems hidden" aria-labelledby="subsystems-title">
+          <header class="subsystems__header">
+            <h1 id="subsystems-title" class="subsystems__title">Subsystems</h1>
+            <div class="subsystems__filters">
+              <input type="search" class="subsystems__search" placeholder="Search subsystems..."
+                aria-label="Search subsystems">
+            </div>
+          </header>
+          <div id="subsystems-grid" class="subsystems__grid">
+            <!-- Cards will be rendered by JS -->
+          </div>
+        </section>
+
+        <!-- Anomalies Page (hidden by default) -->
+        <section id="page-anomalies" class="page anomalies hidden" aria-labelledby="anomalies-title">
+          <header class="anomalies__header">
+            <div>
+              <h1 id="anomalies-title" class="anomalies__title">Anomalies</h1>
+              <p class="anomalies__subtitle">System alerts, warnings, and events across all subsystems</p>
+            </div>
+          </header>
+
+          <!-- Summary Stats -->
+          <div class="anomalies__stats">
+            <div class="anomalies__stat anomalies__stat--critical">
+              <span class="anomalies__stat-value">2</span>
+              <span class="anomalies__stat-label">Critical</span>
+            </div>
+            <div class="anomalies__stat anomalies__stat--warning">
+              <span class="anomalies__stat-value">5</span>
+              <span class="anomalies__stat-label">Warnings</span>
+            </div>
+            <div class="anomalies__stat anomalies__stat--info">
+              <span class="anomalies__stat-value">12</span>
+              <span class="anomalies__stat-label">Info</span>
+            </div>
+            <div class="anomalies__stat anomalies__stat--resolved">
+              <span class="anomalies__stat-value">47</span>
+              <span class="anomalies__stat-label">Resolved (24h)</span>
+            </div>
+          </div>
+
+          <!-- Anomaly List -->
+          <div class="anomalies__list" id="anomalies-full-list">
+            <!-- Critical -->
+            <article class="anomaly-card anomaly-card--critical">
+              <div class="anomaly-card__severity">CRITICAL</div>
+              <div class="anomaly-card__content">
+                <h3 class="anomaly-card__title">Consensus Timeout Detected</h3>
+                <p class="anomaly-card__desc">Block #1,284,740 failed to reach finality within 30s threshold. Validators
+                  may be partitioned.</p>
+                <div class="anomaly-card__meta">
+                  <span class="anomaly-card__source">QC-08 Consensus</span>
+                  <span class="anomaly-card__time">2 min ago</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="anomaly-card anomaly-card--critical">
+              <div class="anomaly-card__severity">CRITICAL</div>
+              <div class="anomaly-card__content">
+                <h3 class="anomaly-card__title">Fork Detected at Height 1,284,738</h3>
+                <p class="anomaly-card__desc">Two competing blocks with different hashes observed. Chain reorganization
+                  in progress.</p>
+                <div class="anomaly-card__meta">
+                  <span class="anomaly-card__source">QC-02 Block Storage</span>
+                  <span class="anomaly-card__time">4 min ago</span>
+                </div>
+              </div>
+            </article>
+
+            <!-- Warnings -->
+            <article class="anomaly-card anomaly-card--warning">
+              <div class="anomaly-card__severity">WARNING</div>
+              <div class="anomaly-card__content">
+                <h3 class="anomaly-card__title">High Mempool Congestion</h3>
+                <p class="anomaly-card__desc">Pending transactions exceeded 2,000. Fee market pressure increasing.</p>
+                <div class="anomaly-card__meta">
+                  <span class="anomaly-card__source">QC-06 Mempool</span>
+                  <span class="anomaly-card__time">8 min ago</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="anomaly-card anomaly-card--warning">
+              <div class="anomaly-card__severity">WARNING</div>
+              <div class="anomaly-card__content">
+                <h3 class="anomaly-card__title">Signature Verification Backlog</h3>
+                <p class="anomaly-card__desc">Queue depth at 340 pending verifications. CPU saturation on QC-10.</p>
+                <div class="anomaly-card__meta">
+                  <span class="anomaly-card__source">QC-10 Sig Verify</span>
+                  <span class="anomaly-card__time">12 min ago</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="anomaly-card anomaly-card--warning">
+              <div class="anomaly-card__severity">WARNING</div>
+              <div class="anomaly-card__content">
+                <h3 class="anomaly-card__title">Peer Connection Degraded</h3>
+                <p class="anomaly-card__desc">3 peers dropped due to latency exceeding 500ms threshold.</p>
+                <div class="anomaly-card__meta">
+                  <span class="anomaly-card__source">QC-01 Peer Discovery</span>
+                  <span class="anomaly-card__time">15 min ago</span>
+                </div>
+              </div>
+            </article>
+
+            <!-- Info -->
+            <article class="anomaly-card anomaly-card--info">
+              <div class="anomaly-card__severity">INFO</div>
+              <div class="anomaly-card__content">
+                <h3 class="anomaly-card__title">Smart Contract Gas Spike</h3>
+                <p class="anomaly-card__desc">Contract 0x7f3a... consumed 2.1M gas in single execution.</p>
+                <div class="anomaly-card__meta">
+                  <span class="anomaly-card__source">QC-11 Contracts</span>
+                  <span class="anomaly-card__time">22 min ago</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="anomaly-card anomaly-card--info">
+              <div class="anomaly-card__severity">INFO</div>
+              <div class="anomaly-card__content">
+                <h3 class="anomaly-card__title">Light Client Sync Request Surge</h3>
+                <p class="anomaly-card__desc">48 new light clients requested sync in past 5 minutes.</p>
+                <div class="anomaly-card__meta">
+                  <span class="anomaly-card__source">QC-13 Light Client</span>
+                  <span class="anomaly-card__time">28 min ago</span>
+                </div>
+              </div>
+            </article>
+
+            <!-- Resolved -->
+            <article class="anomaly-card anomaly-card--resolved">
+              <div class="anomaly-card__severity">RESOLVED</div>
+              <div class="anomaly-card__content">
+                <h3 class="anomaly-card__title">Cross-Chain Bridge Latency</h3>
+                <p class="anomaly-card__desc">Bridge confirmation time returned to normal (&lt;10s).</p>
+                <div class="anomaly-card__meta">
+                  <span class="anomaly-card__source">QC-15 Cross-Chain</span>
+                  <span class="anomaly-card__time">1 hour ago</span>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <!-- Settings Page (hidden by default) -->
+        <section id="page-settings" class="page settings hidden" aria-labelledby="settings-title">
+          <header class="settings__header">
+            <h1 id="settings-title" class="settings__title">Settings</h1>
+            <p class="settings__description">Configure your node administration preferences.</p>
+          </header>
+          <div class="settings__section">
+            <header class="settings__section-header">
+              <h2 class="settings__section-title">API Connection</h2>
+            </header>
+            <div class="settings__section-body">
+              <div class="settings__field">
+                <div>
+                  <label for="api-endpoint" class="settings__field-label">Gateway Endpoint</label>
+                  <p class="settings__field-description">URL of the QC-16 API Gateway</p>
+                </div>
+                <input id="api-endpoint" type="url" class="settings__input" value="http://localhost:8080/api/v1">
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- JavaScript Modules -->
+  <script type="module" src="js/main.js"></script>
+</body>
+
+</html>
