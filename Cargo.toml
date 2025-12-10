@@ -17,6 +17,8 @@ members = [
     "crates/qc-compute",
     "crates/shared-bus",
     "crates/shared-types",
+    "crates/shared-crypto",
+    "crates/qc-zkp",
     "crates/quantum-telemetry",
     "crates/integration-tests",
     "crates/benchmarks",
