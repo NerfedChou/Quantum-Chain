@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  node:
+    image: rust:slim-bookworm
+    working_dir: /app
+    volumes:
+      - .:/app
+      - cargo-cache:/usr/local/cargo
+      - target-cache:/app/target
+    command: cargo run --release --bin node-runtime
+    environment:
+      - RUST_LOG=info,qc_17_block_production=debug
+      - QC_P2P_PORT=30303
+      - QC_RPC_PORT=8545
+    ports:
+      - "30303:30303"
+      - "8545:8545"
+
+volumes:
+  cargo-cache:
+  target-cache:

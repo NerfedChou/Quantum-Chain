@@ -38,6 +38,8 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/qc-17-block-production/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/qc-compute/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/qc-11-smart-contracts/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/qc-zkp/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/shared-crypto/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/crates/integration-tests" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/tests" />

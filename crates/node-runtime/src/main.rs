@@ -495,6 +495,7 @@ impl NodeRuntime {
                         height: h,
                         timestamp: stored.block.header.timestamp,
                         difficulty,
+                        hash: primitive_types::H256::from(stored.block_hash()),
                     });
                 }
             }

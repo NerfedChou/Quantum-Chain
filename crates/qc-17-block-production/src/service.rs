@@ -684,15 +684,15 @@ mod tests {
     #[test]
     fn test_initial_difficulty_uses_config() {
         // Verify that the fallback uses DifficultyConfig::default().initial_difficulty
-        // which should be 2^235, not the old hardcoded 2^252
+        // which should be 2^220 for proper block times
         let expected = DifficultyConfig::default().initial_difficulty;
         let old_hardcoded = U256::from(2).pow(U256::from(252));
         
-        // Expected should be 2^235 (harder than 2^252)
-        assert!(expected < old_hardcoded, "Initial difficulty should be 2^235 (lower target = harder) not 2^252");
+        // Expected should be 2^220 (harder than 2^252)
+        assert!(expected < old_hardcoded, "Initial difficulty should be 2^220 (lower target = harder) not 2^252");
         
-        // Verify it's exactly 2^235
-        let expected_value = U256::from(2).pow(U256::from(235));
+        // Verify it's exactly 2^220
+        let expected_value = U256::from(2).pow(U256::from(220));
         assert_eq!(expected, expected_value);
     }
 }
