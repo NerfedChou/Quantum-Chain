@@ -1,205 +1,112 @@
 # ==============================================================================
-# Quantum-Chain Node Dockerfile
+# Quantum-Chain Production Dockerfile
 # ==============================================================================
-# Multi-stage build for the Quantum-Chain blockchain node.
-# Architecture Reference: Documentation/Architecture.md V2.3
+# Builds the monolithic node-runtime binary containing all 17 subsystems.
 #
-# Design Principles:
-#   - Single-binary architecture (all 15 subsystems compiled into one binary)
-#   - Minimal final image (~50MB)
-#   - Non-root user for security (UID 1000)
-#   - Read-only root filesystem support
-#   - No new privileges
-#   - Reproducible builds
+# BUILD TARGETS:
+#   Standard:   docker build -t quantum-chain:latest .
+#   NVIDIA GPU: docker build --build-arg GPU_BACKEND=nvidia -t quantum-chain:gpu .
+#   AMD GPU:    docker build --build-arg GPU_BACKEND=amd -t quantum-chain:gpu .
 #
-# Security Features:
-#   - Multi-stage build (no build tools in final image)
-#   - Non-root user (quantum:1000)
-#   - Minimal base image (debian:bookworm-slim)
-#   - No shell in production (can be removed)
-#   - Explicit file permissions
-#   - Health checks enabled
-#
-# Usage:
-#   # Basic run
-#   docker build -t quantum-chain:latest .
+# RUN:
 #   docker run -p 30303:30303 -p 8545:8545 quantum-chain:latest
-#
-#   # Secure run (recommended for production)
-#   docker run -p 30303:30303 -p 8545:8545 \
-#     --security-opt=no-new-privileges:true \
-#     --cap-drop=ALL \
-#     --read-only \
-#     --tmpfs /tmp:rw,noexec,nosuid,size=64m \
-#     quantum-chain:latest
 # ==============================================================================
 
-# ==============================================================================
-# STAGE 1: Build Stage
-# ==============================================================================
-# Use Rust slim-bookworm image (supports edition2024 via latest stable)
-# Note: rust:slim-bookworm automatically uses the latest stable Rust
-FROM rust:slim-bookworm AS builder
+ARG RUST_VERSION=1.75
 
-# Build arguments for reproducibility
-ARG BUILD_DATE
-ARG VCS_REF
+# ==============================================================================
+# STAGE 1: Builder
+# ==============================================================================
+FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 
-# Build argument for GPU support (default: CPU only)
-ARG ENABLE_GPU=false
+ARG GPU_BACKEND=none
+
+WORKDIR /usr/src/quantum-chain
 
 # Install build dependencies
-# OpenCL (for GPU) only requires runtime libs, not heavy compile-time deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
-    ca-certificates \
-    clang \
-    libclang-dev \
     librocksdb-dev \
-    && if [ "$ENABLE_GPU" = "true" ]; then \
-        apt-get install -y --no-install-recommends \
-            ocl-icd-opencl-dev; \
-    fi \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    clang \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create workspace directory
-WORKDIR /usr/src/quantum-chain
-
-# Copy dependency manifests first for better caching
-COPY Cargo.toml Cargo.lock ./
-
-# Copy ALL crate directories to preserve structure
-# This ensures Cargo.toml files are in correct locations
-COPY crates/ crates/
-
-# Create dummy source files for dependency caching
-RUN echo "fn main() {}" > crates/node-runtime/src/main.rs && \
-    echo "" > crates/shared-types/src/lib.rs && \
-    for dir in crates/qc-*/; do \
-        echo "" > "${dir}src/lib.rs"; \
-    done
-
-# Build dependencies (cached layer)
-RUN cargo fetch
-
-# Copy actual source code
-COPY . .
-
-# Build the release binary with RocksDB and security flags
-# All 17 subsystems are compiled into a single binary
-# GPU features are optional and auto-detected at runtime
-RUN if [ "$ENABLE_GPU" = "true" ]; then \
-        echo "Building with OpenCL GPU support..." && \
-        RUSTFLAGS="-D warnings" cargo build --release --bin node-runtime --features "rocksdb,gpu"; \
-    else \
-        echo "Building CPU-only..." && \
-        RUSTFLAGS="-D warnings" cargo build --release --bin node-runtime --features rocksdb; \
+# Install GPU compute dependencies if requested
+RUN if [ "$GPU_BACKEND" = "nvidia" ]; then \
+    apt-get update && apt-get install -y --no-install-recommends \
+    nvidia-cuda-toolkit \
+    && rm -rf /var/lib/apt/lists/*; \
+    elif [ "$GPU_BACKEND" = "amd" ]; then \
+    apt-get update && apt-get install -y --no-install-recommends \
+    rocm-dev \
+    && rm -rf /var/lib/apt/lists/*; \
     fi
 
-# Strip debug symbols for smaller binary
-RUN strip --strip-all /usr/src/quantum-chain/target/release/node-runtime 2>/dev/null || true
+# Copy manifest files first for layer caching
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+
+# Build release binary with optional GPU features
+RUN if [ "$GPU_BACKEND" = "nvidia" ] || [ "$GPU_BACKEND" = "amd" ]; then \
+    cargo build --release --bin node-runtime --features "gpu-compute"; \
+    else \
+    cargo build --release --bin node-runtime; \
+    fi
 
 # ==============================================================================
-# STAGE 2: Runtime Stage
+# STAGE 2: Runtime
 # ==============================================================================
 FROM debian:bookworm-slim AS runtime
 
-# Build arguments
-ARG BUILD_DATE
-ARG VCS_REF
-ARG ENABLE_GPU=false
+ARG GPU_BACKEND=none
 
-# Install runtime dependencies (minimal)
-# OpenCL runtime for GPU acceleration (if enabled)
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     librocksdb7.8 \
     libsnappy1v5 \
-    && if [ "$ENABLE_GPU" = "true" ]; then \
-        apt-get install -y --no-install-recommends \
-            ocl-icd-libopencl1; \
-    fi \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean \
-    && rm -rf /var/cache/apt/archives/*
+    && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for security
-# Using explicit UID/GID for Kubernetes compatibility
+# Create non-root user
 RUN groupadd -g 1000 quantum \
     && useradd -u 1000 -g quantum -s /sbin/nologin -M quantum
 
-# Create data directories with proper permissions
+# Create data directories
 RUN mkdir -p /var/quantum-chain/data \
-    && mkdir -p /var/quantum-chain/config \
-    && mkdir -p /var/quantum-chain/logs \
+    /var/quantum-chain/config \
+    /var/quantum-chain/logs \
+    /var/quantum-chain/ipc \
     && chown -R quantum:quantum /var/quantum-chain \
     && chmod -R 750 /var/quantum-chain
 
-# Copy the compiled binary from builder
-COPY --from=builder --chown=quantum:quantum \
-    /usr/src/quantum-chain/target/release/node-runtime \
-    /usr/local/bin/quantum-chain
+# Copy binary from builder
+COPY --from=builder /usr/src/quantum-chain/target/release/node-runtime /usr/local/bin/quantum-chain
 
-# Set proper permissions on binary
-RUN chmod 550 /usr/local/bin/quantum-chain
-
-# Switch to non-root user
-USER quantum
-
-# Set working directory
-WORKDIR /var/quantum-chain
-
-# Expose ports
-# P2P port for peer discovery and block propagation (TCP + UDP)
-EXPOSE 30303/tcp
-EXPOSE 30303/udp
-# RPC port for API access (JSON-RPC)
-EXPOSE 8545/tcp
-# WebSocket port for subscriptions
-EXPOSE 8546/tcp
-# Metrics port for Prometheus
-EXPOSE 9090/tcp
-
-# Health check
-# Checks if the node is responsive
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD ["/usr/local/bin/quantum-chain", "health"]
-
-# Environment variables
+# Environment defaults
 ENV QC_DATA_DIR=/var/quantum-chain/data
 ENV QC_CONFIG_DIR=/var/quantum-chain/config
 ENV QC_LOG_DIR=/var/quantum-chain/logs
-ENV QC_LOG_LEVEL=info
-ENV RUST_BACKTRACE=1
+ENV QC_P2P_PORT=30303
+ENV QC_RPC_PORT=8545
+ENV QC_WS_PORT=8546
+ENV RUST_LOG=info
 
-# Security: Ensure no new privileges can be gained
-# This is enforced at runtime with --security-opt=no-new-privileges:true
+# GPU-specific environment
+ENV QC_COMPUTE_BACKEND=auto
 
-# Volume for persistent data
-# These directories can be mounted read-write
-VOLUME ["/var/quantum-chain/data", "/var/quantum-chain/config"]
+# Switch to non-root user
+USER quantum
+WORKDIR /var/quantum-chain
 
-# Labels (OCI spec compliant)
-LABEL org.opencontainers.image.title="Quantum-Chain"
-LABEL org.opencontainers.image.description="Modular Blockchain with Quantum-Inspired Architecture"
-LABEL org.opencontainers.image.vendor="Quantum-Chain Contributors"
-LABEL org.opencontainers.image.source="https://github.com/NerfedChou/Quantum-Chain"
-LABEL org.opencontainers.image.documentation="https://github.com/NerfedChou/Quantum-Chain#readme"
-LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.created="${BUILD_DATE}"
-LABEL org.opencontainers.image.revision="${VCS_REF}"
-# Custom labels
-LABEL quantum-chain.architecture.version="2.3"
-LABEL quantum-chain.subsystem.count="15"
-LABEL quantum-chain.deployment.mode="monolithic"
-LABEL quantum-chain.security.non-root="true"
-LABEL quantum-chain.security.read-only-rootfs="supported"
+# Expose ports
+EXPOSE 30303/tcp 30303/udp 8545/tcp 8546/tcp 9090/tcp
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD ["/usr/local/bin/quantum-chain", "health"] || exit 1
 
 # Entrypoint
 ENTRYPOINT ["/usr/local/bin/quantum-chain"]
-
-# Default command (can be overridden)
 CMD ["--data-dir", "/var/quantum-chain/data", "--config-dir", "/var/quantum-chain/config"]

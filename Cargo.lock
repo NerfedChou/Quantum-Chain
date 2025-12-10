@@ -2057,9 +2057,14 @@ dependencies = [
  "qc-04-state-management",
  "qc-05-block-propagation",
  "qc-06-mempool",
+ "qc-07-bloom-filters",
  "qc-08-consensus",
  "qc-09-finality",
  "qc-10-signature-verification",
+ "qc-12-transaction-ordering",
+ "qc-13-light-client-sync",
+ "qc-14-sharding",
+ "qc-15-cross-chain",
  "qc-16-api-gateway",
  "qc-17-block-production",
  "qc-compute",
@@ -2623,6 +2628,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "shared-crypto",
  "shared-types",
  "tokio",
  "tracing",
@@ -2787,6 +2793,7 @@ dependencies = [
  "async-trait",
  "primitive-types",
  "prometheus",
+ "qc-zkp",
  "serde",
  "serde_json",
  "sha2",
@@ -2803,18 +2810,67 @@ dependencies = [
 [[package]]
 name = "qc-12-transaction-ordering"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "primitive-types",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "shared-types",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "qc-13-light-client-sync"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "lru",
+ "proptest",
+ "serde",
+ "sha2",
+ "shared-types",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "qc-14-sharding"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "rand 0.8.5",
+ "serde",
+ "sha3",
+ "shared-types",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "qc-15-cross-chain"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "rand 0.8.5",
+ "serde",
+ "sha2",
+ "shared-types",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "qc-16-api-gateway"
@@ -2878,6 +2934,7 @@ dependencies = [
  "sha2",
  "sha3",
  "shared-bus",
+ "shared-crypto",
  "shared-types",
  "thiserror 2.0.17",
  "tokio",
@@ -3631,7 +3688,9 @@ dependencies = [
  "criterion",
  "ed25519-dalek",
  "hex",
+ "k256",
  "rand 0.8.5",
+ "sha2",
  "thiserror 1.0.69",
  "zeroize",
 ]

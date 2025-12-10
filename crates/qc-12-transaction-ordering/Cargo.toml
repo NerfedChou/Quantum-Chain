@@ -7,3 +7,25 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# Core
+thiserror = "1.0"
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+
+# Shared types
+shared-types = { path = "../shared-types" }
+
+# Hashing
+sha2 = "0.10"
+primitive-types = { version = "0.12", features = ["serde"] }
+
+# Async
+tokio = { version = "1.0", features = ["sync", "rt"] }
+
+# Tracing
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+proptest = "1.0"
+serde_json = "1.0"

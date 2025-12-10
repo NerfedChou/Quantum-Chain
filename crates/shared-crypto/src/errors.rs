@@ -33,6 +33,14 @@ pub enum CryptoError {
     #[error("Invalid public key")]
     InvalidPublicKey,
 
+    /// Invalid private key
+    #[error("Invalid private key")]
+    InvalidPrivateKey,
+
+    /// Invalid signature
+    #[error("Invalid signature")]
+    InvalidSignature,
+
     /// Key generation failed
     #[error("Key generation failed: {0}")]
     KeyGenerationFailed(String),

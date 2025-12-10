@@ -1,22 +1,271 @@
-version: '3.8'
+# ==============================================================================
+# Quantum-Chain Development Docker Compose
+# ==============================================================================
+# Fast iteration environment with volume mounts for incremental builds.
+# Uses the same production image but optimized for development workflow.
+#
+# USAGE:
+#   Development (volume mount pre-built binary):
+#     1. cargo build --release
+#     2. docker compose -f docker-compose.dev.yml up
+#
+#   Development with Monitoring (Grafana, Prometheus, Loki, Tempo):
+#     docker compose -f docker-compose.dev.yml --profile monitoring up
+#
+#   GPU Development (NVIDIA):
+#     docker compose -f docker-compose.dev.yml --profile gpu-nvidia up
+#
+#   GPU Development (AMD):
+#     docker compose -f docker-compose.dev.yml --profile gpu-amd up
+#
+# PORTS:
+#   - 30303: P2P Discovery
+#   - 8545:  JSON-RPC API
+#   - 8546:  WebSocket API
+#   - 3000:  Grafana (monitoring profile)
+#   - 9090:  Prometheus (monitoring profile)
+# ==============================================================================
 
+name: quantum-chain-dev
+
+# ==============================================================================
+# SHARED CONFIGURATIONS
+# ==============================================================================
+x-common-env: &common-env
+  QC_LOG_LEVEL: debug
+  QC_NETWORK: ${QC_NETWORK:-devnet}
+  RUST_BACKTRACE: full
+  RUST_LOG: "info,qc_17_block_production=debug,qc_02_block_storage=debug,qc_08_consensus=debug,node_runtime=debug"
+
+# ==============================================================================
+# SERVICES
+# ==============================================================================
 services:
-  node:
-    image: rust:slim-bookworm
-    working_dir: /app
-    volumes:
-      - .:/app
-      - cargo-cache:/usr/local/cargo
-      - target-cache:/app/target
-    command: cargo run --release --bin node-runtime
+  # ============================================================================
+  # CORE: Quantum-Chain Node (Development Mode)
+  # ============================================================================
+  quantum-chain:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: qc-dev-node
+    hostname: quantum-chain
     environment:
-      - RUST_LOG=info,qc_17_block_production=debug
-      - QC_P2P_PORT=30303
-      - QC_RPC_PORT=8545
+      <<: *common-env
+      QC_DATA_DIR: /var/quantum-chain/data
+      QC_P2P_PORT: 30303
+      QC_RPC_PORT: 8545
+      QC_WS_PORT: 8546
+    volumes:
+      # Mount pre-built binary from host (fast iteration)
+      - ./target/release/node-runtime:/usr/local/bin/quantum-chain:ro
+      # Mount config for live editing
+      - ./config:/var/quantum-chain/config:ro
+      # Persistent data in local folder (visible in project)
+      - ./data:/var/quantum-chain/data
     ports:
-      - "30303:30303"
-      - "8545:8545"
+      - "${QC_P2P_PORT:-30303}:30303/tcp"
+      - "${QC_P2P_PORT:-30303}:30303/udp"
+      - "${QC_RPC_PORT:-8545}:8545/tcp"
+      - "${QC_WS_PORT:-8546}:8546/tcp"
+    networks:
+      - qc-dev
+    restart: unless-stopped
 
+  # ============================================================================
+  # GPU: NVIDIA Support
+  # ============================================================================
+  quantum-chain-gpu-nvidia:
+    extends:
+      service: quantum-chain
+    container_name: qc-dev-node-nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu, compute, utility ]
+    environment:
+      <<: *common-env
+      QC_COMPUTE_BACKEND: auto
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    profiles:
+      - gpu-nvidia
+
+  # ============================================================================
+  # GPU: AMD Support
+  # ============================================================================
+  quantum-chain-gpu-amd:
+    extends:
+      service: quantum-chain
+    container_name: qc-dev-node-amd
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/kfd:/dev/kfd
+    group_add:
+      - video
+      - render
+    environment:
+      <<: *common-env
+      QC_COMPUTE_BACKEND: auto
+      AMD_VULKAN_ICD: RADV
+      HSA_OVERRIDE_GFX_VERSION: "10.3.0"
+    profiles:
+      - gpu-amd
+
+  # ============================================================================
+  # MONITORING: Event Bus (Redis)
+  # ============================================================================
+  event-bus:
+    image: redis:7-alpine
+    container_name: qc-dev-eventbus
+    command: redis-server --appendonly yes --maxmemory 256mb
+    volumes:
+      - qc-eventbus:/data
+    networks:
+      - qc-dev
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+  # ============================================================================
+  # MONITORING: Prometheus (Metrics)
+  # ============================================================================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: qc-dev-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./docker/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - qc-prometheus:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - qc-dev
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+  # ============================================================================
+  # MONITORING: Loki (Logs)
+  # ============================================================================
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: qc-dev-loki
+    command: -config.file=/etc/loki/config.yml
+    volumes:
+      - ./docker/monitoring/loki/config.yml:/etc/loki/config.yml:ro
+      - qc-loki:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - qc-dev
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --spider -q http://localhost:3100/ready" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+  # ============================================================================
+  # MONITORING: Promtail (Log Shipper)
+  # ============================================================================
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: qc-dev-promtail
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./docker/monitoring/promtail/config.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - qc-dev
+    depends_on:
+      - loki
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+  # ============================================================================
+  # MONITORING: Tempo (Distributed Tracing)
+  # ============================================================================
+  tempo:
+    image: grafana/tempo:2.4.0
+    container_name: qc-dev-tempo
+    command: -config.file=/etc/tempo/config.yml
+    volumes:
+      - ./docker/monitoring/tempo/config.yml:/etc/tempo/config.yml:ro
+      - qc-tempo:/var/tempo
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - qc-dev
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --spider -q http://localhost:3200/ready" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+  # ============================================================================
+  # MONITORING: Grafana (Dashboards)
+  # ============================================================================
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: qc-dev-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-quantum}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - qc-grafana:/var/lib/grafana
+      - ./docker/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - qc-dev
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+# ==============================================================================
+# NETWORKS
+# ==============================================================================
+networks:
+  qc-dev:
+    driver: bridge
+
+# ==============================================================================
+# VOLUMES
+# ==============================================================================
 volumes:
-  cargo-cache:
-  target-cache:
+  qc-eventbus:
+    name: qc-dev-eventbus
+  qc-prometheus:
+    name: qc-dev-prometheus
+  qc-loki:
+    name: qc-dev-loki
+  qc-tempo:
+    name: qc-dev-tempo
+  qc-grafana:
+    name: qc-dev-grafana

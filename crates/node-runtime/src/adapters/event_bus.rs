@@ -46,6 +46,7 @@ impl EventBusAdapter {
             ChoreographyEvent::StateRootComputed { sender_id, .. } => *sender_id,
             ChoreographyEvent::BlockStored { sender_id, .. } => *sender_id,
             ChoreographyEvent::BlockFinalized { sender_id, .. } => *sender_id,
+            ChoreographyEvent::TransactionsOrdered { sender_id, .. } => *sender_id,
             ChoreographyEvent::AssemblyTimeout { sender_id, .. } => *sender_id,
         };
 

@@ -38,6 +38,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # Logging
 tracing = "0.1"
 
+# Zero-Knowledge Proofs (for private transactions)
+qc-zkp = { path = "../qc-zkp" }
+
 # Metrics (optional)
 prometheus = { version = "0.13", optional = true }
 

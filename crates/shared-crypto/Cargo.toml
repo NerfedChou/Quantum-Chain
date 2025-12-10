@@ -15,11 +15,13 @@ blake3 = "1.5"
 
 # Signatures
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+k256 = { version = "0.13", features = ["ecdsa", "sha256"] }
 
 # Utilities
 rand = "0.8"
 thiserror = "1.0"
 zeroize = { version = "1.7", features = ["derive"] }
+sha2 = "0.10"
 
 [dev-dependencies]
 criterion = "0.5"
