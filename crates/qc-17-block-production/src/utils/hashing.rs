@@ -1,9 +1,17 @@
 //! Hashing utilities for block production
 //!
 //! Provides consistent hashing implementations used across the subsystem.
+//!
+//! ## Performance (BLAKE3 vs SHA-256)
+//!
+//! | Algorithm | Speed | Use Case |
+//! |-----------|-------|----------|
+//! | SHA-256 | ~500 MB/s | Ethereum compatibility |
+//! | BLAKE3 | ~3000 MB/s | Internal fast hashing |
 
 use primitive_types::{H256, U256};
 use sha2::{Digest, Sha256};
+use shared_crypto::blake3_hash;
 
 /// Compute SHA-256 hash of data
 #[inline]
@@ -23,6 +31,21 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 pub fn sha256d(data: &[u8]) -> [u8; 32] {
     let first_hash = sha256(data);
     sha256(&first_hash)
+}
+
+/// Compute BLAKE3 hash (5-10x faster than SHA-256)
+///
+/// Use for internal hashing where Ethereum compatibility is not required.
+#[inline]
+pub fn blake3(data: &[u8]) -> [u8; 32] {
+    blake3_hash(data)
+}
+
+/// Compute double BLAKE3 hash (for PoW when BLAKE3 algorithm is selected)
+#[inline]
+pub fn blake3d(data: &[u8]) -> [u8; 32] {
+    let first_hash = blake3(data);
+    blake3(&first_hash)
 }
 
 /// Convert hash bytes to H256
@@ -126,5 +149,31 @@ mod tests {
         let hard_hash = [0xFFu8; 32];
         assert!(meets_difficulty(&hard_hash, U256::MAX));
         assert!(!meets_difficulty(&hard_hash, U256::from(1)));
+    }
+
+    #[test]
+    fn test_blake3_deterministic() {
+        let data = b"hello world";
+        let hash1 = blake3(data);
+        let hash2 = blake3(data);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_blake3d_double_hash() {
+        let data = b"test";
+        let hash1 = blake3(data);
+        let hash2 = blake3(&hash1);
+        let double = blake3d(data);
+        assert_eq!(hash2, double);
+    }
+
+    #[test]
+    fn test_blake3_differs_from_sha256() {
+        let data = b"test";
+        let b3_hash = blake3(data);
+        let sha_hash = sha256(data);
+        // BLAKE3 and SHA-256 should produce different outputs
+        assert_ne!(b3_hash, sha_hash);
     }
 }

@@ -94,6 +94,22 @@ pub enum ChoreographyEvent {
         sender_id: SubsystemId,
     },
 
+    /// Transactions ordered by Transaction Ordering (12).
+    /// Sent to Smart Contracts (11) for parallel execution.
+    TransactionsOrdered {
+        /// Block being ordered for
+        block_hash: [u8; 32],
+        /// Block height
+        block_height: u64,
+        /// Parallel groups of transaction hashes
+        /// Each inner vec can be executed in parallel
+        parallel_groups: Vec<Vec<[u8; 32]>>,
+        /// Maximum parallelism achieved
+        max_parallelism: u32,
+        /// Sender subsystem
+        sender_id: SubsystemId,
+    },
+
     /// Assembly timeout - incomplete block dropped.
     AssemblyTimeout {
         block_hash: [u8; 32],
@@ -150,6 +166,15 @@ impl AuthorizationRules {
                     return Err(AuthorizationError::UnauthorizedSender {
                         event_type: "BlockFinalized",
                         expected: SubsystemId::Finality,
+                        actual: *sender_id,
+                    });
+                }
+            }
+            ChoreographyEvent::TransactionsOrdered { sender_id, .. } => {
+                if *sender_id != SubsystemId::TransactionOrdering {
+                    return Err(AuthorizationError::UnauthorizedSender {
+                        event_type: "TransactionsOrdered",
+                        expected: SubsystemId::TransactionOrdering,
                         actual: *sender_id,
                     });
                 }
@@ -246,6 +271,19 @@ impl EventRouter {
             }
             ChoreographyEvent::BlockFinalized { block_height, .. } => {
                 info!("Block {} finalized!", block_height);
+            }
+            ChoreographyEvent::TransactionsOrdered {
+                block_height,
+                max_parallelism,
+                parallel_groups,
+                ..
+            } => {
+                info!(
+                    "[qc-12] Transactions ordered for block {}: {} groups, max parallelism {}",
+                    block_height,
+                    parallel_groups.len(),
+                    max_parallelism
+                );
             }
             ChoreographyEvent::AssemblyTimeout {
                 block_hash,
@@ -398,5 +436,28 @@ mod tests {
         };
 
         assert!(router.publish(event).is_err());
+    }
+
+    #[test]
+    fn test_authorization_rules_transactions_ordered() {
+        // Valid sender (TransactionOrdering)
+        let event = ChoreographyEvent::TransactionsOrdered {
+            block_hash: [0u8; 32],
+            block_height: 1,
+            parallel_groups: vec![vec![[1u8; 32], [2u8; 32]]],
+            max_parallelism: 2,
+            sender_id: SubsystemId::TransactionOrdering,
+        };
+        assert!(AuthorizationRules::validate_sender(&event).is_ok());
+
+        // Invalid sender (Consensus cannot send TransactionsOrdered)
+        let event = ChoreographyEvent::TransactionsOrdered {
+            block_hash: [0u8; 32],
+            block_height: 1,
+            parallel_groups: vec![vec![[1u8; 32]]],
+            max_parallelism: 1,
+            sender_id: SubsystemId::Consensus,
+        };
+        assert!(AuthorizationRules::validate_sender(&event).is_err());
     }
 }

@@ -1,14 +1,34 @@
-pub const fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! # QC-12: Transaction Ordering Subsystem
+//!
+//! DAG-based transaction ordering using Kahn's topological sort algorithm.
+//! Enables parallel execution of non-conflicting transactions.
+//!
+//! ## Architecture
+//!
+//! - **Domain**: Core entities (AnnotatedTransaction, DependencyGraph, ExecutionSchedule)
+//! - **Algorithms**: Kahn's sort, dependency building, conflict detection
+//! - **Ports**: Inbound (TransactionOrderingApi) and Outbound (AccessPatternAnalyzer, ConflictDetector)
+//! - **Application**: Service orchestration
+//! - **IPC**: Handler for inter-subsystem communication
+//!
+//! ## Reference
+//!
+//! - SPEC-12-TRANSACTION-ORDERING.md
+//! - System.md Subsystem 12
+//! - IPC-MATRIX.md Subsystem 12
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod algorithms;
+pub mod application;
+pub mod config;
+pub mod domain;
+pub mod ipc;
+pub mod ports;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use application::service::TransactionOrderingService;
+pub use config::OrderingConfig;
+pub use domain::entities::*;
+pub use domain::errors::OrderingError;
+pub use domain::value_objects::*;
+pub use ipc::{TransactionOrderingHandler, OrderTransactionsRequest, OrderTransactionsResponse};
+pub use ports::inbound::TransactionOrderingApi;
+pub use ports::outbound::{AccessPatternAnalyzer, ConflictDetector};

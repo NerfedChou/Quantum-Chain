@@ -35,6 +35,9 @@ use crate::adapters::TransactionIndexingAdapter;
 #[cfg(feature = "qc-04")]
 use crate::adapters::StateAdapter;
 
+#[cfg(feature = "qc-12")]
+use crate::adapters::TransactionOrderingAdapter;
+
 /// Handler for Transaction Indexing choreography events.
 #[cfg(feature = "qc-03")]
 pub struct TxIndexingHandler {
@@ -434,6 +437,110 @@ impl FinalityHandler {
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     info!("[qc-09] Channel closed, exiting");
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// Handler for Transaction Ordering choreography events.
+///
+/// ## IPC-MATRIX (Subsystem 12)
+///
+/// - Receives: BlockValidated from Consensus (8)
+/// - Publishes: TransactionsOrdered to Smart Contracts (11)
+/// - Queries: State Management (4) for conflict detection
+#[cfg(feature = "qc-12")]
+pub struct TransactionOrderingHandler {
+    /// Subscriber for events.
+    receiver: broadcast::Receiver<ChoreographyEvent>,
+    /// Adapter wrapping qc-12 domain logic.
+    adapter: Arc<TransactionOrderingAdapter>,
+}
+
+#[cfg(feature = "qc-12")]
+impl TransactionOrderingHandler {
+    /// Create a new handler with adapter.
+    pub fn new(
+        receiver: broadcast::Receiver<ChoreographyEvent>,
+        adapter: Arc<TransactionOrderingAdapter>,
+    ) -> Self {
+        Self { receiver, adapter }
+    }
+
+    /// Run the handler loop.
+    ///
+    /// Listens for BlockValidated events from Consensus and orders
+    /// transactions for parallel execution.
+    pub async fn run(mut self) {
+        info!("[qc-12] Transaction Ordering handler started");
+
+        loop {
+            match self.receiver.recv().await {
+                Ok(ChoreographyEvent::BlockValidated {
+                    block_hash,
+                    block_height,
+                    sender_id,
+                }) => {
+                    if sender_id != SubsystemId::Consensus {
+                        warn!("[qc-12] Ignoring BlockValidated from {:?}", sender_id);
+                        continue;
+                    }
+
+                    info!(
+                        "[qc-12] Received BlockValidated for height {} from Consensus",
+                        block_height
+                    );
+
+                    // In production, we would extract transactions from the validated block
+                    // For now, create a minimal request to demonstrate the flow
+                    let request = qc_12_transaction_ordering::OrderTransactionsRequest {
+                        correlation_id: {
+                            let mut id = [0u8; 16];
+                            id[..8].copy_from_slice(&block_height.to_le_bytes());
+                            id[8..16].copy_from_slice(&block_hash[..8]);
+                            id
+                        },
+                        reply_to: format!("qc-12-ordering-{}", block_height),
+                        transaction_hashes: vec![], // Would be populated from block
+                        senders: vec![],
+                        nonces: vec![],
+                        read_sets: vec![],
+                        write_sets: vec![],
+                    };
+
+                    // Process ordering (adapter publishes TransactionsOrdered on success)
+                    let response = self
+                        .adapter
+                        .process_order_transactions(
+                            SubsystemId::Consensus,
+                            request,
+                            block_hash,
+                            block_height,
+                        )
+                        .await;
+
+                    if response.success {
+                        info!(
+                            "[qc-12] ✓ Block {} ordering complete: {} groups, max parallelism {}",
+                            block_height,
+                            response.metrics.parallel_groups,
+                            response.metrics.max_parallelism
+                        );
+                    } else {
+                        error!(
+                            "[qc-12] ❌ Block {} ordering failed: {:?}",
+                            block_height, response.error
+                        );
+                    }
+                }
+                Ok(_) => {} // Ignore other events
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    warn!("[qc-12] Lagged by {} messages", n);
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    info!("[qc-12] Channel closed, exiting");
                     break;
                 }
             }

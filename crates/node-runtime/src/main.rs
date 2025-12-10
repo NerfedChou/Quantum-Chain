@@ -399,6 +399,28 @@ impl NodeRuntime {
             }
         });
 
+        // Start Transaction Ordering handler (qc-12)
+        #[cfg(feature = "qc-12")]
+        {
+            use crate::handlers::TransactionOrderingHandler;
+            let tx_ordering_adapter = Arc::new(crate::adapters::TransactionOrderingAdapter::new(
+                Arc::clone(&router),
+            ));
+            let tx_ordering_handler = TransactionOrderingHandler::new(
+                router.subscribe(),
+                Arc::clone(&tx_ordering_adapter),
+            );
+            let mut tx_ordering_shutdown = self.shutdown_rx.clone();
+            tokio::spawn(async move {
+                tokio::select! {
+                    _ = tx_ordering_handler.run() => {}
+                    _ = tx_ordering_shutdown.changed() => {
+                        info!("[qc-12] Shutdown signal received");
+                    }
+                }
+            });
+            info!("[qc-12] Transaction Ordering handler started");
+        }
 
 
         // Start Signature Verification handler (qc-10) - CRITICAL for peer discovery and secure IPC
@@ -495,6 +517,7 @@ impl NodeRuntime {
                         height: h,
                         timestamp: stored.block.header.timestamp,
                         difficulty,
+                        hash: primitive_types::H256::from(stored.block_hash()),
                     });
                 }
             }

@@ -78,6 +78,11 @@ pub mod signature;
 #[cfg(feature = "qc-10")]
 pub use signature::*;
 
+#[cfg(feature = "qc-12")]
+pub mod transaction_ordering;
+#[cfg(feature = "qc-12")]
+pub use transaction_ordering::*;
+
 #[cfg(feature = "qc-16")]
 pub mod api_gateway;
 #[cfg(feature = "qc-16")]
@@ -87,6 +92,26 @@ pub use api_gateway::*;
 pub mod ipc_receiver;
 #[cfg(feature = "qc-16")]
 pub use ipc_receiver::EventBusIpcReceiver;
+
+#[cfg(feature = "qc-07")]
+pub mod replay_cache;
+#[cfg(feature = "qc-07")]
+pub use replay_cache::{NonceReplayCache, ReplayCacheStats};
+
+#[cfg(feature = "qc-13")]
+pub mod light_client;
+#[cfg(feature = "qc-13")]
+pub use light_client::LightClientAdapter;
+
+#[cfg(feature = "qc-14")]
+pub mod sharding;
+#[cfg(feature = "qc-14")]
+pub use sharding::ShardingAdapter;
+
+#[cfg(feature = "qc-15")]
+pub mod cross_chain;
+#[cfg(feature = "qc-15")]
+pub use cross_chain::CrossChainAdapter;
 
 // Port adapters (conditional based on what they connect)
 pub mod ports;

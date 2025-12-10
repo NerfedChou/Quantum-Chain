@@ -31,8 +31,8 @@ default = ["full"]
 
 # Full node with all subsystems
 full = [
-    "qc-01", "qc-02", "qc-03", "qc-04", "qc-05", "qc-06",
-    "qc-08", "qc-09", "qc-10", "qc-16", "qc-17"
+    "qc-01", "qc-02", "qc-03", "qc-04", "qc-05", "qc-06", "qc-07",
+    "qc-08", "qc-09", "qc-10", "qc-12", "qc-13", "qc-14", "qc-15", "qc-16", "qc-17"
 ]
 
 # Individual subsystems (plug-and-play)
@@ -42,9 +42,14 @@ qc-03 = ["dep:qc-03-transaction-indexing"]     # Transaction Indexing
 qc-04 = ["dep:qc-04-state-management"]         # State Management
 qc-05 = ["dep:qc-05-block-propagation"]        # Block Propagation
 qc-06 = ["dep:qc-06-mempool"]                  # Mempool
+qc-07 = ["dep:qc-07-bloom-filters"]            # Bloom/Cuckoo Filters
 qc-08 = ["dep:qc-08-consensus"]                # Consensus (REQUIRED)
 qc-09 = ["dep:qc-09-finality"]                 # Finality
 qc-10 = ["dep:qc-10-signature-verification"]   # Signature Verification (REQUIRED)
+qc-12 = ["dep:qc-12-transaction-ordering"]     # Transaction Ordering
+qc-13 = ["dep:qc-13-light-client-sync"]        # Light Client Sync
+qc-14 = ["dep:qc-14-sharding"]                 # Sharding
+qc-15 = ["dep:qc-15-cross-chain"]              # Cross-Chain
 qc-16 = ["dep:qc-16-api-gateway"]              # API Gateway
 qc-17 = ["dep:qc-17-block-production"]         # Block Production
 
@@ -68,9 +73,14 @@ qc-03-transaction-indexing = { path = "../qc-03-transaction-indexing", optional 
 qc-04-state-management = { path = "../qc-04-state-management", optional = true }
 qc-05-block-propagation = { path = "../qc-05-block-propagation", optional = true }
 qc-06-mempool = { path = "../qc-06-mempool", optional = true }
+qc-07-bloom-filters = { path = "../qc-07-bloom-filters", optional = true }
 qc-08-consensus = { path = "../qc-08-consensus", optional = true }
 qc-09-finality = { path = "../qc-09-finality", optional = true }
 qc-10-signature-verification = { path = "../qc-10-signature-verification", optional = true }
+qc-12-transaction-ordering = { path = "../qc-12-transaction-ordering", optional = true }
+qc-13-light-client-sync = { path = "../qc-13-light-client-sync", optional = true }
+qc-14-sharding = { path = "../qc-14-sharding", optional = true }
+qc-15-cross-chain = { path = "../qc-15-cross-chain", optional = true }
 qc-16-api-gateway = { path = "../qc-16-api-gateway", optional = true }
 qc-17-block-production = { path = "../qc-17-block-production", optional = true }
 

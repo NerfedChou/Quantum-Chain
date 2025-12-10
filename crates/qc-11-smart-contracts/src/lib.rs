@@ -93,6 +93,7 @@ pub mod domain;
 pub mod errors;
 pub mod events;
 pub mod evm;
+pub mod optimizer;
 pub mod ports;
 pub mod service;
 

@@ -11,6 +11,7 @@ repository.workspace = true
 bitvec = "1"
 murmur3 = "0.5"
 siphasher = "1"
+rand = "0.8"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -48,4 +49,3 @@ tracing = "0.1"
 proptest = "1"
 criterion = "0.5"
 tokio-test = "0.4"
-rand = "0.8"

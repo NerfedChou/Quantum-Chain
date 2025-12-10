@@ -64,6 +64,9 @@ pub mod service;
 // FEATURE-GATED MODULES
 // =============================================================================
 
+/// Transport layer (QUIC, etc.)
+pub mod transport;
+
 /// IPC module for event bus integration.
 /// Requires feature: `ipc`
 #[cfg(feature = "ipc")]

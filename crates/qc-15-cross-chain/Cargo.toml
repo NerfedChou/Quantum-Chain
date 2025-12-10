@@ -5,5 +5,34 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Cross-Chain Communication (Subsystem 15) - HTLC atomic swaps"
 
 [dependencies]
+# Shared types from the project
+shared-types = { path = "../shared-types" }
+
+# Async runtime
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+
+# Cryptography
+sha2 = "0.10"
+rand = "0.8"
+
+# Error handling
+thiserror = "1"
+
+# UUID for correlation IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Logging
+tracing = "0.1"
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[features]
+default = []

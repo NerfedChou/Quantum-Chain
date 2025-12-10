@@ -1,0 +1,29 @@
+[package]
+name = "qc-10-signature-verification-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.qc_10_signature_verification]
+path = ".."
+
+[[bin]]
+name = "fuzz_ecdsa_verify"
+path = "fuzz_targets/fuzz_ecdsa_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_bls_verify"
+path = "fuzz_targets/fuzz_bls_verify.rs"
+test = false
+doc = false
+bench = false

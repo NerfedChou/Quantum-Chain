@@ -1,0 +1,35 @@
+[package]
+name = "shared-crypto"
+version = "0.1.0"
+edition = "2021"
+description = "Advanced cryptographic primitives for Quantum-Chain"
+license = "MIT"
+
+[dependencies]
+# Symmetric encryption
+chacha20poly1305 = "0.10"
+aes-gcm = "0.10"
+
+# Hashing
+blake3 = "1.5"
+
+# Signatures
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+k256 = { version = "0.13", features = ["ecdsa", "sha256"] }
+
+# Utilities
+rand = "0.8"
+thiserror = "1.0"
+zeroize = { version = "1.7", features = ["derive"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+criterion = "0.5"
+hex = "0.4"
+
+[features]
+default = []
+# Enable AES-NI hardware acceleration
+aes-ni = []
+# Enable AVX2/AVX512 for BLAKE3
+simd = []

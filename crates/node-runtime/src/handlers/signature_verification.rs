@@ -12,19 +12,22 @@ use uuid::Uuid;
 ///
 /// Bridges the `shared-bus` events (EDA) to the internal `IpcHandler` of `qc-10`.
 /// Ensures messages are properly enveloped and signed for internal security boundaries.
+///
+/// ## Security Note
+///
+/// HMAC signing is handled by the `AuthenticatedMessage::sign()` method when needed.
+/// The secret is accessed from `NodeConfig::security::hmac_secret` at signing time.
 pub struct SignatureVerificationHandler<S: SignatureVerificationApi> {
     bus: Arc<InMemoryEventBus>,
     ipc_handler: IpcHandler<S>,
-    hmac_secret: [u8; 32],
 }
 
 impl<S: SignatureVerificationApi + Clone + Send + Sync + 'static> SignatureVerificationHandler<S> {
     /// Create a new signature verification handler.
-    pub fn new(bus: Arc<InMemoryEventBus>, service: S, config: &NodeConfig) -> Self {
+    pub fn new(bus: Arc<InMemoryEventBus>, service: S, _config: &NodeConfig) -> Self {
         Self {
             bus,
             ipc_handler: IpcHandler::new(service),
-            hmac_secret: config.security.hmac_secret,
         }
     }
 
