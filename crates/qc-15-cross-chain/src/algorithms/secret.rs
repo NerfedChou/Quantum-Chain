@@ -32,9 +32,26 @@ pub fn create_hash_lock(secret: &Secret) -> Hash {
 /// Verify that a secret matches a hashlock.
 ///
 /// Reference: System.md Line 739
+///
+/// SECURITY: Uses constant-time comparison to prevent timing attacks.
+/// An attacker could measure response time to determine how many bytes
+/// of the hash match, then brute-force the remaining bytes.
 pub fn verify_secret(secret: &Secret, hash_lock: &Hash) -> bool {
     let computed_hash = create_hash_lock(secret);
-    computed_hash == *hash_lock
+    constant_time_eq(&computed_hash, hash_lock)
+}
+
+/// Constant-time byte array comparison.
+///
+/// SECURITY: This prevents timing attacks by always comparing all bytes
+/// regardless of where the first mismatch occurs.
+#[inline]
+fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
+    let mut result = 0u8;
+    for i in 0..32 {
+        result |= a[i] ^ b[i];
+    }
+    result == 0
 }
 
 /// Verify claim is valid.

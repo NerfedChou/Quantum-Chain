@@ -16,6 +16,7 @@ pub mod entities;
 pub mod envelope;
 pub mod errors;
 pub mod ipc;
+pub mod rate_limiter;
 pub mod security;
 pub mod subsystem_registry;
 pub mod subsystem_trait;

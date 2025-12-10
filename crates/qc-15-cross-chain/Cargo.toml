@@ -21,6 +21,8 @@ serde = { version = "1", features = ["derive"] }
 # Cryptography
 sha2 = "0.10"
 rand = "0.8"
+zeroize = { version = "1.7", features = ["derive"] }
+hex = "0.4"
 
 # Error handling
 thiserror = "1"
