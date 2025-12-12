@@ -21,7 +21,7 @@ use async_trait::async_trait;
 
 /// Signed transaction for execution.
 ///
-/// This mirrors the shared-types SignedTransaction but is defined here
+/// This mirrors the shared-types `SignedTransaction` but is defined here
 /// to avoid tight coupling to shared-types internals.
 #[derive(Clone, Debug)]
 pub struct SignedTransaction {
@@ -152,14 +152,14 @@ pub trait SmartContractApi: Send + Sync {
     /// * `u64` - Estimated gas required
     async fn estimate_gas(&self, context: ExecutionContext, code: &[u8]) -> Result<u64, VmError>;
 
-    /// Execute a read-only call (eth_call).
+    /// Execute a read-only call (`eth_call`).
     ///
     /// Executes the call but does NOT apply state changes.
     /// Always runs in static mode.
     ///
     /// # Arguments
     ///
-    /// * `context` - Execution context (is_static forced to true)
+    /// * `context` - Execution context (`is_static` forced to true)
     /// * `code` - Contract bytecode
     ///
     /// # Returns

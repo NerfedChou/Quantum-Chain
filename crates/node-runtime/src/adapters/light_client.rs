@@ -13,7 +13,7 @@
 #[cfg(feature = "qc-13")]
 use qc_13_light_client_sync::{
     BlockHeader, ChainTip, Hash, LightClientApi, LightClientConfig, LightClientError,
-    LightClientService, MockFullNode, ProvenTransaction, SyncResult,
+    LightClientService, MockFullNode, SyncResult,
 };
 
 #[cfg(feature = "qc-13")]

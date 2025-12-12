@@ -37,6 +37,7 @@ pub trait Precompile: Send + Sync {
 }
 
 /// Check if an address is a precompile and execute it.
+#[must_use] 
 pub fn execute_precompile(
     address: Address,
     input: &[u8],

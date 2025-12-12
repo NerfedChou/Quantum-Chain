@@ -128,7 +128,7 @@ pub fn compute_committees<T: Clone>(
     }
 
     let shuffled = shuffle_with_seed(validators, seed);
-    let validators_per_committee = (shuffled.len() + committee_count - 1) / committee_count;
+    let validators_per_committee = shuffled.len().div_ceil(committee_count);
 
     shuffled
         .chunks(validators_per_committee)

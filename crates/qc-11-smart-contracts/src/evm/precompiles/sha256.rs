@@ -18,7 +18,7 @@ pub struct Sha256Precompile;
 impl Precompile for Sha256Precompile {
     fn execute(&self, input: &[u8], gas_limit: u64) -> Result<PrecompileOutput, PrecompileError> {
         // Calculate gas
-        let word_size = (input.len() + 31) / 32;
+        let word_size = input.len().div_ceil(32);
         let gas_cost = SHA256_BASE_COST + SHA256_WORD_COST * word_size as u64;
 
         if gas_cost > gas_limit {

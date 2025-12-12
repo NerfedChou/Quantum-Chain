@@ -62,7 +62,7 @@ impl Polynomial {
 
     /// Remove leading zeros.
     fn normalize(&mut self) {
-        while self.coeffs.last().map_or(false, |c| c.is_zero()) {
+        while self.coeffs.last().is_some_and(|c| c.is_zero()) {
             self.coeffs.pop();
         }
     }

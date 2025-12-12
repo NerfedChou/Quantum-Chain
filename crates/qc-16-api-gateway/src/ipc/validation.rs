@@ -405,7 +405,7 @@ fn compute_signing_hash(
             stream.append_raw(&access_list, 1);
 
             let mut hasher = Keccak256::new();
-            hasher.update(&[0x01]); // Type prefix
+            hasher.update([0x01]); // Type prefix
             hasher.update(stream.as_raw());
             Ok(hasher.finalize().into())
         }
@@ -431,7 +431,7 @@ fn compute_signing_hash(
             stream.append_raw(&access_list, 1);
 
             let mut hasher = Keccak256::new();
-            hasher.update(&[0x02]); // Type prefix
+            hasher.update([0x02]); // Type prefix
             hasher.update(stream.as_raw());
             Ok(hasher.finalize().into())
         }

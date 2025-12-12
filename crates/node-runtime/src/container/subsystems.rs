@@ -466,13 +466,11 @@ impl SubsystemContainer {
         Arc<RwLock<BootstrapHandler<SharedPeerDiscovery, RuntimeVerificationPublisher>>>,
     ) {
         use qc_01_peer_discovery::{
-            adapters::network::ProofOfWorkValidator, KademliaConfig, NodeId, SystemTimeSource,
-            TimeSource,
+            adapters::network::ProofOfWorkValidator, KademliaConfig, NodeId, SystemTimeSource, TimeSource,
         };
 
         let local_node_id = NodeId::new(rand::random());
         let kademlia_config = KademliaConfig::default();
-        let time_source: Box<dyn TimeSource> = Box::new(SystemTimeSource);
 
         let service = Arc::new(RwLock::new(PeerDiscoveryService::new(
             local_node_id,

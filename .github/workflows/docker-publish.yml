@@ -69,12 +69,12 @@ on:
       push_image:
         description: 'Push image to registry'
         required: false
-        default: 'false'
+        default: false
         type: boolean
       build_subsystems:
         description: 'Build individual subsystem images'
         required: false
-        default: 'false'
+        default: false
         type: boolean
 
 # Explicit permissions - principle of least privilege
@@ -196,12 +196,13 @@ jobs:
 
   # ============================================================================
   # Build Per-Subsystem Images (Development/Testing)
-  # Architecture Reference: System.md - 15 Independent Subsystems
+  # Architecture Reference: System.md - 17 Independent Subsystems
   # ============================================================================
   build-subsystems:
     name: Build Subsystem Images
     runs-on: ubuntu-latest
-    if: github.event.inputs.build_subsystems == 'true' || github.ref == 'refs/heads/develop'
+    # Always build subsystem images for testing
+    if: ${{ github.event.inputs.build_subsystems == 'true' || github.ref == 'refs/heads/develop' }}
     permissions:
       contents: read
       packages: write
@@ -224,6 +225,8 @@ jobs:
           - { id: "13", name: "light-client-sync" }
           - { id: "14", name: "sharding" }
           - { id: "15", name: "cross-chain" }
+          - { id: "16", name: "api-gateway" }
+          - { id: "17", name: "block-production" }
 
     steps:
       - name: Harden Runner
@@ -297,10 +300,10 @@ jobs:
   # Verify Built Images - Security Scanning
   # ============================================================================
   verify:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     name: Verify Images
     runs-on: ubuntu-latest
-    needs: build-monolithic
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    # Always verify built images
     permissions:
       contents: read
       packages: read

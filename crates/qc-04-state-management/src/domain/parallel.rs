@@ -70,7 +70,7 @@ fn compute_single_storage_root(
     // Simplified: hash all changes together
     // Full implementation would update actual storage trie
     let mut hasher = Keccak256::new();
-    hasher.update(&current_root);
+    hasher.update(current_root);
 
     for (key, value) in &update.changes {
         hasher.update(key);

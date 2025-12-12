@@ -126,7 +126,7 @@ pub struct ExecuteHTLCResponsePayload {
 /// ## IPC-MATRIX.md Security
 ///
 /// - Recipient: Subsystem 4 ONLY
-/// - This subsystem (11) is allowed to send StateReadRequest
+/// - This subsystem (11) is allowed to send `StateReadRequest`
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StateReadRequestPayload {
     // NO requester_id - per Envelope-Only Identity v2.2
@@ -147,7 +147,7 @@ pub struct StateReadResponsePayload {
     pub nonce: u64,
     /// Code hash.
     pub code_hash: Hash,
-    /// Storage value (if storage_key was provided).
+    /// Storage value (if `storage_key` was provided).
     pub storage_value: Option<StorageValue>,
 }
 
@@ -252,13 +252,13 @@ pub mod subsystem_ids {
     /// Smart Contracts (this subsystem).
     pub const SMART_CONTRACTS: u8 = 11;
 
-    /// Validates that sender is authorized for ExecuteTransactionRequest.
+    /// Validates that sender is authorized for `ExecuteTransactionRequest`.
     #[must_use]
     pub fn is_authorized_execution_sender(sender_id: u8) -> bool {
         sender_id == CONSENSUS || sender_id == TRANSACTION_ORDERING
     }
 
-    /// Validates that sender is authorized for ExecuteHTLCRequest.
+    /// Validates that sender is authorized for `ExecuteHTLCRequest`.
     #[must_use]
     pub fn is_authorized_htlc_sender(sender_id: u8) -> bool {
         sender_id == CROSS_CHAIN

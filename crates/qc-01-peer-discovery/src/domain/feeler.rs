@@ -175,7 +175,7 @@ impl FeelerState {
 
         // Schedule next probe with jitter
         self.probe_counter += 1;
-        let jitter = (self.probe_counter % (self.config.jitter_max_secs + 1)) as u64;
+        let jitter = self.probe_counter % (self.config.jitter_max_secs + 1);
         self.next_probe_at =
             Timestamp::new(now.as_secs() + self.config.probe_interval_secs + jitter);
 

@@ -119,14 +119,14 @@ pub fn exp_gas_cost(exponent: U256) -> u64 {
     }
 
     // Count bytes in exponent
-    let byte_size = (256 - exponent.leading_zeros() as u64 + 7) / 8;
+    let byte_size = (256 - u64::from(exponent.leading_zeros())).div_ceil(8);
     costs::EXP + costs::EXP_BYTE * byte_size
 }
 
 /// Calculate gas cost for KECCAK256.
 #[must_use]
 pub fn keccak256_gas_cost(data_size: usize) -> u64 {
-    let word_size = (data_size + 31) / 32;
+    let word_size = data_size.div_ceil(32);
     costs::KECCAK256 + costs::KECCAK256_WORD * word_size as u64
 }
 
@@ -139,14 +139,14 @@ pub fn log_gas_cost(data_size: usize, topic_count: usize) -> u64 {
 /// Calculate gas cost for COPY operations (CALLDATACOPY, CODECOPY, etc.).
 #[must_use]
 pub fn copy_gas_cost(size: usize) -> u64 {
-    let word_size = (size + 31) / 32;
+    let word_size = size.div_ceil(32);
     costs::COPY * word_size as u64
 }
 
 /// Calculate gas cost for CREATE/CREATE2.
 #[must_use]
 pub fn create_gas_cost(init_code_size: usize) -> u64 {
-    let word_size = (init_code_size + 31) / 32;
+    let word_size = init_code_size.div_ceil(32);
     costs::CREATE + costs::KECCAK256_WORD * word_size as u64
 }
 

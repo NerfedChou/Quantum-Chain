@@ -39,7 +39,7 @@ pub fn kahns_topological_sort(graph: &DependencyGraph) -> Result<ExecutionSchedu
 
     while !queue.is_empty() {
         // All nodes in current queue have zero in-degree - they can run in parallel
-        let current_group: Vec<Hash> = queue.drain(..).collect();
+        let current_group: Vec<Hash> = std::mem::take(&mut queue);
         let group_size = current_group.len();
 
         // Create parallel group

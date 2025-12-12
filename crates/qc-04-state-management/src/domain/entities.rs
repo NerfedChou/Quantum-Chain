@@ -321,7 +321,7 @@ pub fn hash_path(address: &Address) -> Hash {
 /// LeafHash = Keccak256(0x00 || RLP(data))
 pub fn hash_leaf(data: &[u8]) -> Hash {
     let mut hasher = Keccak256::new();
-    hasher.update(&[LEAF_DOMAIN]);
+    hasher.update([LEAF_DOMAIN]);
     hasher.update(data);
     hasher.finalize().into()
 }
@@ -331,7 +331,7 @@ pub fn hash_leaf(data: &[u8]) -> Hash {
 /// ExtensionHash = Keccak256(0x01 || RLP(data))
 pub fn hash_extension(data: &[u8]) -> Hash {
     let mut hasher = Keccak256::new();
-    hasher.update(&[EXTENSION_DOMAIN]);
+    hasher.update([EXTENSION_DOMAIN]);
     hasher.update(data);
     hasher.finalize().into()
 }
@@ -341,7 +341,7 @@ pub fn hash_extension(data: &[u8]) -> Hash {
 /// BranchHash = Keccak256(0x02 || RLP(data))
 pub fn hash_branch(data: &[u8]) -> Hash {
     let mut hasher = Keccak256::new();
-    hasher.update(&[BRANCH_DOMAIN]);
+    hasher.update([BRANCH_DOMAIN]);
     hasher.update(data);
     hasher.finalize().into()
 }

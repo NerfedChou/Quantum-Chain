@@ -11,7 +11,7 @@
 //!
 //! Reference: SPEC-09-FINALITY.md Phase 3
 
-use crate::domain::{Attestation, BlsSignature, ValidatorId, ValidatorSet};
+use crate::domain::{Attestation, ValidatorSet};
 
 /// Batch size threshold for switching to batch verification.
 pub const BATCH_THRESHOLD: usize = 8;

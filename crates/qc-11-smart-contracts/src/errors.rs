@@ -282,6 +282,6 @@ mod tests {
             allowed: vec![8, 12],
         };
         assert!(err.to_string().contains("unauthorized"));
-        assert!(err.to_string().contains("5"));
+        assert!(err.to_string().contains('5'));
     }
 }

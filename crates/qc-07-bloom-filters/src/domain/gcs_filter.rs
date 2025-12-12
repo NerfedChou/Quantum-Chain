@@ -192,7 +192,7 @@ fn golomb_encode(deltas: &[u64]) -> Vec<u8> {
     }
 
     // Pack bits into bytes
-    let mut bytes = Vec::with_capacity((bits.len() + 7) / 8);
+    let mut bytes = Vec::with_capacity(bits.len().div_ceil(8));
     for chunk in bits.chunks(8) {
         let mut byte = 0u8;
         for (i, &bit) in chunk.iter().enumerate() {

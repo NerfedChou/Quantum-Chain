@@ -242,7 +242,7 @@ impl MerkleTree {
     /// can never collide with internal node hashes.
     pub fn hash_leaf(data: &[u8]) -> Hash {
         let mut hasher = Sha3_256::new();
-        hasher.update(&[LEAF_DOMAIN]);
+        hasher.update([LEAF_DOMAIN]);
         hasher.update(data);
         hasher.finalize().into()
     }
@@ -257,7 +257,7 @@ impl MerkleTree {
     /// parent = H(0x01 || left || right)
     fn hash_pair(left: &Hash, right: &Hash) -> Hash {
         let mut hasher = Sha3_256::new();
-        hasher.update(&[NODE_DOMAIN]);
+        hasher.update([NODE_DOMAIN]);
         hasher.update(left);
         hasher.update(right);
         hasher.finalize().into()
@@ -1154,7 +1154,7 @@ mod tests {
 
     #[test]
     fn test_multi_proof_generation() {
-        use super::MultiProof;
+        
 
         let hashes: Vec<Hash> = (0..8u8).map(hash_from_byte).collect();
         let tree = MerkleTree::build(hashes);

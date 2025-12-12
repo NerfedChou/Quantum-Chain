@@ -356,7 +356,7 @@ impl Log {
 
 /// Virtual Machine configuration.
 ///
-/// Per System.md and SPEC-11: Execution limits to prevent DoS attacks.
+/// Per System.md and SPEC-11: Execution limits to prevent `DoS` attacks.
 #[derive(Clone, Debug)]
 pub struct VmConfig {
     /// Maximum call depth (default: 1024).

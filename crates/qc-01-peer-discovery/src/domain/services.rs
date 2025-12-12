@@ -69,7 +69,7 @@ pub fn bucket_for_peer(local: &NodeId, remote: &NodeId) -> usize {
         let xor = local_bytes[i] ^ remote_bytes[i];
         if xor != 0 {
             // Calculate bucket index directly: (byte_index * 8) + leading_zeros_in_byte
-            return (i * 8 + xor.leading_zeros() as usize) as usize;
+            return i * 8 + xor.leading_zeros() as usize;
         }
     }
 

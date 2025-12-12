@@ -1,8 +1,8 @@
 //! # QC-11 Smart Contracts - Programmable Execution Subsystem
 //!
-//! **Subsystem ID:** 11  
-//! **Specification:** SPEC-11-SMART-CONTRACTS.md v2.3  
-//! **Architecture:** Architecture.md v2.3, IPC-MATRIX.md v2.3  
+//! **Subsystem ID:** 11\
+//! **Specification:** SPEC-11-SMART-CONTRACTS.md v2.3\
+//! **Architecture:** Architecture.md v2.3, IPC-MATRIX.md v2.3\
 //! **Status:** Production-Ready (Phase 3)
 //!
 //! ## Purpose

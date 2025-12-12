@@ -1,7 +1,7 @@
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::spawn;
-use tracing::{error, info};
+use tracing::info;
 
 use qc_01_peer_discovery::{
     adapters::VerificationRequestPublisher,

@@ -5,7 +5,7 @@
 //! Reference: System.md Line 681, SPEC-14 Lines 626-655
 
 use crate::domain::{
-    AbortReason, CrossShardState, CrossShardTransaction, Hash, LockProof, ShardError, ShardId,
+    AbortReason, CrossShardState, Hash, LockProof, ShardError, ShardId,
 };
 use std::time::Instant;
 
@@ -72,7 +72,7 @@ impl TwoPhaseCoordinator {
     /// Check if all locks are acquired.
     pub fn all_locks_acquired(&self) -> bool {
         // Need locks from source + all targets
-        self.lock_proofs.len() >= self.target_shards.len() + 1
+        self.lock_proofs.len() > self.target_shards.len()
     }
 
     /// Try to transition to locked state.

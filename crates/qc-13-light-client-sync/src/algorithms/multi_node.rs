@@ -4,7 +4,7 @@
 //!
 //! Reference: System.md Line 644, SPEC-13 Lines 579-617
 
-use crate::domain::{LightClientError, CONSENSUS_THRESHOLD, MIN_FULL_NODES};
+use crate::domain::{LightClientError, CONSENSUS_THRESHOLD};
 
 /// Check if responses from multiple nodes reach consensus.
 ///
