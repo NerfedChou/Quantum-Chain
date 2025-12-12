@@ -466,7 +466,7 @@ impl SubsystemContainer {
         Arc<RwLock<BootstrapHandler<SharedPeerDiscovery, RuntimeVerificationPublisher>>>,
     ) {
         use qc_01_peer_discovery::{
-            adapters::network::ProofOfWorkValidator, KademliaConfig, NodeId, SystemTimeSource,
+            adapters::network::ProofOfWorkValidator, KademliaConfig, NodeId, SystemTimeSource, TimeSource,
         };
 
         let local_node_id = NodeId::new(rand::random());
