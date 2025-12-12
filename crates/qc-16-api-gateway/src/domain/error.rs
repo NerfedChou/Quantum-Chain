@@ -264,12 +264,6 @@ impl From<serde_json::Error> for ApiError {
     }
 }
 
-impl From<std::io::Error> for ApiError {
-    fn from(e: std::io::Error) -> Self {
-        ApiError::internal(e.to_string())
-    }
-}
-
 impl From<hex::FromHexError> for ApiError {
     fn from(e: hex::FromHexError) -> Self {
         ApiError::invalid_params(format!("invalid hex: {}", e))

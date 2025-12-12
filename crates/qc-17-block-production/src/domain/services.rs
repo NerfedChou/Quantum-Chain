@@ -403,87 +403,12 @@ impl PoWMiner {
             .unwrap_or_else(|| format!("CPU ({} threads)", self.num_threads))
     }
 
-    /// Mine block using GPU/CPU compute engine (async, preferred)
-    ///
-    /// This is the recommended mining method. It uses the qc-compute
-    /// abstraction layer which auto-detects GPU availability.
-    ///
-    /// NOTE: This method is async because it delegates to qc-compute
-    /// which requires async for GPU kernel execution. The domain logic
-    /// itself is pure - only the compute abstraction is async.
-    pub async fn mine_block_async(
-        &self,
-        template: BlockTemplate,
-        difficulty_target: U256,
-    ) -> Option<(u64, [u8; 32])> {
-        if let Some(engine) = &self.compute_engine {
-            // Serialize header template (without nonce)
-            let header_bytes = crate::utils::hashing::serialize_block_header(
-                &template.header.parent_hash,
-                template.header.block_number,
-                template.header.timestamp,
-                &template.header.beneficiary,
-                template.header.gas_used,
-                None, // Nonce will be appended by pow_mine
-            );
-
-            // Use compute engine for mining
-            // Search in batches of 10M nonces
-            const BATCH_SIZE: u64 = 10_000_000;
-            let mut nonce_start = 0u64;
-
-            tracing::info!(
-                "Starting GPU/CPU mining with {}: difficulty={:?}",
-                engine.device_info().name,
-                difficulty_target
-            );
-
-            loop {
-                match engine
-                    .pow_mine(&header_bytes, difficulty_target, nonce_start, BATCH_SIZE)
-                    .await
-                {
-                    Ok(Some((nonce, hash))) => {
-                        tracing::info!(
-                            "Mining successful: nonce={}, hash={}",
-                            nonce,
-                            hex::encode(&hash[..8])
-                        );
-                        return Some((nonce, hash));
-                    }
-                    Ok(None) => {
-                        // Continue to next batch
-                        nonce_start += BATCH_SIZE;
-                        if nonce_start > u64::MAX - BATCH_SIZE {
-                            tracing::warn!("Exhausted nonce space without finding solution");
-                            return None;
-                        }
-                        tracing::debug!("Batch complete, continuing from nonce {}", nonce_start);
-                    }
-                    Err(e) => {
-                        tracing::error!("Compute engine error: {}, falling back to CPU", e);
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Fallback: Use legacy CPU mining
-        tracing::warn!("Falling back to legacy CPU mining");
-        let template_for_hash = template.clone();
-        self.mine_block(template, difficulty_target).map(|nonce| {
-            // We need to compute the hash for the found nonce
-            let header_bytes = crate::utils::hashing::serialize_block_header(
-                &template_for_hash.header.parent_hash,
-                template_for_hash.header.block_number,
-                template_for_hash.header.timestamp,
-                &template_for_hash.header.beneficiary,
-                template_for_hash.header.gas_used,
-                Some(nonce),
-            );
-            let hash = crate::utils::hashing::sha256d(&header_bytes);
-            (nonce, hash)
-        })
+    /// Get the compute engine for service layer to use in async mining
+    /// 
+    /// Note: Async mining logic lives in service layer to maintain domain purity.
+    /// This getter allows the service layer to access the compute engine.
+    pub fn get_compute_engine(&self) -> Option<std::sync::Arc<dyn qc_compute::ComputeEngine>> {
+        self.compute_engine.clone()
     }
 
     /// Search for valid nonce in parallel
