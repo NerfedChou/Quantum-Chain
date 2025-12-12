@@ -65,16 +65,55 @@ jobs:
           echo "continue=true" >> $GITHUB_OUTPUT
           echo "✅ Phase 1 initiated"
 
-  # Trigger individual Phase 1 workflows
+  # Phase 1 workflows run in parallel
   architect:
     name: "01 • Architecture"
+    runs-on: ubuntu-latest
     needs: phase1-fast-feedback
-    uses: ./.github/workflows/01-architect/validate-architecture.yml
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Validate Architecture Patterns
+        run: |
+          echo "=========================================="
+          echo "Master Architect: Validating DDD, EDA, Hexagonal"
+          echo "=========================================="
+          
+          # Run architecture validation from the dedicated workflow
+          cd .github/workflows/01-architect
+          bash -c "$(grep -A 100 'Validate Subsystem Isolation' validate-architecture.yml | sed -n '/run: |/,/^$/p' | tail -n +2)"
+          
+          echo "✅ Architecture validation complete"
 
   code-quality:
     name: "02 • Quality"
+    runs-on: ubuntu-latest
     needs: phase1-fast-feedback
-    uses: ./.github/workflows/02-quality/code-quality.yml
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      
+      - name: Run Clippy (Strict)
+        run: |
+          RUSTFLAGS="-D warnings -D unsafe_code -D clippy::all" \
+            cargo clippy --all-targets --all-features -- \
+            -D warnings \
+            -D clippy::all \
+            -W clippy::pedantic \
+            -W clippy::nursery \
+            -A clippy::multiple_crate_versions \
+            -A clippy::module_name_repetitions
+      
+      - name: Code Quality Report
+        if: always()
+        run: echo "✅ Code quality checks complete"
 
   # ==========================================================================
   # PHASE 2: Build & Unit Tests (< 15 minutes)
@@ -100,8 +139,37 @@ jobs:
 
   security-tests:
     name: "03 • Testing"
+    runs-on: ubuntu-latest
     needs: phase2-build-test
-    uses: ./.github/workflows/03-security/unit-integration-tests.yml
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-test-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run Unit Tests
+        run: cargo test --all --lib -- --test-threads=4
+      
+      - name: Run Doc Tests
+        run: cargo test --doc --all
+      
+      - name: Test Report
+        if: always()
+        run: echo "✅ All tests complete"
 
   # ==========================================================================
   # PHASE 3: Security Scanning (< 10 minutes)
@@ -126,8 +194,31 @@ jobs:
 
   vulnerability-scan:
     name: "05 • Zero-Day"
+    runs-on: ubuntu-latest
     needs: phase3-security
-    uses: ./.github/workflows/05-zero-day/vulnerability-scanning.yml
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      
+      - name: Run Security Audit
+        run: |
+          echo "=========================================="
+          echo "Security Audit: Known Vulnerabilities"
+          echo "=========================================="
+          cargo audit
+          echo "✅ No critical/high vulnerabilities"
+      
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.17.0 --locked
+      
+      - name: Check Dependencies
+        run: cargo deny check advisories licenses bans sources
+      
+      - name: Security Report
+        if: always()
+        run: echo "✅ Security scan complete"
 
   # ==========================================================================
   # PHASE 4: Optional/Expensive (Only on schedule or manual)

@@ -355,7 +355,7 @@ impl<S: StateAccess, A: AccessList> SmartContractService<S, A> {
 }
 
 /// Create a default service with in-memory adapters (for testing).
-#[must_use] 
+#[must_use]
 pub fn create_test_service() -> SmartContractService<InMemoryState, InMemoryAccessList> {
     SmartContractService::new(
         InMemoryState::new(),

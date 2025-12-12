@@ -17,7 +17,7 @@ pub struct Instruction {
 
 impl Instruction {
     /// Create new instruction.
-    #[must_use] 
+    #[must_use]
     pub fn new(opcode: u8, gas_cost: u64) -> Self {
         Self {
             opcode,
@@ -27,7 +27,7 @@ impl Instruction {
     }
 
     /// Create PUSH instruction.
-    #[must_use] 
+    #[must_use]
     pub fn push(data: Vec<u8>) -> Self {
         let opcode = 0x60 + (data.len() - 1).min(31) as u8;
         Self {
@@ -53,7 +53,7 @@ pub struct OptimizedSequence {
 
 impl OptimizedSequence {
     /// Calculate gas savings percentage.
-    #[must_use] 
+    #[must_use]
     pub fn savings_percent(&self) -> f64 {
         let original_gas: u64 = self.original.iter().map(|i| i.gas_cost).sum();
         if original_gas == 0 {
@@ -64,7 +64,7 @@ impl OptimizedSequence {
 }
 
 /// Optimize a sequence of instructions.
-#[must_use] 
+#[must_use]
 pub fn optimize_sequence(instructions: Vec<Instruction>, rules: &RuleSet) -> OptimizedSequence {
     let original = instructions.clone();
     let original_gas: u64 = original.iter().map(|i| i.gas_cost).sum();

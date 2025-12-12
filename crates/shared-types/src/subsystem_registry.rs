@@ -164,10 +164,10 @@ impl SubsystemRegistry {
             let Some(entry) = self.subsystems.get(id) else {
                 continue;
             };
-            
+
             // Check dependencies before starting
             self.check_dependencies(id, &entry.read().info.dependencies)?;
-            
+
             // Start the subsystem
             let mut entry = entry.write();
             info!("[Registry] Starting {:?} ({})", id, entry.info.name);
@@ -183,7 +183,7 @@ impl SubsystemRegistry {
                 warn!("[Registry] ✗ Optional {:?} failed: {}", id, e);
                 continue;
             }
-            
+
             entry.status = SubsystemStatus::Healthy;
             info!("[Registry] ✓ {:?} started successfully", id);
         }
@@ -285,7 +285,10 @@ impl SubsystemRegistry {
                     message: format!("Required dependency {:?} is {:?}", dep_id, dep_status),
                 });
             }
-            warn!("[Registry] Optional dependency {:?} not healthy, continuing", dep_id);
+            warn!(
+                "[Registry] Optional dependency {:?} not healthy, continuing",
+                dep_id
+            );
         }
         Ok(())
     }

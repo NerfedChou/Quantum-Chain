@@ -117,7 +117,8 @@ impl DebugRpc {
         (self
             .ipc
             .request("admin", payload, Some(Duration::from_millis(500)))
-            .await).ok()
+            .await)
+            .ok()
     }
 
     /// debug_ipcMetrics - Returns IPC metrics for subsystem communication

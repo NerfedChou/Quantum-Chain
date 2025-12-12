@@ -1154,8 +1154,6 @@ mod tests {
 
     #[test]
     fn test_multi_proof_generation() {
-        
-
         let hashes: Vec<Hash> = (0..8u8).map(hash_from_byte).collect();
         let tree = MerkleTree::build(hashes);
 

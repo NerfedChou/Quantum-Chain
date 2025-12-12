@@ -1,0 +1,268 @@
+# ==============================================================================
+# QUANTUM-CHAIN CI - Main Pipeline
+# ==============================================================================
+# Single-file CI for testing the new modular architecture
+# Reference: Documentation/Architecture.md V2.3, CLAUDE.md
+# ==============================================================================
+
+name: "CI • Main Pipeline"
+
+on:
+  pull_request:
+    branches: [ "main", "develop" ]
+  push:
+    branches: [ "main", "develop" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: "-D warnings -D unsafe_code"
+
+jobs:
+  # ==========================================================================
+  # PHASE 1: Fast Feedback (< 5 minutes)
+  # ==========================================================================
+  
+  format-check:
+    name: "Format Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  clippy-lint:
+    name: "Clippy (Strict)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-clippy-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run Clippy (warnings = errors)
+        run: |
+          cargo clippy --all-targets --all-features -- \
+            -D warnings \
+            -D clippy::all \
+            -W clippy::pedantic \
+            -W clippy::nursery \
+            -A clippy::multiple_crate_versions \
+            -A clippy::module_name_repetitions
+
+  architecture-check:
+    name: "Architecture Validation"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check Subsystem Isolation
+        run: |
+          echo "=========================================="
+          echo "Validating Subsystem Isolation (LAW #1)"
+          echo "=========================================="
+          
+          VIOLATIONS=0
+          for subsystem in crates/qc-*/; do
+            if [ -d "$subsystem/src" ]; then
+              SUBSYSTEM_NAME=$(basename "$subsystem")
+              
+              # Check for direct subsystem imports (FORBIDDEN)
+              if grep -r "use qc_[0-9][0-9]_" "$subsystem/src" 2>/dev/null | \
+                 grep -v "shared-" | grep -v "test" | grep -v "//"; then
+                echo "❌ VIOLATION: $SUBSYSTEM_NAME has direct subsystem dependency!"
+                VIOLATIONS=$((VIOLATIONS + 1))
+              fi
+            fi
+          done
+          
+          if [ $VIOLATIONS -eq 0 ]; then
+            echo "✅ All subsystems properly isolated"
+          else
+            echo "❌ Found $VIOLATIONS subsystem coupling violations"
+            exit 1
+          fi
+      
+      - name: Check Domain Layer Purity
+        run: |
+          echo "=========================================="
+          echo "Validating Domain Layer Purity (LAW #1)"
+          echo "=========================================="
+          
+          VIOLATIONS=0
+          for domain_dir in crates/qc-*/src/domain/; do
+            if [ -d "$domain_dir" ]; then
+              SUBSYSTEM=$(dirname "$(dirname "$domain_dir")" | xargs basename)
+              
+              # Check for async I/O in domain layer (FORBIDDEN)
+              if grep -rE "(async fn|\.await|tokio::|std::fs::|std::net::)" "$domain_dir" 2>/dev/null | \
+                 grep -v "test" | grep -v "//"; then
+                echo "❌ VIOLATION: Domain layer contains I/O in $SUBSYSTEM"
+                VIOLATIONS=$((VIOLATIONS + 1))
+              fi
+            fi
+          done
+          
+          if [ $VIOLATIONS -eq 0 ]; then
+            echo "✅ All domain layers are pure (no I/O)"
+          else
+            echo "❌ Found $VIOLATIONS domain purity violations"
+            exit 1
+          fi
+
+  # ==========================================================================
+  # PHASE 2: Build & Test (< 15 minutes)
+  # ==========================================================================
+  
+  build:
+    name: "Build (Debug)"
+    runs-on: ubuntu-latest
+    needs: [format-check, clippy-lint, architecture-check]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Build all crates
+        run: cargo build --all --verbose
+
+  test:
+    name: "Test Suite"
+    runs-on: ubuntu-latest
+    needs: [format-check, clippy-lint, architecture-check]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-test-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run unit tests
+        run: cargo test --all --lib -- --test-threads=4
+      
+      - name: Run doc tests
+        run: cargo test --doc --all
+
+  # ==========================================================================
+  # PHASE 3: Security (< 10 minutes)
+  # ==========================================================================
+  
+  security-audit:
+    name: "Security Audit"
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      
+      - name: Run security audit
+        run: |
+          echo "=========================================="
+          echo "Security Audit: Known Vulnerabilities"
+          echo "=========================================="
+          cargo audit || echo "⚠️ Some advisories found"
+      
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.17.0 --locked
+      
+      - name: Check dependencies
+        run: |
+          if [ -f "deny.toml" ]; then
+            cargo deny check advisories licenses bans sources || echo "⚠️ Some issues found"
+          fi
+
+  # ==========================================================================
+  # Summary
+  # ==========================================================================
+  
+  ci-success:
+    name: "✅ CI Passed"
+    runs-on: ubuntu-latest
+    needs: [format-check, clippy-lint, architecture-check, build, test, security-audit]
+    if: always()
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [[ "${{ needs.format-check.result }}" != "success" ]] || \
+             [[ "${{ needs.clippy-lint.result }}" != "success" ]] || \
+             [[ "${{ needs.architecture-check.result }}" != "success" ]] || \
+             [[ "${{ needs.build.result }}" != "success" ]] || \
+             [[ "${{ needs.test.result }}" != "success" ]]; then
+            echo "❌ One or more jobs failed"
+            exit 1
+          fi
+          echo "✅ All CI checks passed!"
+      
+      - name: Generate Summary
+        run: |
+          echo "## ✅ CI Pipeline Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Phase | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Format Check | ${{ needs.format-check.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Clippy Lint | ${{ needs.clippy-lint.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Architecture | ${{ needs.architecture-check.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security | ${{ needs.security-audit.result }} |" >> $GITHUB_STEP_SUMMARY

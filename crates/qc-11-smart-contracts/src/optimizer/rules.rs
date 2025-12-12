@@ -25,13 +25,13 @@ pub struct RuleSet {
 
 impl RuleSet {
     /// Create empty rule set.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Create with default gas optimization rules.
-    #[must_use] 
+    #[must_use]
     pub fn with_defaults() -> Self {
         let mut set = Self::new();
 
@@ -84,25 +84,25 @@ impl RuleSet {
     }
 
     /// Get all rules.
-    #[must_use] 
+    #[must_use]
     pub fn rules(&self) -> &[OptimizationRule] {
         &self.rules
     }
 
     /// Count rules.
-    #[must_use] 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.rules.len()
     }
 
     /// Check if empty.
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
     }
 
     /// Estimate total gas savings.
-    #[must_use] 
+    #[must_use]
     pub fn estimate_max_savings(&self) -> u64 {
         self.rules
             .iter()

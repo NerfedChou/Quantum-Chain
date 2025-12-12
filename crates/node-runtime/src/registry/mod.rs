@@ -473,10 +473,12 @@ impl SubsystemRegistry {
         let status = self.status.read();
 
         for id in SubsystemId::all() {
-            if id.is_core() && self.config.is_enabled(id)
-                && status.get(&id) != Some(&SubsystemStatus::Running) {
-                    return false;
-                }
+            if id.is_core()
+                && self.config.is_enabled(id)
+                && status.get(&id) != Some(&SubsystemStatus::Running)
+            {
+                return false;
+            }
         }
 
         true

@@ -15,11 +15,21 @@ pub enum CryptoError {
 
     /// Invalid key length
     #[error("Invalid key length: expected {expected}, got {actual}")]
-    InvalidKeyLength { expected: usize, actual: usize },
+    InvalidKeyLength {
+        /// Expected key length in bytes
+        expected: usize,
+        /// Actual key length in bytes
+        actual: usize,
+    },
 
     /// Invalid nonce length
     #[error("Invalid nonce length: expected {expected}, got {actual}")]
-    InvalidNonceLength { expected: usize, actual: usize },
+    InvalidNonceLength {
+        /// Expected nonce length in bytes
+        expected: usize,
+        /// Actual nonce length in bytes
+        actual: usize,
+    },
 
     /// Signature verification failed
     #[error("Signature verification failed")]

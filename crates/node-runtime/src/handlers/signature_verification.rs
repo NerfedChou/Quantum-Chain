@@ -44,9 +44,10 @@ impl<S: SignatureVerificationApi + Clone + Send + Sync + 'static> SignatureVerif
         // We specifically listen for VerifyNodeIdentity events
         while let Some(event) = rx.recv().await {
             if let BlockchainEvent::VerifyNodeIdentity {
-                    correlation_id,
-                    payload,
-                } = event {
+                correlation_id,
+                payload,
+            } = event
+            {
                 self.handle_verification(correlation_id, payload).await;
             }
         }

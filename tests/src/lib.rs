@@ -10,5 +10,5 @@
 #![allow(dead_code)]
 
 pub mod benchmarks;
-pub mod integration;
 pub mod exploits;
+pub mod integration;

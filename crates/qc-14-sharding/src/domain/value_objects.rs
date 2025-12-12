@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 /// Cross-shard transaction state machine.
 /// Reference: SPEC-14 Lines 95-101
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CrossShardState {
     /// Initial state - transaction pending.
     #[default]
@@ -40,7 +39,6 @@ impl CrossShardState {
         matches!(self, Self::Committed | Self::Aborted)
     }
 }
-
 
 /// Reason for transaction abort.
 /// Reference: SPEC-14 Lines 374-379
