@@ -180,9 +180,7 @@ fn golomb_encode(deltas: &[u64]) -> Vec<u8> {
         let r = delta & (GOLOMB_M - 1); // Remainder
 
         // Unary encode quotient: q ones followed by a zero
-        for _ in 0..q {
-            bits.push(true);
-        }
+        bits.extend(std::iter::repeat_n(true, q as usize));
         bits.push(false);
 
         // Binary encode remainder (P bits)

@@ -85,32 +85,19 @@ impl BatchVerifier {
         verifier: &dyn Fn(&Attestation, &[u8; 32], &ValidatorSet) -> bool,
     ) -> BatchVerificationResult {
         let total = self.pending.len();
-        let mut invalid_indices = Vec::new();
-
-        if total < self.batch_threshold {
+        let invalid_indices = if total < self.batch_threshold {
             // Fall back to individual verification for small batches
-            for (i, pending) in self.pending.iter().enumerate() {
-                if !verifier(&pending.attestation, &pending.message_hash, validator_set) {
-                    invalid_indices.push(i);
-                }
-            }
+            self.find_invalid_attestations(validator_set, verifier)
         } else {
             // Batch verification using randomized linear combination
-            // In production, this would use actual BLS math
-            // For now, verify each but with the batch optimization pattern
-
             // First, try aggregate verification (fast path)
-            let aggregate_valid = self.try_aggregate_verify(validator_set);
-
-            if !aggregate_valid {
+            if self.try_aggregate_verify(validator_set) {
+                Vec::new()
+            } else {
                 // If aggregate fails, find individual failures
-                for (i, pending) in self.pending.iter().enumerate() {
-                    if !verifier(&pending.attestation, &pending.message_hash, validator_set) {
-                        invalid_indices.push(i);
-                    }
-                }
+                self.find_invalid_attestations(validator_set, verifier)
             }
-        }
+        };
 
         let valid = total - invalid_indices.len();
         self.pending.clear();
@@ -120,6 +107,22 @@ impl BatchVerifier {
             valid,
             invalid_indices,
         }
+    }
+
+    /// Find indices of invalid attestations.
+    fn find_invalid_attestations(
+        &self,
+        validator_set: &ValidatorSet,
+        verifier: &dyn Fn(&Attestation, &[u8; 32], &ValidatorSet) -> bool,
+    ) -> Vec<usize> {
+        self.pending
+            .iter()
+            .enumerate()
+            .filter(|(_, pending)| {
+                !verifier(&pending.attestation, &pending.message_hash, validator_set)
+            })
+            .map(|(i, _)| i)
+            .collect()
     }
 
     /// Try aggregate verification (fast path).

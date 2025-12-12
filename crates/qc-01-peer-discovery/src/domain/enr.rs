@@ -103,9 +103,8 @@ impl NodeRecord {
         id[2] = (hash >> 8) as u8;
         id[3] = hash as u8;
         // Fill rest with pubkey bytes
-        for i in 0..28.min(self.pubkey.0.len()) {
-            id[4 + i] = self.pubkey.0[i];
-        }
+        let copy_len = 28.min(self.pubkey.0.len());
+        id[4..4 + copy_len].copy_from_slice(&self.pubkey.0[..copy_len]);
         NodeId::new(id)
     }
 

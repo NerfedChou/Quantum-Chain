@@ -19,7 +19,7 @@ use sha3::{Digest, Keccak256};
 
 /// Computes the contract address for CREATE opcode.
 ///
-/// Address = keccak256(rlp([sender, nonce]))[12:]
+/// Address = keccak256(rlp(\[sender, nonce\]))\[12:\]
 ///
 /// Per Ethereum Yellow Paper, section 7.
 #[must_use]
@@ -65,7 +65,7 @@ pub fn compute_contract_address(sender: Address, nonce: u64) -> Address {
 
 /// Computes the contract address for CREATE2 opcode.
 ///
-/// Address = keccak256(0xff ++ sender ++ salt ++ `keccak256(init_code)`)[12:]
+/// Address = keccak256(0xff ++ sender ++ salt ++ `keccak256(init_code)`)\[12:\]
 ///
 /// Per EIP-1014.
 #[must_use]
@@ -146,7 +146,7 @@ pub fn empty_code_hash() -> Hash {
 
 /// Derives address from public key (compressed or uncompressed).
 ///
-/// Address = `keccak256(public_key)`[12:]
+/// Address = `keccak256(public_key)`\[12:\]
 ///
 /// Note: For ECDSA, the public key should be the uncompressed form (64 bytes)
 /// without the 0x04 prefix.
