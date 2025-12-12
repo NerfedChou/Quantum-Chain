@@ -10,7 +10,7 @@
 //! - API quota abuse with external services
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Token bucket rate limiter.
 ///
