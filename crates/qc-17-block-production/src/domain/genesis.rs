@@ -287,4 +287,26 @@ mod tests {
         let root = calculate_merkle_root(&[tx]);
         assert_eq!(root, [3u8; 32]);
     }
+
+    #[test]
+    fn test_genesis_difficulty_matches_config() {
+        // This test verifies the fix for the "blocks too hard to mine" issue.
+        // Genesis difficulty must match DifficultyConfig::default().initial_difficulty
+        // to prevent runaway difficulty adjustment.
+        let config = GenesisConfig::default_dev();
+        let genesis = create_genesis_block(&config).expect("Should create genesis block");
+        let expected_difficulty = DifficultyConfig::default().initial_difficulty;
+
+        assert_eq!(
+            genesis.header.difficulty, expected_difficulty,
+            "Genesis difficulty must match DifficultyConfig::default().initial_difficulty to prevent difficulty adjustment issues"
+        );
+
+        // Also verify it's NOT the old incorrect value of 2^252
+        let old_incorrect_value = U256::from(2).pow(U256::from(252));
+        assert_ne!(
+            genesis.header.difficulty, old_incorrect_value,
+            "Genesis should not use the old incorrect difficulty of 2^252"
+        );
+    }
 }
