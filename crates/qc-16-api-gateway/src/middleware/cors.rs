@@ -76,7 +76,7 @@ mod tests {
     #[test]
     fn test_default_cors_config() {
         let config = CorsConfig::default();
-        let layer = create_cors_layer(&config);
+        let _layer = create_cors_layer(&config);
         // Just verify it creates without panic
         assert!(config.enabled);
     }
@@ -86,7 +86,7 @@ mod tests {
     fn test_disabled_cors() {
         let mut config = CorsConfig::default();
         config.enabled = false;
-        let layer = create_cors_layer(&config);
+        let _layer = create_cors_layer(&config);
         // Should create permissive layer
     }
 
@@ -104,7 +104,7 @@ mod tests {
             max_age: 3600,
             allow_credentials: false,
         };
-        let layer = create_cors_layer(&config);
+        let _layer = create_cors_layer(&config);
         // Verify creation
     }
 }

@@ -331,6 +331,7 @@ mod tests {
         shared_types::security::sign_message(message, &shared_secret)
     }
 
+    #[allow(dead_code)]
     fn create_handler() -> IpcHandler<MockTimeSource> {
         let pool = TransactionPool::new(MempoolConfig::for_testing());
         let time_source = MockTimeSource::new(1000);

@@ -255,7 +255,7 @@ mod tests {
             family.register(hash_from_nonce(i), SENDER_A, i);
         }
 
-        let get_fee = |hash: &Hash| -> Option<(U256, usize)> { Some((U256::from(1000), 100)) };
+        let get_fee = |_hash: &Hash| -> Option<(U256, usize)> { Some((U256::from(1000), 100)) };
 
         let ancestors = family.get_ancestors(&hash_from_nonce(2), get_fee);
         assert_eq!(ancestors.ancestor_count, 2);

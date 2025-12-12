@@ -195,7 +195,7 @@ pub enum TrieNode {
     },
 
     /// Branch node: 16-way branch for each nibble value.
-    /// RLP: [child[0], ..., child[15], value]
+    /// RLP: \[child\[0\], ..., child\[15\], value\]
     Branch {
         /// 16 child node hashes (None = empty).
         children: Box<[Option<Hash>; 16]>,
