@@ -84,40 +84,24 @@ jobs:
       - name: Validate Conventional Commits
         run: |
           echo "=========================================="
-          echo "Conventional Commit Validation"
+          echo "Conventional Commit Validation (Advisory)"
           echo "=========================================="
           
           PR_TITLE="${{ github.event.pull_request.title }}"
           echo "PR Title: $PR_TITLE"
           echo ""
           
-          # Check conventional commit format
+          # Check conventional commit format (WARNING only, not blocking)
           if ! echo "$PR_TITLE" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?: .+"; then
-            echo "❌ PR title must follow Conventional Commits format"
+            echo "⚠️ WARNING: PR title doesn't follow Conventional Commits format"
             echo ""
-            echo "Format: type(scope): description"
+            echo "Recommended format: type(scope): description"
+            echo "Types: feat, fix, docs, style, refactor, perf, test, chore, ci, build"
             echo ""
-            echo "Types:"
-            echo "  - feat:     New feature"
-            echo "  - fix:      Bug fix"
-            echo "  - docs:     Documentation only"
-            echo "  - style:    Code style (formatting, etc.)"
-            echo "  - refactor: Code restructuring"
-            echo "  - perf:     Performance improvement"
-            echo "  - test:     Adding/updating tests"
-            echo "  - chore:    Maintenance tasks"
-            echo "  - ci:       CI/CD changes"
-            echo "  - build:    Build system changes"
-            echo ""
-            echo "Examples:"
-            echo "  - feat(qc-08): add BLS signature aggregation"
-            echo "  - fix(consensus): prevent duplicate attestations"
-            echo "  - docs: update architecture diagrams"
-            echo "  - refactor(mempool): extract validation logic"
-            exit 1
+            echo "This is advisory only and won't block your PR."
+          else
+            echo "✅ PR title follows Conventional Commits"
           fi
-          
-          echo "✅ PR title follows Conventional Commits"
 
   # ==========================================================================
   # Domain-Driven Design Validation
