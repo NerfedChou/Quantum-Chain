@@ -30,7 +30,7 @@ impl Precompile for Ecrecover {
         padded[..len].copy_from_slice(&input[..len]);
 
         // Extract components
-        let _hash = &padded[0..32];
+        // padded[0..32] is the message hash (unused for now, would be used in real impl)
         let v = &padded[32..64];
         let r = &padded[64..96];
         let s = &padded[96..128];

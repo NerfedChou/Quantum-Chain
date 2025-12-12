@@ -432,7 +432,7 @@ impl NodeRuntime {
             sv_service,
             &container.config,
         );
-        let sv_handler_task = tokio::spawn(async move {
+        let _sv_handler_task = tokio::spawn(async move {
             sv_handler.run().await;
         });
 
