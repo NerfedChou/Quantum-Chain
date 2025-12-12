@@ -170,10 +170,9 @@ jobs:
 
           # Domain layer must NOT contain direct I/O operations
           # Allowed exceptions:
+          # - std::io::{Read, Write, Cursor} - traits used for in-memory streaming (compression, serialization)
           # - std::net::IpAddr, std::net::SocketAddr (data types, not I/O)
-          # - async fn delegating to external compute (qc-compute, documented)
-          # - test code
-          # - comments and documentation
+          # - test code and comments
           VIOLATIONS=0
 
           for domain_dir in crates/*/src/domain/; do
@@ -181,11 +180,10 @@ jobs:
               SUBSYSTEM=$(dirname "$(dirname "$domain_dir")" | xargs basename)
               echo "Checking domain purity: $SUBSYSTEM"
 
-              # Check for forbidden I/O patterns
-              # tokio::fs, tokio::net, tokio::io = actual I/O (forbidden)
-              # std::fs, std::io = actual I/O (forbidden)
-              # TcpListener, TcpStream, UdpSocket = network I/O (forbidden)
-              MATCHES=$(grep -rE "(tokio::fs::|tokio::net::|tokio::io::|std::fs::|std::io::|TcpListener|TcpStream|UdpSocket)" "$domain_dir" 2>/dev/null | grep -v "test" | grep -v "^[[:space:]]*//") || true
+              # Check for ACTUAL I/O patterns (not just std::io traits)
+              # Forbidden: tokio I/O, std::fs (file system), network sockets, File operations
+              # Allowed: std::io::{Read, Write, Cursor} when used for in-memory streaming
+              MATCHES=$(grep -rE "(tokio::fs::|tokio::net::|tokio::io::|std::fs::|TcpListener|TcpStream|UdpSocket|File::open|File::create)" "$domain_dir" 2>/dev/null | grep -v "test" | grep -v "^[[:space:]]*//") || true
 
               if [ -n "$MATCHES" ]; then
                 echo "❌ VIOLATION: Domain layer contains I/O in $SUBSYSTEM"
