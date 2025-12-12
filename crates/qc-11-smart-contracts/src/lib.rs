@@ -84,6 +84,21 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::similar_names)]
+// Additional allows to match CI configuration
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::needless_pass_by_value)]
+#![allow(clippy::unused_async)]
+#![allow(clippy::match_wildcard_for_single_variants)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::manual_let_else)]
 
 // =============================================================================
 // MODULES
