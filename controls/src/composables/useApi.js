@@ -9,7 +9,6 @@ import { ref, readonly } from 'vue'
 
 // API endpoints - proxied through Vite dev server
 const RPC_ENDPOINT = '/api/rpc'
-const HEALTH_ENDPOINT = '/api/health'
 
 // Connection state (reactive)
 const connected = ref(false)

@@ -5,7 +5,7 @@
  * No hard-wired mock data - everything flows through the gateway.
  */
 
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useApi } from './useApi'
 
 /**
@@ -150,7 +150,7 @@ export function useAllSubsystems() {
  * @returns {object} - Reactive metrics, loading, error, and refresh
  */
 export function useIpcMetrics() {
-    const { rpc, connected } = useApi()
+    const { rpc } = useApi()
 
     const metrics = ref(null)
     const loading = ref(true)
