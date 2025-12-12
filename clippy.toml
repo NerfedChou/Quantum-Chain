@@ -1,23 +1,24 @@
 # ==============================================================================
-# Clippy Configuration
+# Clippy Configuration - Zero Trust Architecture for Code (ZTAC)
 # ==============================================================================
-# Linting rules for Quantum-Chain
+# Strict linting rules enforcing architectural integrity
 # Architecture Reference: Documentation/Architecture.md V2.3
 #
 # Run: cargo clippy --all-targets --all-features
 # ==============================================================================
 
-# Cognitive complexity threshold for functions
-cognitive-complexity-threshold = 25
+# ZTAC Pillar 1: Syntactic Rigor
+# Cognitive complexity threshold - STRICT (was 25)
+cognitive-complexity-threshold = 15
 
-# Maximum allowed nesting for blocks
-excessive-nesting-threshold = 5
+# Maximum allowed nesting for blocks - STRICT (was 5)
+excessive-nesting-threshold = 4
 
-# Maximum lines for functions (excluding documentation)
-too-many-lines-threshold = 100
+# Maximum lines for functions - STRICT (was 100)
+too-many-lines-threshold = 80
 
-# Maximum arguments for functions
-too-many-arguments-threshold = 7
+# Maximum arguments for functions - STRICT (was 7)
+too-many-arguments-threshold = 6
 
 # Type complexity threshold
 type-complexity-threshold = 250

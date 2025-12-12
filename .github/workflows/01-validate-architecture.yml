@@ -104,6 +104,129 @@ jobs:
           fi
 
   # ==========================================================================
+  # ZTAC Pillar 5: AI Containment - Typosquat Detection
+  # Catch hallucinated package names that could lead to typosquatting
+  # ==========================================================================
+  typosquat-check:
+    name: "ZTAC: Typosquat Detection"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install typos-cli
+        run: |
+          cargo install typos-cli || echo "typos-cli installation failed"
+        continue-on-error: true
+      
+      - name: Check for Typos in Dependencies
+        run: |
+          echo "=========================================="
+          echo "ZTAC: Typosquat Detection"
+          echo "=========================================="
+          echo "Goal: Catch AI-hallucinated package names"
+          echo ""
+          
+          # Check for typos in dependency names
+          if command -v typos &> /dev/null; then
+            typos Cargo.toml crates/*/Cargo.toml || true
+          fi
+          
+          # Check for known typosquat patterns
+          TYPOSQUATS="serede|tokioo|clapp|randome|reqwuest|asyncc|futurs|hashbrown2|libc_|base64url|serdee"
+          
+          if grep -rE "$TYPOSQUATS" Cargo.toml crates/*/Cargo.toml 2>/dev/null; then
+            echo "❌ FAIL: Potential typosquat dependency detected!"
+            echo "   Review the flagged dependencies carefully."
+            exit 1
+          fi
+          
+          echo "✅ No typosquat patterns detected"
+      
+      - name: Check for Suspicious Dependencies
+        run: |
+          echo "=========================================="
+          echo "ZTAC: Suspicious Dependencies"
+          echo "=========================================="
+          
+          # Check for git dependencies from unknown repos
+          if grep -rE 'git = "https://github.com/[^/]+/[^"]+"' Cargo.toml crates/*/Cargo.toml | grep -v "rust-lang\|RustCrypto\|tokio-rs\|serde-rs" | head -10; then
+            echo "⚠️ WARNING: Found git dependencies from non-canonical repos"
+            echo "   Ensure these are trusted sources"
+          fi
+          
+          echo "✅ Dependency source check complete"
+
+  # ==========================================================================
+  # ZTAC Pillar 2: Architectural Sovereignty - Import Rules
+  # Physical enforcement of domain layer purity
+  # ==========================================================================
+  arch-test:
+    name: "ZTAC: Architecture Rules"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Validate Domain Layer Imports
+        run: |
+          echo "=========================================="
+          echo "ZTAC: Domain Layer Purity"
+          echo "=========================================="
+          echo "Rule: Domain layer must NOT import infrastructure"
+          echo ""
+          
+          VIOLATIONS=0
+          
+          for crate in crates/qc-*/; do
+            if [ -d "${crate}src/domain" ]; then
+              CRATE_NAME=$(basename "$crate")
+              
+              # Domain layer must not import adapters, ipc, or db
+              MATCHES=$(grep -rn 'use.*adapters\|use.*ipc\|use.*db\|use.*persistence' "${crate}src/domain/" 2>/dev/null || true)
+              
+              if [ -n "$MATCHES" ]; then
+                echo "❌ VIOLATION in $CRATE_NAME/domain:"
+                echo "$MATCHES"
+                VIOLATIONS=$((VIOLATIONS + 1))
+              else
+                echo "✅ $CRATE_NAME: Domain layer is pure"
+              fi
+            fi
+          done
+          
+          if [ $VIOLATIONS -gt 0 ]; then
+            echo ""
+            echo "❌ FAIL: $VIOLATIONS crates violate domain purity"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All domain layers are pure (no infrastructure imports)"
+      
+      - name: Check Port/Adapter Separation
+        run: |
+          echo "=========================================="
+          echo "ZTAC: Hexagonal Architecture"
+          echo "=========================================="
+          echo "Rule: Ports define interfaces, Adapters implement them"
+          echo ""
+          
+          for crate in crates/qc-*/; do
+            CRATE_NAME=$(basename "$crate")
+            
+            # Check that ports don't have concrete implementations
+            if [ -d "${crate}src/ports" ]; then
+              IMPL_IN_PORTS=$(grep -rn 'impl.*for.*{' "${crate}src/ports/" 2>/dev/null | grep -v 'impl.*Trait\|impl.*Default\|impl.*Debug' | head -5 || true)
+              
+              if [ -n "$IMPL_IN_PORTS" ]; then
+                echo "⚠️ WARNING: $CRATE_NAME/ports may contain implementations"
+                echo "$IMPL_IN_PORTS"
+              fi
+            fi
+          done
+          
+          echo "✅ Port/Adapter separation check complete"
+
+  # ==========================================================================
   # Domain-Driven Design Validation
   # ==========================================================================
   validate-ddd:

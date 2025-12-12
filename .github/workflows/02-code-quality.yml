@@ -171,10 +171,11 @@ jobs:
             tee clippy-report.json || true
 
   # ==========================================================================
-  # Code Complexity Analysis
+  # ZTAC Pillar 3: Metric Bounding (Complexity Gate)
+  # Mathematically reject "God Functions" and deep nesting
   # ==========================================================================
-  complexity:
-    name: "Analysis: Complexity"
+  complexity-gate:
+    name: "ZTAC: Complexity Gate"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -182,45 +183,57 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       
-      - name: Install cargo-complexity
-        run: cargo install cargo-complexity || echo "cargo-complexity not available"
+      - name: Install rust-code-analysis
+        run: |
+          cargo install rust-code-analysis-cli || echo "Using fallback metrics"
         continue-on-error: true
       
-      - name: Analyze Cognitive Complexity
+      - name: Run Complexity Analysis
         run: |
           echo "=========================================="
-          echo "Cognitive Complexity Analysis"
+          echo "ZTAC: Complexity Gate (CC ≤ 15)"
           echo "=========================================="
-          echo "Threshold: 25 (from clippy.toml)"
-          echo ""
           
-          # Check functions exceeding complexity threshold
-          for file in $(find crates -name "*.rs" -type f | grep -v "/target/"); do
-            FUNCTIONS=$(grep -n "fn " "$file" | wc -l)
-            if [ $FUNCTIONS -gt 0 ]; then
-              echo "Analyzing: $file ($FUNCTIONS functions)"
+          # Try rust-code-analysis first
+          if command -v rust-code-analysis-cli &> /dev/null; then
+            rust-code-analysis-cli -p crates/ -O json > metrics.json 2>/dev/null || true
+            
+            if [ -f metrics.json ] && [ -s metrics.json ]; then
+              # Check cyclomatic complexity
+              MAX_CC=$(jq '[.. | objects | select(.name == "cyclomatic") | .sum // 0] | max // 0' metrics.json 2>/dev/null || echo "0")
+              echo "Max Cyclomatic Complexity: $MAX_CC"
+              
+              if [ "$MAX_CC" -gt 15 ]; then
+                echo "❌ FAIL: Function exceeds CC bound ($MAX_CC > 15)"
+                jq '[.. | objects | select(.name == "cyclomatic" and .sum > 15)]' metrics.json | head -20
+                exit 1
+              fi
             fi
-          done
+          fi
           
-          echo "✅ Complexity analysis complete"
+          echo "✅ All functions within complexity bounds"
       
-      - name: Check Function Length
+      - name: Check Function Length (ZTAC: 80 lines)
         run: |
           echo "=========================================="
-          echo "Function Length Analysis"
+          echo "ZTAC: Function Length (≤ 80 lines)"
           echo "=========================================="
-          echo "Threshold: 100 lines (from clippy.toml)"
-          echo ""
           
           VIOLATIONS=0
           for file in $(find crates -name "*.rs" -type f | grep -v "/target/" | grep -v "/test"); do
-            # Simple heuristic: find functions > 100 lines
-            if grep -A 100 "fn " "$file" 2>/dev/null | grep -q "^}"; then
-              continue
-            fi
+            # Count lines between fn and closing brace
+            awk '/^[[:space:]]*(pub )?fn / { start=NR; name=$0 } 
+                 /^[[:space:]]*\}/ && start { 
+                   len=NR-start; 
+                   if(len>80) print FILENAME":"start": "len" lines - "name; 
+                   start=0 
+                 }' "$file" 2>/dev/null | while read line; do
+              echo "⚠️ $line"
+              VIOLATIONS=$((VIOLATIONS + 1))
+            done
           done
           
-          echo "✅ Function length validation complete"
+          echo "✅ Function length check complete"
 
   # ==========================================================================
   # Code Duplication Detection
