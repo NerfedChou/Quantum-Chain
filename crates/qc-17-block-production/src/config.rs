@@ -70,6 +70,12 @@ pub struct PoWConfig {
 
     /// Number of blocks to look back for DGW (default: 24)
     pub dgw_window: Option<usize>,
+
+    /// Mining batch size for GPU/CPU compute engines (default: 10_000_000)
+    /// This is the number of nonces to try in each mining iteration.
+    /// Higher values may improve GPU efficiency but increase iteration time.
+    /// Lower values provide better responsiveness but may reduce throughput.
+    pub batch_size: Option<u64>,
 }
 
 impl Default for PoWConfig {
@@ -80,6 +86,7 @@ impl Default for PoWConfig {
             target_block_time: Some(10), // 10 seconds per block
             use_dgw: Some(true),         // Enable Dark Gravity Wave
             dgw_window: Some(24),        // Look at last 24 blocks
+            batch_size: Some(10_000_000), // Default mining batch size
         }
     }
 }
