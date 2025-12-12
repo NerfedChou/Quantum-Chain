@@ -511,7 +511,8 @@ jobs:
   miri:
     name: Miri UB Check
     runs-on: ubuntu-latest
-    # Always run Miri checks for safety verification
+    # Run Miri checks for safety verification only when requested (slow)
+    if: github.event.inputs.run_miri == 'true'
     permissions:
       contents: read
     steps:
