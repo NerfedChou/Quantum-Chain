@@ -16,5 +16,5 @@ pub use error::{ApiError, ApiResult, GatewayError};
 pub use methods::{get_method_info, get_method_tier, is_method_supported, MethodInfo, MethodTier};
 pub use types::*;
 
-// Re-export adapters pending (for backward compatibility)
-pub use crate::adapters::pending::{PendingRequestStore, SubsystemResponse};
+// NOTE: PendingRequestStore and SubsystemResponse are now in crate::adapters::pending
+// Import them directly from adapters when needed to maintain hexagonal architecture

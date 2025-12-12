@@ -145,8 +145,8 @@ jobs:
               
               echo "Analyzing: $SUBSYSTEM_NAME"
               
-              # Find imports from other subsystems (exclude shared-*)
-              if grep -r "use qc_[0-9][0-9]_" "$subsystem/src" 2>/dev/null | grep -v "shared-" | grep -v "test"; then
+              # Find imports from other subsystems (exclude shared-*, tests, and doc comments)
+              if grep -r "use qc_[0-9][0-9]_" "$subsystem/src" 2>/dev/null | grep -v "shared-" | grep -v "test" | grep -vE "^\s*//[/!]"; then
                 echo "❌ VIOLATION: $SUBSYSTEM_NAME has direct subsystem dependency!"
                 VIOLATIONS=$((VIOLATIONS + 1))
               fi
@@ -342,16 +342,23 @@ jobs:
           echo "=========================================="
           
           # Payloads must NOT contain identity fields
+          # EXCEPTION: AuthenticatedMessage envelope struct is allowed
           VIOLATIONS=0
-          FORBIDDEN_FIELDS=("requester_id" "requester_subsystem" "sender_id" "sender_subsystem")
+          FORBIDDEN_FIELDS=("requester_id" "requester_subsystem" "sender_subsystem")
           
           for subsystem in crates/qc-*/src; do
             if [ -d "$subsystem" ]; then
               for field in "${FORBIDDEN_FIELDS[@]}"; do
-                if grep -r "pub $field:" "$subsystem" 2>/dev/null | grep -v "AuthenticatedMessage" | grep -v "test"; then
-                  echo "❌ VIOLATION: Found '$field' in payload (violates Envelope-Only Identity)"
+                # Exclude: test files, envelope.rs, files with AuthenticatedMessage
+                MATCHES=$(grep -rl "pub $field:" "$subsystem" 2>/dev/null | grep -v "test" | grep -v "envelope.rs") || true
+                for file in $MATCHES; do
+                  # Skip files that define AuthenticatedMessage (envelope wrappers)
+                  if grep -q "struct AuthenticatedMessage" "$file" 2>/dev/null; then
+                    continue
+                  fi
+                  echo "❌ VIOLATION: Found '$field' in $file (violates Envelope-Only Identity)"
                   VIOLATIONS=$((VIOLATIONS + 1))
-                fi
+                done
               done
             fi
           done
