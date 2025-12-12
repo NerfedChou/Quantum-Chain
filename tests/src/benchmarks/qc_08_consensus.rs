@@ -185,7 +185,7 @@ impl BrutalForkChoice {
         let mut best_hash = self.head;
         let mut best_weight = 0usize;
 
-        for (hash, _) in &self.blocks {
+        for hash in self.blocks.keys() {
             let weight = self.get_weight(hash);
             if weight > best_weight {
                 best_weight = weight;

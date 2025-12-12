@@ -751,6 +751,7 @@ impl SubsystemContainer {
     }
 
     /// Check if a subsystem is enabled.
+    #[allow(clippy::match_like_matches_macro)] // Using match for clarity with cfg!
     pub fn is_subsystem_enabled(id: u8) -> bool {
         match id {
             1 => cfg!(feature = "qc-01"),

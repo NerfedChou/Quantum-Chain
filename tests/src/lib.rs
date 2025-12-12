@@ -75,6 +75,12 @@
 #![allow(clippy::fn_to_numeric_cast)]
 #![allow(clippy::unused_io_amount)]
 #![allow(clippy::slow_vector_initialization)]
+#![allow(clippy::iter_over_hash_type)]
+#![allow(clippy::unnecessary_to_owned)]
+#![allow(clippy::expect_fun_call)]
+#![allow(clippy::repeat_once)]
+#![allow(unused_assignments)]
+#![allow(clippy::manual_repeat_n)]
 
 pub mod benchmarks;
 pub mod exploits;

@@ -242,8 +242,8 @@ impl ApiQueryHandler {
                     .unwrap_or("");
 
                 // Parse hex string to [u8; 32]
-                let hash_bytes = if hash_hex.starts_with("0x") {
-                    hex::decode(&hash_hex[2..]).unwrap_or_default()
+                let hash_bytes = if let Some(stripped) = hash_hex.strip_prefix("0x") {
+                    hex::decode(stripped).unwrap_or_default()
                 } else {
                     hex::decode(hash_hex).unwrap_or_default()
                 };

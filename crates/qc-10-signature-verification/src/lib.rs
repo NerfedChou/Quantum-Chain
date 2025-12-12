@@ -26,6 +26,8 @@
 #![cfg_attr(test, allow(clippy::expect_used))]
 #![cfg_attr(test, allow(clippy::panic))]
 #![cfg_attr(test, allow(clippy::uninlined_format_args))]
+#![cfg_attr(test, allow(clippy::useless_asref))]
+#![cfg_attr(test, allow(clippy::assigning_clones))]
 //!
 //! // Hash a message
 //! let message = b"Hello, Quantum-Chain!";
