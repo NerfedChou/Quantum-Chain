@@ -1,4 +1,6 @@
-//! Benchmark utilities for Quantum-Chain subsystems
+//! Benchmark utilities and modules
+pub mod brutal;
+
 pub mod utils {
     pub fn generate_random_hash() -> [u8; 32] {
         use rand::Rng;

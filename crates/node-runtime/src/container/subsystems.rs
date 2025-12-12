@@ -458,6 +458,7 @@ impl SubsystemContainer {
     // =========================================================================
 
     #[cfg(feature = "qc-01")]
+    #[allow(clippy::type_complexity)]
     fn init_peer_discovery(
         event_bus: Arc<InMemoryEventBus>,
         _config: &NodeConfig,

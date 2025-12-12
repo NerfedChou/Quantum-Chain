@@ -20,8 +20,8 @@ members = [
     "crates/shared-crypto",
     "crates/qc-zkp",
     "crates/quantum-telemetry",
-    "crates/integration-tests",
-    "crates/benchmarks",
+    # Unified test suite
+    "tests",
 ]
 
 [workspace.package]

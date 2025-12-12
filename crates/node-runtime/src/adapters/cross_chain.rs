@@ -11,7 +11,7 @@
 
 #[cfg(feature = "qc-15")]
 use qc_15_cross_chain::{
-    calculate_timelocks, create_atomic_swap, verify_secret, AtomicSwap, ChainId, CrossChainConfig, Hash, Secret, HTLC,
+    calculate_timelocks, create_atomic_swap, AtomicSwap, ChainId, CrossChainConfig, Hash, Secret, HTLC,
 };
 
 #[cfg(feature = "qc-15")]

@@ -1,0 +1,70 @@
+[package]
+name = "qc-tests"
+version = "0.1.0"
+edition = "2021"
+description = "Quantum-Chain test suite: benchmarks, integration, and exploits"
+publish = false
+
+# Test crate - suppress common test warnings
+[lints.clippy]
+unused_variables = "allow"
+
+[[bench]]
+name = "subsystem_benchmarks"
+harness = false
+path = "benchmarks/subsystem_benchmarks.rs"
+
+[[bench]]
+name = "brutal_benchmarks"
+harness = false
+path = "benchmarks/brutal_benchmarks.rs"
+
+[dependencies]
+# Internal crates
+qc-01-peer-discovery = { path = "../crates/qc-01-peer-discovery" }
+qc-02-block-storage = { path = "../crates/qc-02-block-storage" }
+qc-03-transaction-indexing = { path = "../crates/qc-03-transaction-indexing" }
+qc-04-state-management = { path = "../crates/qc-04-state-management" }
+qc-06-mempool = { path = "../crates/qc-06-mempool" }
+qc-07-bloom-filters = { path = "../crates/qc-07-bloom-filters" }
+qc-08-consensus = { path = "../crates/qc-08-consensus" }
+qc-09-finality = { path = "../crates/qc-09-finality" }
+qc-10-signature-verification = { path = "../crates/qc-10-signature-verification" }
+qc-16-api-gateway = { path = "../crates/qc-16-api-gateway" }
+qc-17-block-production = { path = "../crates/qc-17-block-production" }
+shared-bus = { path = "../crates/shared-bus" }
+shared-types = { path = "../crates/shared-types" }
+
+# Async runtime
+tokio = { version = "1", features = ["full", "rt-multi-thread"] }
+async-trait = "0.1"
+
+# Concurrency
+parking_lot = "0.12"
+
+# Testing utilities
+rand = "0.8"
+uuid = { version = "1", features = ["v4"] }
+
+# Primitives
+primitive-types = "0.12"
+
+# Cryptography
+k256 = { version = "0.13", features = ["ecdsa"] }
+sha3 = "0.10"
+secp256k1 = { version = "0.29", features = ["recovery", "rand-std"] }
+hex = "0.4"
+
+# Serialization
+bincode = "1.3"
+
+# Futures
+futures = "0.3"
+
+# RLP
+rlp = "0.5"
+
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[dev-dependencies]
+tempfile = "3"

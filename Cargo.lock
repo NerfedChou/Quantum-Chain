@@ -1688,39 +1688,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "integration-tests"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bincode",
- "criterion",
- "futures 0.3.31",
- "hex",
- "k256",
- "parking_lot",
- "primitive-types",
- "qc-01-peer-discovery",
- "qc-02-block-storage",
- "qc-03-transaction-indexing",
- "qc-04-state-management",
- "qc-06-mempool",
- "qc-07-bloom-filters",
- "qc-08-consensus",
- "qc-09-finality",
- "qc-10-signature-verification",
- "qc-16-api-gateway",
- "qc-17-block-production",
- "rand 0.8.5",
- "rlp",
- "secp256k1",
- "sha3",
- "shared-bus",
- "shared-types",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "ipnet"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2947,28 +2914,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "qc-benchmarks"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "k256",
- "qc-01-peer-discovery",
- "qc-02-block-storage",
- "qc-03-transaction-indexing",
- "qc-04-state-management",
- "qc-06-mempool",
- "qc-07-bloom-filters",
- "qc-08-consensus",
- "qc-10-signature-verification",
- "qc-17-block-production",
- "rand 0.8.5",
- "sha3",
- "shared-types",
- "tempfile",
- "tokio",
-]
-
-[[package]]
 name = "qc-compute"
 version = "0.1.0"
 dependencies = [
@@ -2982,6 +2927,40 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "qc-tests"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bincode",
+ "criterion",
+ "futures 0.3.31",
+ "hex",
+ "k256",
+ "parking_lot",
+ "primitive-types",
+ "qc-01-peer-discovery",
+ "qc-02-block-storage",
+ "qc-03-transaction-indexing",
+ "qc-04-state-management",
+ "qc-06-mempool",
+ "qc-07-bloom-filters",
+ "qc-08-consensus",
+ "qc-09-finality",
+ "qc-10-signature-verification",
+ "qc-16-api-gateway",
+ "qc-17-block-production",
+ "rand 0.8.5",
+ "rlp",
+ "secp256k1",
+ "sha3",
+ "shared-bus",
+ "shared-types",
+ "tempfile",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

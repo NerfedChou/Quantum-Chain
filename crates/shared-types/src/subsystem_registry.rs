@@ -161,64 +161,31 @@ impl SubsystemRegistry {
 
         // Start in computed order
         for id in &self.init_order {
-            if let Some(entry) = self.subsystems.get(id) {
-                let mut entry = entry.write();
+            let Some(entry) = self.subsystems.get(id) else {
+                continue;
+            };
+            
+            // Check dependencies before starting
+            self.check_dependencies(id, &entry.read().info.dependencies)?;
+            
+            // Start the subsystem
+            let mut entry = entry.write();
+            info!("[Registry] Starting {:?} ({})", id, entry.info.name);
+            entry.status = SubsystemStatus::Starting;
 
-                // Check dependencies are running
-                for dep_id in &entry.info.dependencies {
-                    if let Some(dep_entry) = self.subsystems.get(dep_id) {
-                        let dep_status = dep_entry.read().status;
-                        if dep_status != SubsystemStatus::Healthy {
-                            // Dependency not healthy - check if it's required
-                            if self.required.contains(dep_id) {
-                                return Err(SubsystemError {
-                                    subsystem_id: *id,
-                                    kind: SubsystemErrorKind::MissingDependency,
-                                    message: format!(
-                                        "Required dependency {:?} is {:?}",
-                                        dep_id, dep_status
-                                    ),
-                                });
-                            } else {
-                                warn!("[Registry] Optional dependency {:?} not healthy, continuing anyway", dep_id);
-                            }
-                        }
-                    } else if self.required.contains(dep_id) {
-                        return Err(SubsystemError {
-                            subsystem_id: *id,
-                            kind: SubsystemErrorKind::MissingDependency,
-                            message: format!("Required dependency {:?} not registered", dep_id),
-                        });
-                    }
+            if let Err(e) = entry.subsystem.start().await {
+                entry.status = SubsystemStatus::Error;
+                // Required subsystems fail hard, optional ones just warn
+                if self.required.contains(id) {
+                    error!("[Registry] ✗ Required {:?} failed: {}", id, e);
+                    return Err(e);
                 }
-
-                // Start the subsystem
-                info!("[Registry] Starting {:?} ({})", id, entry.info.name);
-                entry.status = SubsystemStatus::Starting;
-
-                match entry.subsystem.start().await {
-                    Ok(()) => {
-                        entry.status = SubsystemStatus::Healthy;
-                        info!("[Registry] ✓ {:?} started successfully", id);
-                    }
-                    Err(e) => {
-                        entry.status = SubsystemStatus::Error;
-                        if self.required.contains(id) {
-                            error!(
-                                "[Registry] ✗ Required subsystem {:?} failed to start: {}",
-                                id, e
-                            );
-                            return Err(e);
-                        } else {
-                            warn!(
-                                "[Registry] ✗ Optional subsystem {:?} failed to start: {}",
-                                id, e
-                            );
-                            // Continue with other subsystems
-                        }
-                    }
-                }
+                warn!("[Registry] ✗ Optional {:?} failed: {}", id, e);
+                continue;
             }
+            
+            entry.status = SubsystemStatus::Healthy;
+            info!("[Registry] ✓ {:?} started successfully", id);
         }
 
         info!("[Registry] All subsystems started");
@@ -283,6 +250,44 @@ impl SubsystemRegistry {
         }
 
         serde_json::Value::Object(metrics)
+    }
+
+    /// Check if all dependencies for a subsystem are healthy.
+    /// Returns Ok if all required deps are healthy, Err otherwise.
+    fn check_dependencies(
+        &self,
+        subsystem_id: &SubsystemId,
+        dependencies: &[SubsystemId],
+    ) -> Result<(), SubsystemError> {
+        for dep_id in dependencies {
+            let Some(dep_entry) = self.subsystems.get(dep_id) else {
+                // Dependency not registered - only an error if required
+                if self.required.contains(dep_id) {
+                    return Err(SubsystemError {
+                        subsystem_id: *subsystem_id,
+                        kind: SubsystemErrorKind::MissingDependency,
+                        message: format!("Required dependency {:?} not registered", dep_id),
+                    });
+                }
+                continue;
+            };
+
+            let dep_status = dep_entry.read().status;
+            if dep_status == SubsystemStatus::Healthy {
+                continue;
+            }
+
+            // Dependency not healthy - only an error if required
+            if self.required.contains(dep_id) {
+                return Err(SubsystemError {
+                    subsystem_id: *subsystem_id,
+                    kind: SubsystemErrorKind::MissingDependency,
+                    message: format!("Required dependency {:?} is {:?}", dep_id, dep_status),
+                });
+            }
+            warn!("[Registry] Optional dependency {:?} not healthy, continuing", dep_id);
+        }
+        Ok(())
     }
 
     /// Compute initialization order using topological sort on dependencies.

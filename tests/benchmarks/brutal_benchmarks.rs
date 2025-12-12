@@ -29,7 +29,7 @@
 //! | qc-08 | Consensus | Block validation < 100ms, fork choice O(log n) |
 //! | qc-10 | Signature Verification | ECDSA < 1ms, batch 2x faster |
 
-mod brutal;
+use qc_tests::benchmarks::brutal;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 

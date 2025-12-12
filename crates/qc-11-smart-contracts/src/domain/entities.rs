@@ -297,30 +297,52 @@ fn decode_revert_reason(data: &Bytes) -> Option<String> {
 /// These changes are collected during execution and applied atomically
 /// on success. On revert, all changes are discarded.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::missing_docs_in_private_items)]
 pub enum StateChange {
     /// Transfer balance between accounts.
     BalanceTransfer {
+        /// Source address.
         from: Address,
+        /// Destination address.
         to: Address,
+        /// Amount to transfer.
         amount: U256,
     },
     /// Write to contract storage.
     StorageWrite {
+        /// Contract address.
         address: Address,
+        /// Storage slot key.
         key: StorageKey,
+        /// Value to write.
         value: StorageValue,
     },
     /// Delete storage slot (set to zero).
-    StorageDelete { address: Address, key: StorageKey },
+    StorageDelete {
+        /// Contract address.
+        address: Address,
+        /// Storage slot key.
+        key: StorageKey,
+    },
     /// Create a new contract.
-    ContractCreate { address: Address, code: Bytes },
+    ContractCreate {
+        /// New contract address.
+        address: Address,
+        /// Contract bytecode.
+        code: Bytes,
+    },
     /// Self-destruct a contract.
     ContractDestroy {
+        /// Contract to destroy.
         address: Address,
+        /// Beneficiary to receive balance.
         beneficiary: Address,
     },
     /// Increment account nonce.
-    NonceIncrement { address: Address },
+    NonceIncrement {
+        /// Account address.
+        address: Address,
+    },
 }
 
 // =============================================================================
