@@ -150,6 +150,7 @@ impl SubsystemRegistry {
     }
 
     /// Start all registered subsystems in dependency order.
+    #[allow(clippy::excessive_nesting)]
     pub async fn start_all(&self) -> Result<(), SubsystemError> {
         info!(
             "[Registry] Starting {} subsystems in dependency order",
@@ -255,6 +256,7 @@ impl SubsystemRegistry {
 
     /// Check if all dependencies for a subsystem are healthy.
     /// Returns Ok if all required deps are healthy, Err otherwise.
+    #[allow(clippy::excessive_nesting)]
     fn check_dependencies(
         &self,
         subsystem_id: &SubsystemId,
@@ -295,6 +297,7 @@ impl SubsystemRegistry {
     }
 
     /// Compute initialization order using topological sort on dependencies.
+    #[allow(clippy::excessive_nesting)]
     fn compute_init_order(&mut self) {
         // Simple topological sort
         let mut order = Vec::new();

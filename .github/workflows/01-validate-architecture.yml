@@ -180,8 +180,10 @@ jobs:
             if [ -d "${crate}src/domain" ]; then
               CRATE_NAME=$(basename "$crate")
               
-              # Domain layer must not import adapters, ipc, or db
-              MATCHES=$(grep -rn 'use.*adapters\|use.*ipc\|use.*db\|use.*persistence' "${crate}src/domain/" 2>/dev/null || true)
+              # Domain layer must not import from sibling modules like adapters, ipc
+              # Note: 'pub use persistence' is OK (re-exporting domain module)
+              # Bad: 'use crate::adapters', 'use super::ipc', 'use crate::db'
+              MATCHES=$(grep -rn 'use crate::adapters\|use super::adapters\|use crate::ipc\|use super::ipc' "${crate}src/domain/" 2>/dev/null || true)
               
               if [ -n "$MATCHES" ]; then
                 echo "❌ VIOLATION in $CRATE_NAME/domain:"

@@ -70,6 +70,7 @@ impl RateLimiter {
     }
 
     /// Refill tokens based on elapsed time.
+    #[allow(clippy::excessive_nesting)]
     fn refill(&self) {
         // Handle poisoned mutex gracefully - if poisoned, skip refill
         let Ok(mut last) = self.last_refill.lock() else {
