@@ -5,7 +5,7 @@
  * No hard-wired mock data - everything flows through the gateway.
  */
 
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useApi } from './useApi'
 
 /**
