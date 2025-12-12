@@ -36,12 +36,12 @@ jobs:
   
   architect:
     name: "01 • Architect"
-    uses: ./.github/workflows/01-architect/validate-architecture.yml
+    uses: ./.github/workflows/01-validate-architecture.yml
     secrets: inherit
   
   quality:
     name: "02 • Quality"
-    uses: ./.github/workflows/02-quality/code-quality.yml
+    uses: ./.github/workflows/02-code-quality.yml
     secrets: inherit
 
   # ==========================================================================
@@ -52,14 +52,14 @@ jobs:
   security:
     name: "03 • Security"
     needs: [architect, quality]
-    uses: ./.github/workflows/03-security/unit-integration-tests.yml
+    uses: ./.github/workflows/03-unit-integration-tests.yml
     secrets: inherit
   
   scalability:
     name: "04 • Scalability"
     needs: [architect, quality]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/04-scalability/scalability.yml
+    uses: ./.github/workflows/04-scalability.yml
     secrets: inherit
 
   # ==========================================================================
@@ -69,7 +69,7 @@ jobs:
   zero-day:
     name: "05 • Zero-Day"
     needs: [security]
-    uses: ./.github/workflows/05-zero-day/vulnerability-scanning.yml
+    uses: ./.github/workflows/05-vulnerability-scanning.yml
     secrets: inherit
 
   # ==========================================================================
@@ -81,7 +81,7 @@ jobs:
     name: "06 • Production"
     needs: [security, zero-day]
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/06-production/docker-builds.yml
+    uses: ./.github/workflows/06-docker-builds.yml
     secrets: inherit
 
   # ==========================================================================
@@ -91,7 +91,7 @@ jobs:
   qa:
     name: "09 • QA"
     needs: [security]
-    uses: ./.github/workflows/09-qa/quality-assurance.yml
+    uses: ./.github/workflows/09-quality-assurance.yml
     secrets: inherit
 
   # ==========================================================================
@@ -102,7 +102,7 @@ jobs:
     name: "08 • Audit"
     needs: [security]
     if: github.event_name == 'workflow_dispatch' || github.event.schedule
-    uses: ./.github/workflows/08-audit/compliance.yml
+    uses: ./.github/workflows/08-compliance.yml
     secrets: inherit
 
   # ==========================================================================
@@ -115,7 +115,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' && inputs.skip-slow != true) ||
       github.event.schedule
-    uses: ./.github/workflows/07-optimization/benchmarks.yml
+    uses: ./.github/workflows/07-benchmarks.yml
     secrets: inherit
 
   # ==========================================================================
@@ -126,7 +126,7 @@ jobs:
     name: "10 • Testing"
     needs: [qa, production]
     if: github.event_name == 'workflow_dispatch' && inputs.full-suite == true
-    uses: ./.github/workflows/10-testing/load-stress.yml
+    uses: ./.github/workflows/10-load-stress.yml
     secrets: inherit
 
   # ==========================================================================

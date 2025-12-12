@@ -442,7 +442,12 @@ impl BlockProducerService for ConcreteBlockProducer {
                                     None,
                                 );
                                 
-                                let batch_size = self.config.batch_size;
+                                // Get batch size from config, with fallback to default
+                                let batch_size = block_config
+                                    .pow
+                                    .as_ref()
+                                    .and_then(|p| p.batch_size)
+                                    .unwrap_or(10_000_000);
                                 let mut nonce_start = 0u64;
                                 let mut result = None;
                                 

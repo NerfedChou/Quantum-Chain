@@ -9,6 +9,7 @@
 name: "03 • Security Engineer"
 
 on:
+  workflow_call:  # Required for reusable workflows
   pull_request:
     paths:
       - 'crates/**'
