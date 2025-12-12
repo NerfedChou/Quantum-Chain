@@ -701,6 +701,7 @@ impl SubsystemContainer {
                 target_block_time: Some(10),
                 use_dgw: Some(true),
                 dgw_window: Some(24),
+                batch_size: Some(10_000_000),
             });
         }
 
