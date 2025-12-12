@@ -4,7 +4,7 @@
 //!
 //! Reference: SPEC-14 Section 2.3 (Lines 144-173)
 
-use super::errors::{ShardId, Hash, Address, ShardError};
+use super::errors::{Address, Hash, ShardError, ShardId};
 
 /// Minimum shard count.
 pub const MIN_SHARD_COUNT: u16 = 1;
@@ -23,7 +23,11 @@ pub const SIGNATURE_THRESHOLD: f64 = 2.0 / 3.0;
 /// Reference: SPEC-14 Lines 147-153
 ///
 /// Same address + same shard count = same shard ID.
-pub fn invariant_deterministic_assignment<F>(assign_fn: F, address: &Address, shard_count: u16) -> bool
+pub fn invariant_deterministic_assignment<F>(
+    assign_fn: F,
+    address: &Address,
+    shard_count: u16,
+) -> bool
 where
     F: Fn(&Address, u16) -> ShardId,
 {
@@ -96,7 +100,10 @@ pub fn invariant_global_consistency(
 
 /// Invariant: Validator count meets minimum threshold.
 /// Reference: System.md Line 700
-pub fn invariant_min_validators(validator_count: usize, min_required: usize) -> Result<(), ShardError> {
+pub fn invariant_min_validators(
+    validator_count: usize,
+    min_required: usize,
+) -> Result<(), ShardError> {
     if validator_count < min_required {
         return Err(ShardError::InsufficientSignatures {
             got: validator_count,

@@ -19,7 +19,7 @@
 //! - MAX_ANCESTORS = 25 (prevent infinite recursion)
 //! - MAX_DESCENDANTS = 25 (prevent mempool bombs)
 
-use super::{Hash, Address, U256, MAX_ANCESTORS, MAX_DESCENDANTS};
+use super::{Address, Hash, MAX_ANCESTORS, MAX_DESCENDANTS, U256};
 use std::collections::{HashMap, HashSet};
 
 /// Ancestor chain information for CPFP calculation.
@@ -66,16 +66,14 @@ impl TransactionFamily {
     pub fn register(&mut self, hash: Hash, sender: Address, nonce: u64) {
         // Check if there's a parent (tx with nonce - 1 from same sender)
         if nonce > 0 {
-            if let Some(parent_hash) = self.sender_nonces
+            if let Some(parent_hash) = self
+                .sender_nonces
                 .get(&sender)
                 .and_then(|nonces| nonces.get(&(nonce - 1)))
             {
                 // Link child to parent
                 self.parents.insert(hash, *parent_hash);
-                self.children
-                    .entry(*parent_hash)
-                    .or_default()
-                    .insert(hash);
+                self.children.entry(*parent_hash).or_default().insert(hash);
             }
         }
 
@@ -209,10 +207,10 @@ impl TransactionFamily {
         get_fee: impl Fn(&Hash) -> Option<(U256, usize)>,
     ) -> U256 {
         let ancestors = self.get_ancestors(hash, get_fee);
-        
+
         let total_fee = tx_fee + ancestors.total_ancestor_fees;
         let total_size = tx_size + ancestors.total_ancestor_size;
-        
+
         if total_size == 0 {
             return U256::zero();
         }
@@ -237,13 +235,13 @@ mod tests {
     #[test]
     fn test_register_parent_child() {
         let mut family = TransactionFamily::new();
-        
+
         let parent = hash_from_nonce(0);
         let child = hash_from_nonce(1);
-        
+
         family.register(parent, SENDER_A, 0);
         family.register(child, SENDER_A, 1);
-        
+
         assert!(family.parents.contains_key(&child));
         assert_eq!(family.parents.get(&child), Some(&parent));
     }
@@ -251,15 +249,13 @@ mod tests {
     #[test]
     fn test_ancestor_chain() {
         let mut family = TransactionFamily::new();
-        
+
         // Create chain: tx0 -> tx1 -> tx2
         for i in 0..3 {
             family.register(hash_from_nonce(i), SENDER_A, i);
         }
 
-        let get_fee = |hash: &Hash| -> Option<(U256, usize)> {
-            Some((U256::from(1000), 100))
-        };
+        let get_fee = |hash: &Hash| -> Option<(U256, usize)> { Some((U256::from(1000), 100)) };
 
         let ancestors = family.get_ancestors(&hash_from_nonce(2), get_fee);
         assert_eq!(ancestors.ancestor_count, 2);
@@ -270,15 +266,13 @@ mod tests {
     #[test]
     fn test_ancestor_limit() {
         let mut family = TransactionFamily::new();
-        
+
         // Create chain longer than MAX_ANCESTORS
         for i in 0..30 {
             family.register(hash_from_nonce(i), SENDER_A, i);
         }
 
-        let get_fee = |_: &Hash| -> Option<(U256, usize)> {
-            Some((U256::from(100), 50))
-        };
+        let get_fee = |_: &Hash| -> Option<(U256, usize)> { Some((U256::from(100), 50)) };
 
         let ancestors = family.get_ancestors(&hash_from_nonce(29), get_fee);
         // Should be capped at MAX_ANCESTORS
@@ -288,7 +282,7 @@ mod tests {
     #[test]
     fn test_descendant_count() {
         let mut family = TransactionFamily::new();
-        
+
         // Create chain: tx0 -> tx1 -> tx2 -> tx3
         for i in 0..4 {
             family.register(hash_from_nonce(i), SENDER_A, i);
@@ -301,7 +295,7 @@ mod tests {
     #[test]
     fn test_effective_fee_rate() {
         let mut family = TransactionFamily::new();
-        
+
         // Parent: low fee (100 wei, 100 bytes)
         // Child: high fee (1000 wei, 100 bytes)
         family.register(hash_from_nonce(0), SENDER_A, 0);
@@ -317,13 +311,8 @@ mod tests {
 
         // Child alone: 1000/100 = 10
         // With parent: (1000+100)/(100+100) = 5.5
-        let rate = family.effective_fee_rate(
-            &hash_from_nonce(1),
-            U256::from(1000),
-            100,
-            get_fee,
-        );
-        
+        let rate = family.effective_fee_rate(&hash_from_nonce(1), U256::from(1000), 100, get_fee);
+
         // (1000 + 100) / 200 = 5
         assert_eq!(rate, U256::from(5));
     }
@@ -331,7 +320,7 @@ mod tests {
     #[test]
     fn test_would_exceed_limits() {
         let mut family = TransactionFamily::new();
-        
+
         // Create chain at MAX_ANCESTORS + 1 to exceed
         for i in 0..=MAX_ANCESTORS {
             family.register(hash_from_nonce(i as u64), SENDER_A, i as u64);
@@ -349,12 +338,12 @@ mod tests {
     #[test]
     fn test_unregister() {
         let mut family = TransactionFamily::new();
-        
+
         family.register(hash_from_nonce(0), SENDER_A, 0);
         family.register(hash_from_nonce(1), SENDER_A, 1);
-        
+
         family.unregister(&hash_from_nonce(0), &SENDER_A, 0);
-        
+
         // Parent link should be removed
         assert!(!family.children.contains_key(&hash_from_nonce(0)));
     }

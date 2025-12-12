@@ -4,8 +4,8 @@
 //!
 //! Reference: SPEC-14 Lines 165-172
 
+use crate::domain::{GlobalStateRoot, Hash, ShardStateRoot};
 use sha3::{Digest, Keccak256};
-use crate::domain::{Hash, ShardStateRoot, GlobalStateRoot};
 
 /// Compute global state root from shard roots.
 ///
@@ -70,11 +70,7 @@ fn hash_concat(left: &Hash, right: &Hash) -> Hash {
 }
 
 /// Verify a shard root is included in global state.
-pub fn verify_shard_inclusion(
-    shard_root: &Hash,
-    proof: &[Hash],
-    global_root: &Hash,
-) -> bool {
+pub fn verify_shard_inclusion(shard_root: &Hash, proof: &[Hash], global_root: &Hash) -> bool {
     let mut current = *shard_root;
 
     for sibling in proof {
@@ -129,14 +125,8 @@ mod tests {
 
     #[test]
     fn test_global_state_root_order_independent() {
-        let roots1 = vec![
-            make_shard_root(0, 1),
-            make_shard_root(1, 2),
-        ];
-        let roots2 = vec![
-            make_shard_root(1, 2),
-            make_shard_root(0, 1),
-        ];
+        let roots1 = vec![make_shard_root(0, 1), make_shard_root(1, 2)];
+        let roots2 = vec![make_shard_root(1, 2), make_shard_root(0, 1)];
 
         let global1 = compute_global_state_root(&roots1, 100, 10);
         let global2 = compute_global_state_root(&roots2, 100, 10);

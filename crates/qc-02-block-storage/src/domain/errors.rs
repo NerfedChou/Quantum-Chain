@@ -76,14 +76,10 @@ pub enum StorageError {
     ///
     /// Input bytes differ from re-serialized canonical form.
     /// Accepting non-canonical data could cause hash mismatches with network.
-    NonCanonicalEncoding {
-        reason: &'static str,
-    },
+    NonCanonicalEncoding { reason: &'static str },
 
     /// Database lock could not be acquired (process already running).
-    DatabaseLocked {
-        message: String,
-    },
+    DatabaseLocked { message: String },
 }
 
 impl fmt::Display for StorageError {
@@ -165,7 +161,11 @@ impl fmt::Display for StorageError {
                 )
             }
             StorageError::NonCanonicalEncoding { reason } => {
-                write!(f, "Non-canonical encoding detected: {} (Anti-Malleability)", reason)
+                write!(
+                    f,
+                    "Non-canonical encoding detected: {} (Anti-Malleability)",
+                    reason
+                )
             }
             StorageError::DatabaseLocked { message } => {
                 write!(f, "Database locked: {}", message)

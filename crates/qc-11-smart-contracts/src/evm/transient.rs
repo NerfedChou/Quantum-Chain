@@ -42,10 +42,7 @@ impl TransientStorage {
 
     /// Store a value in transient storage (TSTORE).
     pub fn tstore(&mut self, address: Address, key: StorageKey, value: StorageValue) {
-        self.data
-            .entry(address)
-            .or_default()
-            .insert(key, value);
+        self.data.entry(address).or_default().insert(key, value);
     }
 
     /// Clear all transient storage (called at end of transaction).

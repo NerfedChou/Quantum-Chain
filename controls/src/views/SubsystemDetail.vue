@@ -1,21 +1,26 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, toRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useSubsystemData } from '../composables/useSubsystemData'
 
 const route = useRoute()
 const router = useRouter()
 
 const subsystemId = computed(() => route.params.id)
 
+// Get real data from API Gateway (QC-16)
+const { data: apiData, loading, error, refresh } = useSubsystemData(toRef(subsystemId))
+
 // Helper to format bytes
 const formatBytes = (bytes) => {
+  if (!bytes) return '0 B'
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`
   if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`
   return `${bytes} B`
 }
 
-// Mock data for all subsystems
+// Mock data for fallback when API is unavailable
 const subsystemData = {
   // ═══════════════════════════════════════════════════════════════════════════
   // QC-01: PEER DISCOVERY
@@ -110,12 +115,62 @@ const subsystemData = {
 }
 
 const data = computed(() => {
-  return subsystemData[subsystemId.value] || {
+  const mockData = subsystemData[subsystemId.value] || {
     name: 'Unknown Subsystem',
-    description: 'Subsystem data not available. Check if the subsystem ID is correct.',
+    description: 'Subsystem data not available.',
     status: 'unknown',
     type: 'unknown'
   }
+  
+  // If we have API data, merge it with mock data (API takes precedence)
+  if (apiData.value) {
+    const api = apiData.value
+    const metrics = api.specific_metrics || {}
+    
+    // Map API status to UI status
+    const statusMap = { running: 'good', stopped: 'error', degraded: 'average', not_implemented: 'average' }
+    
+    return {
+      ...mockData,
+      name: api.name || mockData.name,
+      status: statusMap[api.status] || mockData.status,
+      // Merge specific_metrics into the data structure based on subsystem type
+      ...(subsystemId.value === 'qc-01' ? {
+        routingTable: {
+          totalPeers: metrics.routing_table_size ?? mockData.routingTable?.totalPeers ?? 0,
+          bucketsUsed: metrics.buckets_used ?? mockData.routingTable?.bucketsUsed ?? 0,
+          maxBuckets: 256,
+          pendingVerification: metrics.pending_verification ?? mockData.routingTable?.pendingVerification ?? 0,
+          maxPending: metrics.max_pending ?? 100,
+          oldestPeerAge: metrics.oldest_peer_age_secs ? `${Math.floor(metrics.oldest_peer_age_secs / 86400)}d` : mockData.routingTable?.oldestPeerAge ?? '-',
+          bannedCount: metrics.banned_count ?? mockData.routingTable?.bannedCount ?? 0
+        },
+        connections: {
+          inbound: { current: metrics.peers_connected ?? mockData.connections?.inbound?.current ?? 0, max: 40 },
+          outbound: { current: 0, max: 10 },
+          protected: 0,
+          evictionQueue: 0
+        }
+      } : {}),
+      ...(subsystemId.value === 'qc-02' ? {
+        blockStatus: {
+          latestHeight: metrics.latest_height ?? mockData.blockStatus?.latestHeight ?? 0,
+          finalizedHeight: metrics.finalized_height ?? mockData.blockStatus?.finalizedHeight ?? 0,
+          totalBlocks: metrics.total_blocks ?? mockData.blockStatus?.totalBlocks ?? 0,
+          genesisHash: metrics.genesis_hash ?? mockData.blockStatus?.genesisHash ?? '-',
+          storageVersion: metrics.storage_version ?? 1
+        },
+        diskStorage: {
+          usedBytes: metrics.disk_used_bytes ?? mockData.diskStorage?.usedBytes ?? 0,
+          capacityBytes: metrics.disk_capacity_bytes ?? mockData.diskStorage?.capacityBytes ?? 500000000000,
+          usagePercent: metrics.disk_capacity_bytes ? (metrics.disk_used_bytes / metrics.disk_capacity_bytes * 100).toFixed(1) : 0
+        },
+        pendingAssemblies: metrics.pending_assemblies ?? mockData.pendingAssemblies ?? []
+      } : {})
+    }
+  }
+  
+  return mockData
 })
 
 // Helper to determine if current subsystem is QC-01 or QC-02
@@ -173,6 +228,28 @@ const getDiskUsageColor = (percent) => {
         </span>
         <h1 class="text-xl font-semibold text-[var(--color-text-primary)] mt-1">{{ data.name }}</h1>
       </div>
+      
+      <!-- Control Buttons -->
+      <div class="flex items-center gap-2">
+        <button
+          @click="refresh"
+          :disabled="loading"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-[var(--color-surface)] border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-border)] disabled:opacity-50 transition-colors"
+        >
+          <svg :class="['w-3.5 h-3.5', loading ? 'animate-spin' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {{ loading ? 'Loading...' : 'Refresh' }}
+        </button>
+        <button class="px-3 py-1.5 text-xs rounded bg-[var(--color-warning)]/10 text-[var(--color-warning)] hover:bg-[var(--color-warning)]/20 transition-colors">
+          Restart
+        </button>
+        <button class="px-3 py-1.5 text-xs rounded bg-[var(--color-error)]/10 text-[var(--color-error)] hover:bg-[var(--color-error)]/20 transition-colors">
+          Stop
+        </button>
+      </div>
+      
+      <!-- Status Badge -->
       <span :class="['text-xs font-medium uppercase px-3 py-1 rounded', getStatusColor(data.status)]">
         {{ data.status }}
       </span>

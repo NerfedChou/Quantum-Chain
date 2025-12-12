@@ -135,7 +135,10 @@ mod tests {
     }
 
     /// Create a test message with the given sender_id.
-    fn create_test_message(sender_id: u8, payload: PropagateBlockRequest) -> AuthenticatedMessage<PropagateBlockRequest> {
+    fn create_test_message(
+        sender_id: u8,
+        payload: PropagateBlockRequest,
+    ) -> AuthenticatedMessage<PropagateBlockRequest> {
         AuthenticatedMessage {
             version: 1,
             sender_id,
@@ -241,16 +244,16 @@ mod tests {
     fn test_only_consensus_is_authorized() {
         // Per IPC-MATRIX.md, only Consensus (8) can request block propagation
         const CONSENSUS_ID: u8 = 8;
-        
+
         // All other subsystems should be rejected
         let unauthorized_senders = [
-            1,  // Peer Discovery
-            2,  // Block Storage
-            3,  // Transaction Indexing
-            4,  // State Management
-            5,  // Block Propagation (self - shouldn't happen)
-            6,  // Mempool
-            7,  // Bloom Filters
+            1, // Peer Discovery
+            2, // Block Storage
+            3, // Transaction Indexing
+            4, // State Management
+            5, // Block Propagation (self - shouldn't happen)
+            6, // Mempool
+            7, // Bloom Filters
             // 8 is Consensus (authorized)
             9,  // Finality
             10, // Signature Verification
@@ -261,10 +264,13 @@ mod tests {
         // Verify the handler checks for sender_id == 8
         // (The actual check is on line 78 of handler.rs)
         assert_eq!(CONSENSUS_ID, 8, "Consensus subsystem ID should be 8");
-        
+
         for id in unauthorized_senders {
-            assert_ne!(id, CONSENSUS_ID, "Subsystem {} should not be authorized", id);
+            assert_ne!(
+                id, CONSENSUS_ID,
+                "Subsystem {} should not be authorized",
+                id
+            );
         }
     }
 }
-

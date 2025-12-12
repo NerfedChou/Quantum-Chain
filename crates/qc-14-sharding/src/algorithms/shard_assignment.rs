@@ -4,8 +4,8 @@
 //!
 //! Reference: System.md Lines 676-680, SPEC-14 Lines 120-142
 
+use crate::domain::{Address, Hash, ShardId};
 use sha3::{Digest, Keccak256};
-use crate::domain::{ShardId, Address, Hash};
 
 /// Simple modulo-based shard assignment.
 ///
@@ -53,7 +53,7 @@ pub fn rendezvous_assign(address: &Address, shards: &[ShardId]) -> ShardId {
         // Copy shard ID into buffer
         input[20..22].copy_from_slice(&shard.to_be_bytes());
         let combined = keccak256(&input);
-        
+
         if combined > best_hash {
             best_hash = combined;
             best_shard = *shard;
@@ -69,11 +69,17 @@ pub fn rendezvous_assign(address: &Address, shards: &[ShardId]) -> ShardId {
 pub fn is_cross_shard(sender: &Address, recipients: &[Address], shard_count: u16) -> bool {
     let sender_shard = assign_shard(sender, shard_count);
 
-    recipients.iter().any(|r| assign_shard(r, shard_count) != sender_shard)
+    recipients
+        .iter()
+        .any(|r| assign_shard(r, shard_count) != sender_shard)
 }
 
 /// Get all shards involved in a transaction.
-pub fn get_involved_shards(sender: &Address, recipients: &[Address], shard_count: u16) -> Vec<ShardId> {
+pub fn get_involved_shards(
+    sender: &Address,
+    recipients: &[Address],
+    shard_count: u16,
+) -> Vec<ShardId> {
     let mut shards = vec![assign_shard(sender, shard_count)];
 
     for recipient in recipients {

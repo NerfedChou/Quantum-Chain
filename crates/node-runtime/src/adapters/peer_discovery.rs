@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use parking_lot::RwLock;
+use std::sync::Arc;
 use tokio::spawn;
 use tracing::{error, info};
 
@@ -10,7 +10,7 @@ use qc_01_peer_discovery::{
     ports::PeerDiscoveryApi,
     service::PeerDiscoveryService,
 };
-use shared_bus::{EventPublisher, InMemoryEventBus, events::BlockchainEvent};
+use shared_bus::{events::BlockchainEvent, EventPublisher, InMemoryEventBus};
 use shared_types::ipc::VerifyNodeIdentityPayload;
 
 /// Wrapper around Shared PeerDiscoveryService to implement PeerDiscoveryApi.
@@ -97,13 +97,16 @@ impl VerificationRequestPublisher for RuntimeVerificationPublisher {
         };
 
         let event_bus = self.event_bus.clone();
-        
+
         // Spawn async task because publish is async but trait is sync
         spawn(async move {
             event_bus.publish(event).await;
         });
 
-        info!("Published verification request for node {:?}", request.node_id);
+        info!(
+            "Published verification request for node {:?}",
+            request.node_id
+        );
         Ok(())
     }
 }

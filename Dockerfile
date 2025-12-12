@@ -33,13 +33,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GPU compute dependencies if requested
-RUN if [ "$GPU_BACKEND" = "nvidia" ]; then \
+# Install GPU compute dependencies if requested (OpenCL headers)
+RUN if [ "$GPU_BACKEND" = "nvidia" ] || [ "$GPU_BACKEND" = "amd" ]; then \
     apt-get update && apt-get install -y --no-install-recommends \
-    nvidia-cuda-toolkit \
-    && rm -rf /var/lib/apt/lists/*; \
-    elif [ "$GPU_BACKEND" = "amd" ]; then \
-    apt-get update && apt-get install -y --no-install-recommends \
-    rocm-dev \
+    opencl-headers \
+    ocl-icd-opencl-dev \
     && rm -rf /var/lib/apt/lists/*; \
     fi
 
@@ -49,7 +47,7 @@ COPY crates/ crates/
 
 # Build release binary with optional GPU features
 RUN if [ "$GPU_BACKEND" = "nvidia" ] || [ "$GPU_BACKEND" = "amd" ]; then \
-    cargo build --release --bin node-runtime --features "gpu-compute"; \
+    cargo build --release --bin node-runtime --features "gpu"; \
     else \
     cargo build --release --bin node-runtime; \
     fi
@@ -62,11 +60,20 @@ FROM debian:bookworm-slim AS runtime
 ARG GPU_BACKEND=none
 
 # Install runtime dependencies
+# For GPU backends, also install OpenCL runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     librocksdb7.8 \
     libsnappy1v5 \
+    && if [ "$GPU_BACKEND" = "nvidia" ] || [ "$GPU_BACKEND" = "amd" ]; then \
+    apt-get install -y --no-install-recommends \
+        ocl-icd-libopencl1 \
+    && mkdir -p /etc/OpenCL/vendors \
+    && if [ "$GPU_BACKEND" = "nvidia" ]; then \
+        echo "libnvidia-opencl.so.1" > /etc/OpenCL/vendors/nvidia.icd; \
+    fi; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user

@@ -105,7 +105,7 @@ pub mod service;
 pub mod prelude {
     // Domain entities
     pub use crate::domain::entities::{
-        AccountState, BlockContext, ExecutionContext, ExecutionResult, EvmVersion, Log,
+        AccountState, BlockContext, EvmVersion, ExecutionContext, ExecutionResult, Log,
         StateChange, VmConfig,
     };
 
@@ -131,17 +131,15 @@ pub mod prelude {
         TransactionReceipt,
     };
     pub use crate::ports::outbound::{
-        AccessList, AccessStatus, BlockHashOracle, SignatureVerifier, StateAccess,
-        TransientStorage,
+        AccessList, AccessStatus, BlockHashOracle, SignatureVerifier, StateAccess, TransientStorage,
     };
 
     // Events
     pub use crate::events::{
         subsystem_ids, topics, ExecuteHTLCRequestPayload, ExecuteHTLCResponsePayload,
-        ExecuteTransactionRequestPayload, ExecuteTransactionResponsePayload,
-        GetCodeRequestPayload, GetCodeResponsePayload, HtlcOperationPayload,
-        StateReadRequestPayload, StateReadResponsePayload, StateWriteRequestPayload,
-        StateWriteResponsePayload,
+        ExecuteTransactionRequestPayload, ExecuteTransactionResponsePayload, GetCodeRequestPayload,
+        GetCodeResponsePayload, HtlcOperationPayload, StateReadRequestPayload,
+        StateReadResponsePayload, StateWriteRequestPayload, StateWriteResponsePayload,
     };
 
     // Errors

@@ -174,7 +174,8 @@ impl CircuitBreakerManager {
                         // Still in timeout - reject
                         debug!(
                             subsystem = subsystem,
-                            remaining_ms = (self.config.open_timeout - opened_at.elapsed()).as_millis(),
+                            remaining_ms =
+                                (self.config.open_timeout - opened_at.elapsed()).as_millis(),
                             "Circuit breaker is open, rejecting request"
                         );
                         false
@@ -397,7 +398,7 @@ mod tests {
         for i in 0..3 {
             manager.should_allow("test-subsystem");
             manager.record_failure("test-subsystem");
-            
+
             if i < 2 {
                 assert_eq!(manager.get_state("test-subsystem"), CircuitState::Closed);
             }
@@ -460,7 +461,7 @@ mod tests {
         // Record successes
         manager.record_success("test-subsystem");
         assert_eq!(manager.get_state("test-subsystem"), CircuitState::HalfOpen);
-        
+
         manager.record_success("test-subsystem");
         assert_eq!(manager.get_state("test-subsystem"), CircuitState::Closed);
     }

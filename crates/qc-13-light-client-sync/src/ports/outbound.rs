@@ -4,9 +4,9 @@
 //!
 //! Reference: SPEC-13 Section 3.2 (Lines 219-270)
 
-use async_trait::async_trait;
-use crate::domain::{Hash, BlockHeader, MerkleProof, LightClientError};
 use super::inbound::Address;
+use crate::domain::{BlockHeader, Hash, LightClientError, MerkleProof};
+use async_trait::async_trait;
 
 /// Full node connection - outbound port.
 ///
@@ -45,7 +45,10 @@ pub trait PeerDiscovery: Send + Sync {
     /// Get a list of full nodes from diverse sources.
     ///
     /// Reference: System.md Line 648 - "Random peer selection from diverse sources"
-    async fn get_full_nodes(&self, count: usize) -> Result<Vec<Box<dyn FullNodeConnection>>, LightClientError>;
+    async fn get_full_nodes(
+        &self,
+        count: usize,
+    ) -> Result<Vec<Box<dyn FullNodeConnection>>, LightClientError>;
 
     /// Rotate to new peers (for privacy).
     ///
@@ -198,9 +201,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_full_node_get_headers() {
         let mut node = MockFullNode::default();
-        node.headers = vec![
-            BlockHeader::genesis([0u8; 32], 1000, [1u8; 32]),
-        ];
+        node.headers = vec![BlockHeader::genesis([0u8; 32], 1000, [1u8; 32])];
 
         let headers = node.get_headers(0, 10).await.unwrap();
         assert_eq!(headers.len(), 1);

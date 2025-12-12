@@ -4,11 +4,10 @@
 //!
 //! Reference: SPEC-14 Section 3.2 (Lines 225-313)
 
-use async_trait::async_trait;
 use crate::domain::{
-    ShardId, Hash, Address, ShardError,
-    ShardStateRoot, ValidatorInfo, LockData, LockProof,
+    Address, Hash, LockData, LockProof, ShardError, ShardId, ShardStateRoot, ValidatorInfo,
 };
+use async_trait::async_trait;
 
 /// Shard consensus - outbound port.
 ///

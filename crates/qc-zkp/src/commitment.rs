@@ -29,9 +29,15 @@ impl MerkleCommitment {
         }
 
         // Hash leaves
-        let leaves: Vec<HashOutput> = values.iter().map(|v| hash_field_element(v)).collect();
+        let leaves: Vec<HashOutput> = values.iter().copied().map(hash_field_element).collect();
 
         // Build tree
+        // Allow intentional casts for log2 calculation
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
         let height = (leaves.len() as f64).log2().ceil() as usize;
         let root = Self::build_tree(&leaves);
 
@@ -43,12 +49,14 @@ impl MerkleCommitment {
     }
 
     /// Get commitment root.
-    pub fn root(&self) -> &HashOutput {
+    #[must_use]
+    pub const fn root(&self) -> &HashOutput {
         &self.root
     }
 
     /// Get tree height.
-    pub fn height(&self) -> usize {
+    #[must_use]
+    pub const fn height(&self) -> usize {
         self.height
     }
 
@@ -151,7 +159,7 @@ impl MerkleProof {
 }
 
 /// Hash a field element.
-fn hash_field_element(elem: &FieldElement) -> HashOutput {
+fn hash_field_element(elem: FieldElement) -> HashOutput {
     let mut hasher = DefaultHasher::new();
     elem.value().hash(&mut hasher);
     let hash = hasher.finish();

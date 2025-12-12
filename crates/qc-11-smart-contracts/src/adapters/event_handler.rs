@@ -204,11 +204,7 @@ mod tests {
             Ok(21000)
         }
 
-        async fn call(
-            &self,
-            _context: ExecutionContext,
-            _code: &[u8],
-        ) -> Result<Bytes, VmError> {
+        async fn call(&self, _context: ExecutionContext, _code: &[u8]) -> Result<Bytes, VmError> {
             Ok(Bytes::new())
         }
     }
@@ -234,7 +230,9 @@ mod tests {
         assert!(result.is_ok());
 
         // Transaction Ordering (12) is authorized
-        let result = handler.handle_execute_transaction(12, payload.clone()).await;
+        let result = handler
+            .handle_execute_transaction(12, payload.clone())
+            .await;
         assert!(result.is_ok());
     }
 

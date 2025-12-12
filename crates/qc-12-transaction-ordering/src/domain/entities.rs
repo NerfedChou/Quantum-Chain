@@ -241,12 +241,7 @@ mod tests {
     }
 
     fn make_tx(val: u8) -> AnnotatedTransaction {
-        AnnotatedTransaction::new(
-            make_hash(val),
-            H160::zero(),
-            0,
-            AccessPattern::default(),
-        )
+        AnnotatedTransaction::new(make_hash(val), H160::zero(), 0, AccessPattern::default())
     }
 
     #[test]
@@ -268,7 +263,11 @@ mod tests {
 
         graph.add_node(tx1.clone());
         graph.add_node(tx2.clone());
-        graph.add_edge(Dependency::new(tx1.hash, tx2.hash, DependencyKind::ReadAfterWrite));
+        graph.add_edge(Dependency::new(
+            tx1.hash,
+            tx2.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
 
         assert!(graph.has_edge(&tx1.hash, &tx2.hash));
         assert!(!graph.has_edge(&tx2.hash, &tx1.hash));
@@ -287,8 +286,16 @@ mod tests {
         graph.add_node(tx3.clone());
 
         // tx1 -> tx2, tx1 -> tx3
-        graph.add_edge(Dependency::new(tx1.hash, tx2.hash, DependencyKind::ReadAfterWrite));
-        graph.add_edge(Dependency::new(tx1.hash, tx3.hash, DependencyKind::ReadAfterWrite));
+        graph.add_edge(Dependency::new(
+            tx1.hash,
+            tx2.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
+        graph.add_edge(Dependency::new(
+            tx1.hash,
+            tx3.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
 
         let zero_nodes = graph.get_zero_degree_nodes();
         assert_eq!(zero_nodes.len(), 1);

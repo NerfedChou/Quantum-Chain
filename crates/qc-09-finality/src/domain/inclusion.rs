@@ -65,7 +65,7 @@ impl InclusionDelayTracker {
         if delay_slots == 0 {
             return base_reward;
         }
-        
+
         if delay_slots > self.max_inclusion_delay {
             return 0;
         }
@@ -99,7 +99,7 @@ impl InclusionDelayTracker {
         if current_slot < attestation_slot {
             return false; // Future attestation
         }
-        
+
         let delay = current_slot - attestation_slot;
         delay <= self.max_inclusion_delay
     }
@@ -114,7 +114,7 @@ impl InclusionDelayTracker {
 
         let excess_delay = delay_slots - (self.max_inclusion_delay / 2);
         let max_excess = self.max_inclusion_delay / 2;
-        
+
         if excess_delay >= max_excess {
             base_penalty
         } else {
@@ -151,7 +151,7 @@ mod tests {
     #[test]
     fn test_linear_reward_immediate() {
         let tracker = InclusionDelayTracker::default();
-        
+
         let reward = tracker.calculate_reward(0, 1000);
         assert_eq!(reward, 1000);
     }
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn test_linear_reward_half_delay() {
         let tracker = InclusionDelayTracker::default();
-        
+
         // 16 slots delay out of 32 max = 50% reward
         let reward = tracker.calculate_reward(16, 1000);
         assert_eq!(reward, 500);
@@ -168,35 +168,29 @@ mod tests {
     #[test]
     fn test_linear_reward_expired() {
         let tracker = InclusionDelayTracker::default();
-        
+
         let reward = tracker.calculate_reward(33, 1000);
         assert_eq!(reward, 0);
     }
 
     #[test]
     fn test_exponential_reward() {
-        let tracker = InclusionDelayTracker::new(
-            32,
-            RewardCurve::Exponential { halflife: 8 },
-        );
-        
+        let tracker = InclusionDelayTracker::new(32, RewardCurve::Exponential { halflife: 8 });
+
         // 0 delay = full
         assert_eq!(tracker.calculate_reward(0, 1000), 1000);
-        
+
         // 8 slots = half
         assert_eq!(tracker.calculate_reward(8, 1000), 500);
-        
+
         // 16 slots = quarter
         assert_eq!(tracker.calculate_reward(16, 1000), 250);
     }
 
     #[test]
     fn test_step_reward() {
-        let tracker = InclusionDelayTracker::new(
-            32,
-            RewardCurve::Step { threshold: 4 },
-        );
-        
+        let tracker = InclusionDelayTracker::new(32, RewardCurve::Step { threshold: 4 });
+
         assert_eq!(tracker.calculate_reward(3, 1000), 1000);
         assert_eq!(tracker.calculate_reward(4, 1000), 1000);
         assert_eq!(tracker.calculate_reward(5, 1000), 0);
@@ -205,13 +199,13 @@ mod tests {
     #[test]
     fn test_validity_check() {
         let tracker = InclusionDelayTracker::default();
-        
+
         // Valid: current=100, attestation=90 (10 slot delay)
         assert!(tracker.is_valid_for_inclusion(90, 100));
-        
+
         // Invalid: current=100, attestation=50 (50 slot delay)
         assert!(!tracker.is_valid_for_inclusion(50, 100));
-        
+
         // Invalid: future attestation
         assert!(!tracker.is_valid_for_inclusion(110, 100));
     }

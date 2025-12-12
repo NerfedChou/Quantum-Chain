@@ -54,7 +54,7 @@ impl LMDGhostStore {
     pub fn add_block(&mut self, header: BlockHeader) {
         let hash = header.hash();
         let parent = header.parent_hash;
-        
+
         self.children.entry(parent).or_default().push(hash);
         self.blocks.insert(hash, header);
         self.invalidate_cache();
@@ -78,7 +78,7 @@ impl LMDGhostStore {
     /// the child with highest accumulated weight.
     pub fn get_head(&mut self, validator_set: &ValidatorSet) -> Option<Hash> {
         let justified = self.justified_checkpoint?;
-        
+
         if !self.blocks.contains_key(&justified) {
             return None;
         }
@@ -89,7 +89,7 @@ impl LMDGhostStore {
         }
 
         let mut current = justified;
-        
+
         loop {
             let child_hashes = match self.children.get(&current) {
                 Some(children) if !children.is_empty() => children.clone(),
@@ -101,7 +101,7 @@ impl LMDGhostStore {
                 .into_iter()
                 .max_by_key(|c| self.get_weight(c))
                 .unwrap();
-            
+
             current = best_child;
         }
     }
@@ -114,29 +114,29 @@ impl LMDGhostStore {
     /// Rebuild weight cache from latest votes.
     fn rebuild_weight_cache(&mut self, validator_set: &ValidatorSet) {
         self.weight_cache.clear();
-        
+
         // For each validator's latest vote, add their stake to all ancestors
         for (validator, target) in &self.latest_votes {
             let stake = validator_set.get_stake(validator).unwrap_or(0);
-            
+
             // Walk up the tree adding weight
             let mut current = *target;
             let mut visited = HashSet::new();
-            
+
             while let Some(header) = self.blocks.get(&current) {
                 if !visited.insert(current) {
                     break; // Prevent infinite loops
                 }
-                
+
                 *self.weight_cache.entry(current).or_insert(0) += stake;
-                
+
                 if current == header.parent_hash {
                     break; // Genesis
                 }
                 current = header.parent_hash;
             }
         }
-        
+
         self.cache_valid = true;
     }
 
@@ -218,19 +218,19 @@ mod tests {
     fn test_single_chain_head() {
         let mut store = LMDGhostStore::new();
         let vs = make_validator_set();
-        
+
         let genesis = make_header(0, [0; 32]);
         let genesis_hash = genesis.hash();
         store.add_block(genesis);
         store.set_justified(genesis_hash);
-        
+
         let block1 = make_header(1, genesis_hash);
         let b1_hash = block1.hash();
         store.add_block(block1);
-        
+
         // Vote for block1
         store.on_attestation([1; 32], b1_hash);
-        
+
         let head = store.get_head(&vs);
         assert_eq!(head, Some(b1_hash));
     }
@@ -239,29 +239,29 @@ mod tests {
     fn test_fork_chooses_heavier_branch() {
         let mut store = LMDGhostStore::new();
         let vs = make_validator_set();
-        
+
         let genesis = make_header(0, [0; 32]);
         let genesis_hash = genesis.hash();
         store.add_block(genesis);
         store.set_justified(genesis_hash);
-        
+
         // Fork A - unique extra_data
         let mut a1 = make_header(1, genesis_hash);
         a1.extra_data = vec![0xA1];
         let a1_hash = a1.hash();
         store.add_block(a1);
-        
+
         // Fork B - different extra_data
         let mut b1 = make_header(1, genesis_hash);
         b1.extra_data = vec![0xB1];
         let b1_hash = b1.hash();
         store.add_block(b1);
-        
+
         // 1 vote for A, 2 votes for B
         store.on_attestation([1; 32], a1_hash);
         store.on_attestation([2; 32], b1_hash);
         store.on_attestation([3; 32], b1_hash);
-        
+
         let head = store.get_head(&vs);
         assert_eq!(head, Some(b1_hash), "Should choose heavier branch B");
     }
@@ -270,29 +270,29 @@ mod tests {
     fn test_vote_update_changes_head() {
         let mut store = LMDGhostStore::new();
         let vs = make_validator_set();
-        
+
         let genesis = make_header(0, [0; 32]);
         let genesis_hash = genesis.hash();
         store.add_block(genesis);
         store.set_justified(genesis_hash);
-        
+
         // Fork A
         let mut a1 = make_header(1, genesis_hash);
         a1.extra_data = vec![0xA1];
         let a1_hash = a1.hash();
         store.add_block(a1);
-        
+
         // Fork B
         let mut b1 = make_header(1, genesis_hash);
         b1.extra_data = vec![0xB1];
         let b1_hash = b1.hash();
         store.add_block(b1);
-        
+
         // Initially A wins (2 votes)
         store.on_attestation([1; 32], a1_hash);
         store.on_attestation([2; 32], a1_hash);
         assert_eq!(store.get_head(&vs), Some(a1_hash));
-        
+
         // Validator 1 switches to B, validator 3 joins B - now B wins
         store.on_attestation([1; 32], b1_hash);
         store.on_attestation([3; 32], b1_hash);
@@ -303,28 +303,28 @@ mod tests {
     fn test_deep_chain_weight_propagates() {
         let mut store = LMDGhostStore::new();
         let vs = make_validator_set();
-        
+
         let genesis = make_header(0, [0; 32]);
         let genesis_hash = genesis.hash();
         store.add_block(genesis);
         store.set_justified(genesis_hash);
-        
+
         // Build chain: genesis -> b1 -> b2 -> b3
         let b1 = make_header(1, genesis_hash);
         let b1_hash = b1.hash();
         store.add_block(b1);
-        
+
         let b2 = make_header(2, b1_hash);
         let b2_hash = b2.hash();
         store.add_block(b2);
-        
+
         let b3 = make_header(3, b2_hash);
         let b3_hash = b3.hash();
         store.add_block(b3);
-        
+
         // Vote for b3 - weight should propagate to b1, b2
         store.on_attestation([1; 32], b3_hash);
-        
+
         let head = store.get_head(&vs);
         assert_eq!(head, Some(b3_hash));
     }

@@ -12,9 +12,8 @@
 
 #[cfg(feature = "qc-13")]
 use qc_13_light_client_sync::{
-    LightClientService, LightClientConfig, LightClientApi,
-    BlockHeader, ChainTip, SyncResult, ProvenTransaction, Hash,
-    LightClientError, MockFullNode,
+    BlockHeader, ChainTip, Hash, LightClientApi, LightClientConfig, LightClientError,
+    LightClientService, MockFullNode, ProvenTransaction, SyncResult,
 };
 
 #[cfg(feature = "qc-13")]

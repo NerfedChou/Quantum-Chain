@@ -105,14 +105,16 @@ impl CommitteeCache {
         // Assign validators to committees
         for (i, validator) in validator_set.validators.iter().enumerate() {
             let committee_id = (i / COMMITTEE_SIZE) as u64;
-            
+
             cache.validator_committee.insert(validator.id, committee_id);
-            cache.committee_members
+            cache
+                .committee_members
                 .entry(committee_id)
                 .or_default()
                 .push(validator.id);
-            
-            cache.committee_keys
+
+            cache
+                .committee_keys
                 .entry(committee_id)
                 .or_insert_with(AggregateKey::new)
                 .add(validator.pubkey);
@@ -164,14 +166,14 @@ impl CommitteeCache {
         validator_set: &ValidatorSet,
     ) -> bool {
         let effective_key = self.compute_effective_key(participation, validator_set);
-        
+
         // In production:
         // bls_verify(signature, message, &effective_key.aggregate)
-        
+
         // For now, just check we have enough participants (2/3)
         let participating = participation.iter().filter(|&&p| p).count();
         let required = (validator_set.len() * 2) / 3 + 1;
-        
+
         participating >= required && !effective_key.is_empty()
     }
 
@@ -235,7 +237,7 @@ mod tests {
                 active: true,
             })
             .collect();
-        
+
         ValidatorSet::new(0, validators)
     }
 
@@ -243,14 +245,14 @@ mod tests {
     fn test_committee_assignment() {
         let vs = make_validator_set(300);
         let cache = CommitteeCache::build(&vs);
-        
+
         // 300 validators / 128 per committee = 3 committees
         assert_eq!(cache.num_committees(), 3);
-        
+
         // Check first validator is in committee 0
         let v0 = vs.validators[0].id;
         assert_eq!(cache.get_committee(&v0), Some(0));
-        
+
         // Check validator 129 is in committee 1
         let v129 = vs.validators[129].id;
         assert_eq!(cache.get_committee(&v129), Some(1));
@@ -260,10 +262,10 @@ mod tests {
     fn test_effective_key_all_present() {
         let vs = make_validator_set(10);
         let cache = CommitteeCache::build(&vs);
-        
+
         let participation = vec![true; 10];
         let effective = cache.compute_effective_key(&participation, &vs);
-        
+
         // All present = all keys
         assert_eq!(effective.len(), 10);
     }
@@ -272,15 +274,15 @@ mod tests {
     fn test_effective_key_some_missing() {
         let vs = make_validator_set(10);
         let cache = CommitteeCache::build(&vs);
-        
+
         // 3 validators missing
         let mut participation = vec![true; 10];
         participation[2] = false;
         participation[5] = false;
         participation[8] = false;
-        
+
         let effective = cache.compute_effective_key(&participation, &vs);
-        
+
         // 10 - 3 = 7 keys
         assert_eq!(effective.len(), 7);
     }
@@ -289,12 +291,12 @@ mod tests {
     fn test_verify_aggregate_sufficient() {
         let vs = make_validator_set(9);
         let cache = CommitteeCache::build(&vs);
-        
+
         // 7/9 = 77% > 67% required
         let mut participation = vec![true; 9];
         participation[0] = false;
         participation[1] = false;
-        
+
         let valid = cache.verify_aggregate(b"sig", b"msg", &participation, &vs);
         assert!(valid);
     }
@@ -303,14 +305,14 @@ mod tests {
     fn test_verify_aggregate_insufficient() {
         let vs = make_validator_set(9);
         let cache = CommitteeCache::build(&vs);
-        
+
         // 5/9 = 55% < 67% required
         let mut participation = vec![true; 9];
         participation[0] = false;
         participation[1] = false;
         participation[2] = false;
         participation[3] = false;
-        
+
         let valid = cache.verify_aggregate(b"sig", b"msg", &participation, &vs);
         assert!(!valid);
     }

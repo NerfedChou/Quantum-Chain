@@ -360,7 +360,7 @@ mod tests {
         assert_ne!(LEAF_DOMAIN, EXTENSION_DOMAIN);
         assert_ne!(LEAF_DOMAIN, BRANCH_DOMAIN);
         assert_ne!(EXTENSION_DOMAIN, BRANCH_DOMAIN);
-        
+
         // Standard values
         assert_eq!(LEAF_DOMAIN, 0x00);
         assert_eq!(EXTENSION_DOMAIN, 0x01);
@@ -395,10 +395,10 @@ mod tests {
         let mut addr2 = [0x00; 20];
         addr1[19] = 0x01;
         addr2[19] = 0x02;
-        
+
         let h1 = hash_path(&addr1);
         let h2 = hash_path(&addr2);
-        
+
         // First bytes should differ (high probability with good hash)
         // This prevents prefix grinding attacks
         assert_ne!(h1[0], h2[0]);
@@ -407,11 +407,11 @@ mod tests {
     #[test]
     fn test_domain_separation_hashes() {
         let data = b"test_node_data";
-        
+
         let leaf = hash_leaf(data);
         let ext = hash_extension(data);
         let branch = hash_branch(data);
-        
+
         // Same data, different hashes due to domain separation
         assert_ne!(leaf, ext);
         assert_ne!(leaf, branch);

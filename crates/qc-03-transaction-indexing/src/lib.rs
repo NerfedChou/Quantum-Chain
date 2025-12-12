@@ -69,13 +69,28 @@ pub mod ports;
 
 // Re-export main types for convenience
 pub use domain::{
-    HashAlgorithm, IndexConfig, IndexingError, IndexingErrorPayload, IndexingErrorType,
-    IndexingStats, MerkleConfig, MerkleProof, MerkleTree, ProofNode, SiblingPosition,
-    TransactionIndex, TransactionLocation, SENTINEL_HASH,
-    // Security hardening (Phase 2)
-    LEAF_DOMAIN, NODE_DOMAIN, MAX_PROOF_DEPTH, PARALLEL_THRESHOLD,
+    sort_canonically,
+    HashAlgorithm,
+    IndexConfig,
+    IndexingError,
+    IndexingErrorPayload,
+    IndexingErrorType,
+    IndexingStats,
+    MerkleConfig,
+    MerkleProof,
+    MerkleTree,
     // Advanced features (Phase 1)
-    MultiProof, sort_canonically,
+    MultiProof,
+    ProofNode,
+    SiblingPosition,
+    TransactionIndex,
+    TransactionLocation,
+    // Security hardening (Phase 2)
+    LEAF_DOMAIN,
+    MAX_PROOF_DEPTH,
+    NODE_DOMAIN,
+    PARALLEL_THRESHOLD,
+    SENTINEL_HASH,
 };
 
 pub use ports::{

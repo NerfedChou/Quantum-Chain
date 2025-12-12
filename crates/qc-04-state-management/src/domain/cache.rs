@@ -26,7 +26,10 @@ pub struct CacheKey {
 
 impl CacheKey {
     pub fn new(address: Address, block_hash: BlockHash) -> Self {
-        Self { address, block_hash }
+        Self {
+            address,
+            block_hash,
+        }
     }
 }
 
@@ -96,7 +99,7 @@ impl VersionedAccountCache {
     pub fn handle_reorg(&mut self, old_head: BlockHash, new_head: BlockHash) {
         self.stale_hashes.push(old_head);
         self.current_head = new_head;
-        
+
         // Prune stale entries if list grows too large
         if self.stale_hashes.len() > 100 {
             self.flush_stale();
@@ -106,7 +109,8 @@ impl VersionedAccountCache {
     /// Flush all stale entries from abandoned forks.
     pub fn flush_stale(&mut self) {
         // Collect keys to remove
-        let keys_to_remove: Vec<CacheKey> = self.cache
+        let keys_to_remove: Vec<CacheKey> = self
+            .cache
             .iter()
             .filter(|(k, _)| self.stale_hashes.contains(&k.block_hash))
             .map(|(k, _)| k.clone())
@@ -115,7 +119,7 @@ impl VersionedAccountCache {
         for key in keys_to_remove {
             self.cache.pop(&key);
         }
-        
+
         self.stale_hashes.clear();
     }
 
@@ -163,10 +167,10 @@ mod tests {
     fn test_cache_put_get() {
         let mut cache = VersionedAccountCache::new();
         cache.set_head([0x01; 32], 100);
-        
+
         let addr = [0xAA; 20];
         cache.put(addr, test_account());
-        
+
         let retrieved = cache.get(&addr);
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().balance, 1000);
@@ -176,10 +180,10 @@ mod tests {
     fn test_cache_miss_on_different_head() {
         let mut cache = VersionedAccountCache::with_capacity(100);
         cache.set_head([0x01; 32], 100);
-        
+
         let addr = [0xAA; 20];
         cache.put(addr, test_account());
-        
+
         // Change head - entry should miss
         cache.set_head([0x02; 32], 101);
         assert!(cache.get(&addr).is_none());
@@ -188,17 +192,17 @@ mod tests {
     #[test]
     fn test_cache_reorg_stale() {
         let mut cache = VersionedAccountCache::with_capacity(100);
-        
+
         // Cache at head A
         cache.set_head([0x01; 32], 100);
         cache.put([0xAA; 20], test_account());
-        
+
         // Reorg to head B
         cache.handle_reorg([0x01; 32], [0x02; 32]);
-        
+
         // Old entry is stale
         assert_eq!(cache.stats().stale_hashes, 1);
-        
+
         // Flush stale
         cache.flush_stale();
         assert_eq!(cache.stats().entries, 0);
@@ -208,13 +212,13 @@ mod tests {
     fn test_cache_stats() {
         let mut cache = VersionedAccountCache::with_capacity(50);
         cache.set_head([0x01; 32], 100);
-        
+
         for i in 0..10u8 {
             let mut addr = [0; 20];
             addr[0] = i;
             cache.put(addr, test_account());
         }
-        
+
         let stats = cache.stats();
         assert_eq!(stats.entries, 10);
         assert_eq!(stats.capacity, 50);

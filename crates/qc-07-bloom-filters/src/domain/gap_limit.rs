@@ -135,14 +135,20 @@ impl GapLimitEnforcer {
     /// Expected rate is calculated from filter FPR and average block size.
     pub fn register_client(&mut self, client_id: String, filter_fpr: f64, avg_tx_per_block: usize) {
         let expected_rate = avg_tx_per_block as f64 * filter_fpr;
-        self.clients.insert(client_id, ClientMatchHistory::new(expected_rate));
+        self.clients
+            .insert(client_id, ClientMatchHistory::new(expected_rate));
     }
 
     /// Record matches for a client's block.
     ///
     /// Returns `Err(ThrottleReason)` if client should be disconnected.
-    pub fn record_matches(&mut self, client_id: &str, matches: usize) -> Result<(), ThrottleReason> {
-        let history = self.clients
+    pub fn record_matches(
+        &mut self,
+        client_id: &str,
+        matches: usize,
+    ) -> Result<(), ThrottleReason> {
+        let history = self
+            .clients
             .get_mut(client_id)
             .ok_or(ThrottleReason::ClientNotFound)?;
 
@@ -190,58 +196,58 @@ mod tests {
     #[test]
     fn test_normal_match_rate() {
         let mut history = ClientMatchHistory::new(5.0); // Expect 5 matches/block
-        
+
         // Normal matching - should not throttle
         for _ in 0..10 {
             assert!(!history.record_block(3));
         }
-        
+
         assert!(!history.is_throttled);
     }
 
     #[test]
     fn test_excessive_match_rate_triggers_throttle() {
         let mut history = ClientMatchHistory::new(5.0); // Expect 5 matches/block
-        
+
         // Excessive matching (>50 = 5 * 10)
         for _ in 0..CONSECUTIVE_BLOCKS_THRESHOLD {
             history.record_block(100);
         }
-        
+
         assert!(history.is_throttled);
     }
 
     #[test]
     fn test_intermittent_spikes_dont_throttle() {
         let mut history = ClientMatchHistory::new(5.0);
-        
+
         // Spike, then normal - should reset counter
         history.record_block(100);
         history.record_block(100);
         history.record_block(3); // Normal - resets counter
         history.record_block(100);
         history.record_block(100);
-        
+
         assert!(!history.is_throttled);
     }
 
     #[test]
     fn test_enforcer_multiple_clients() {
         let mut enforcer = GapLimitEnforcer::new();
-        
+
         enforcer.register_client("alice".to_string(), 0.01, 100);
         enforcer.register_client("bob".to_string(), 0.01, 100);
-        
+
         // Alice gets dusted
         for _ in 0..10 {
             let _ = enforcer.record_matches("alice", 500);
         }
-        
+
         // Bob is normal
         for _ in 0..10 {
             enforcer.record_matches("bob", 1).unwrap();
         }
-        
+
         let throttled = enforcer.get_throttled_clients();
         assert!(throttled.contains(&"alice".to_string()));
         assert!(!throttled.contains(&"bob".to_string()));
@@ -250,13 +256,13 @@ mod tests {
     #[test]
     fn test_reset_clears_throttle() {
         let mut history = ClientMatchHistory::new(5.0);
-        
+
         // Trigger throttle
         for _ in 0..CONSECUTIVE_BLOCKS_THRESHOLD {
             history.record_block(100);
         }
         assert!(history.is_throttled);
-        
+
         // Reset
         history.reset();
         assert!(!history.is_throttled);

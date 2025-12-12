@@ -21,7 +21,9 @@ pub mod validation;
 pub mod whitelist;
 
 pub use auth::{constant_time_compare, AuthConfig, AuthLayer};
-pub use circuit_breaker::{CircuitBreakerConfig, CircuitBreakerManager, CircuitState, CircuitStats};
+pub use circuit_breaker::{
+    CircuitBreakerConfig, CircuitBreakerManager, CircuitState, CircuitStats,
+};
 pub use cors::create_cors_layer;
 pub use ip_protection::{IpProtectionLayer, TrustedProxyConfig};
 pub use metrics::{GatewayMetrics, RequestTimer};
@@ -71,7 +73,9 @@ impl MiddlewareStack {
             timeout: TimeoutLayer::new(config.timeouts.clone()),
             tracing: TracingLayer::new(),
             metrics: Arc::new(GatewayMetrics::new()),
-            circuit_breaker: Arc::new(CircuitBreakerManager::new(config.circuit_breaker.to_middleware_config())),
+            circuit_breaker: Arc::new(CircuitBreakerManager::new(
+                config.circuit_breaker.to_middleware_config(),
+            )),
         }
     }
 
@@ -90,4 +94,3 @@ impl MiddlewareStack {
         Arc::clone(&self.circuit_breaker)
     }
 }
-

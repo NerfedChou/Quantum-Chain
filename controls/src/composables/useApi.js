@@ -66,6 +66,10 @@ async function rpc(method, params = []) {
     }
 }
 
+// Track consecutive failures for stability
+let consecutiveFailures = 0
+const FAILURE_THRESHOLD = 2 // Require 2 failures before marking disconnected
+
 /**
  * Check node health and update connection status
  * @returns {Promise<boolean>} - True if healthy
@@ -85,24 +89,38 @@ async function checkHealth() {
                 method: 'eth_chainId',
                 params: []
             }),
-            signal: AbortSignal.timeout(3000) // 3 second timeout
+            signal: AbortSignal.timeout(5000) // 5 second timeout
         })
 
         latencyMs.value = Math.round(performance.now() - startTime)
 
         if (response.ok) {
             const data = await response.json()
-            connected.value = !data.error
-            lastError.value = data.error?.message || null
-            return connected.value
+            if (!data.error) {
+                consecutiveFailures = 0 // Reset on success
+                connected.value = true
+                lastError.value = null
+                return true
+            }
+            lastError.value = data.error?.message || 'RPC Error'
+        } else {
+            lastError.value = `HTTP ${response.status}`
         }
 
-        connected.value = false
-        lastError.value = `HTTP ${response.status}`
+        // Count failure
+        consecutiveFailures++
+        if (consecutiveFailures >= FAILURE_THRESHOLD) {
+            connected.value = false
+        }
         return false
     } catch (error) {
-        connected.value = false
+        consecutiveFailures++
         lastError.value = error.name === 'TimeoutError' ? 'Connection timeout' : error.message
+
+        // Only mark disconnected after threshold failures
+        if (consecutiveFailures >= FAILURE_THRESHOLD) {
+            connected.value = false
+        }
         return false
     } finally {
         connecting.value = false

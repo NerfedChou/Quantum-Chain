@@ -4,7 +4,7 @@
 //! - NO `sender_id` or `requester_id` fields in payloads
 //! - Identity derived ONLY from AuthenticatedMessage envelope
 
-use shared_types::{Hash, U256, ValidatedBlock};
+use shared_types::{Hash, ValidatedBlock, U256};
 
 // ============================================================
 // INCOMING EVENT PAYLOADS (V2.3 Choreography)
@@ -418,9 +418,9 @@ mod tests {
 
     #[test]
     fn test_request_payload_enum_includes_get_chain_info() {
-        let request = BlockStorageRequestPayload::GetChainInfo(
-            GetChainInfoRequestPayload { recent_blocks_count: 24 }
-        );
+        let request = BlockStorageRequestPayload::GetChainInfo(GetChainInfoRequestPayload {
+            recent_blocks_count: 24,
+        });
 
         match request {
             BlockStorageRequestPayload::GetChainInfo(payload) => {

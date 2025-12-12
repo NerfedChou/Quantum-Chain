@@ -14,7 +14,7 @@ use primitive_types::U256;
 use std::sync::Mutex;
 
 /// OpenCL SHA256 kernel source
-const SHA256_KERNEL: &str = r#"
+const SHA256_KERNEL: &str = r"
 // SHA256 constants
 __constant uint K[64] = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
@@ -161,7 +161,7 @@ __kernel void pow_mine(
         }
     }
 }
-"#;
+";
 
 /// OpenCL-based compute engine
 ///
@@ -179,7 +179,22 @@ pub struct OpenCLEngine {
 impl OpenCLEngine {
     pub fn new() -> Result<Self, ComputeError> {
         // Find the best GPU
-        let platform = ocl::Platform::default();
+        // Use ocl::core::get_platform_ids() directly - it returns Result instead of panicking
+        let platform_ids = ocl::core::get_platform_ids().map_err(|e| {
+            ComputeError::InitializationFailed(format!(
+                "Failed to get OpenCL platforms: {}. Is OpenCL installed?",
+                e
+            ))
+        })?;
+
+        let platform_id = platform_ids.first().cloned().ok_or_else(|| {
+            ComputeError::InitializationFailed(
+                "No OpenCL platform found. Install GPU drivers with OpenCL support.".to_string(),
+            )
+        })?;
+
+        // Convert core PlatformId to high-level Platform
+        let platform = ocl::Platform::new(platform_id);
 
         let device = ocl::Device::list(platform, Some(ocl::flags::DeviceType::GPU))
             .map_err(|e| ComputeError::InitializationFailed(e.to_string()))?
@@ -209,17 +224,40 @@ impl OpenCLEngine {
             .build(&context)
             .map_err(|e| ComputeError::InitializationFailed(e.to_string()))?;
 
-        // Create kernel (we'll set args later)
+        // Create kernel with argument placeholders (ocl requires args declared at build time)
         let pow_kernel = ocl::Kernel::builder()
             .program(&program)
             .name("pow_mine")
             .queue(queue.clone())
+            .arg(None::<&ocl::Buffer<u8>>)   // 0: header_template
+            .arg(0u32)                        // 1: header_len
+            .arg(None::<&ocl::Buffer<u8>>)   // 2: target
+            .arg(0u64)                        // 3: nonce_start
+            .arg(None::<&ocl::Buffer<u64>>)  // 4: result_nonce
+            .arg(None::<&ocl::Buffer<u8>>)   // 5: result_hash
+            .arg(None::<&ocl::Buffer<i32>>)  // 6: found
             .build()
             .map_err(|e| ComputeError::InitializationFailed(e.to_string()))?;
 
         let device_name = device.name().unwrap_or_else(|_| "Unknown".to_string());
-        let compute_units = device.max_compute_units().unwrap_or(1);
-        let memory = device.global_mem_size().unwrap_or(0);
+        // Use info() method for device properties in ocl crate
+        let compute_units = device
+            .info(ocl::core::DeviceInfo::MaxComputeUnits)
+            .ok()
+            .and_then(|v| match v {
+                ocl::core::DeviceInfoResult::MaxComputeUnits(n) => Some(n),
+                _ => None,
+            })
+            .unwrap_or(1);
+        let memory = device
+            .info(ocl::core::DeviceInfo::GlobalMemSize)
+            .ok()
+            .and_then(|v| match v {
+                ocl::core::DeviceInfoResult::GlobalMemSize(n) => Some(n),
+                _ => None,
+            })
+            .unwrap_or(0);
+        let supports_f64 = device.info(ocl::core::DeviceInfo::DoubleFpConfig).is_ok();
 
         Ok(Self {
             device_info: DeviceInfo {
@@ -227,7 +265,7 @@ impl OpenCLEngine {
                 backend: Backend::OpenCL,
                 compute_units,
                 memory_bytes: memory,
-                supports_f64: device.double_fp_config().is_ok(),
+                supports_f64,
             },
             context,
             queue,
@@ -314,34 +352,33 @@ impl ComputeEngine for OpenCLEngine {
             .build()
             .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
 
-        // Set kernel arguments - lock the mutex to get mutable access
+        // Set kernel arguments
         let kernel = self
             .pow_kernel
             .lock()
             .map_err(|e| ComputeError::TaskFailed(format!("Kernel lock poisoned: {}", e)))?;
-        unsafe {
-            kernel
-                .set_arg(0, &header_buf)
-                .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
-            kernel
-                .set_arg(1, header_template.len() as u32)
-                .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
-            kernel
-                .set_arg(2, &target_buf)
-                .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
-            kernel
-                .set_arg(3, nonce_start)
-                .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
-            kernel
-                .set_arg(4, &result_nonce_buf)
-                .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
-            kernel
-                .set_arg(5, &result_hash_buf)
-                .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
-            kernel
-                .set_arg(6, &found_buf)
-                .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
-        }
+
+        kernel
+            .set_arg(0, &header_buf)
+            .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
+        kernel
+            .set_arg(1, header_template.len() as u32)
+            .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
+        kernel
+            .set_arg(2, &target_buf)
+            .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
+        kernel
+            .set_arg(3, nonce_start)
+            .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
+        kernel
+            .set_arg(4, &result_nonce_buf)
+            .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
+        kernel
+            .set_arg(5, &result_hash_buf)
+            .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
+        kernel
+            .set_arg(6, &found_buf)
+            .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
 
         // Execute in batches
         let batch_size = 1 << 20; // 1M work items per batch
@@ -367,16 +404,16 @@ impl ComputeEngine for OpenCLEngine {
                 .finish()
                 .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
 
-            // Check if found
-            let mut found = [0i32; 1];
+            // Check if found - use Vec for buffer reads (ocl requires slices, not arrays)
+            let mut found = vec![0i32; 1];
             found_buf
                 .read(&mut found)
                 .enq()
                 .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
 
             if found[0] != 0 {
-                let mut nonce = [0u64; 1];
-                let mut hash = [0u8; 32];
+                let mut nonce = vec![0u64; 1];
+                let mut hash = vec![0u8; 32];
 
                 result_nonce_buf
                     .read(&mut nonce)
@@ -387,7 +424,9 @@ impl ComputeEngine for OpenCLEngine {
                     .enq()
                     .map_err(|e| ComputeError::TaskFailed(e.to_string()))?;
 
-                return Ok(Some((nonce[0], hash)));
+                let mut hash_array = [0u8; 32];
+                hash_array.copy_from_slice(&hash);
+                return Ok(Some((nonce[0], hash_array)));
             }
 
             current_nonce += batch_size;

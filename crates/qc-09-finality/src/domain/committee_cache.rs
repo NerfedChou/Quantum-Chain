@@ -38,10 +38,10 @@ impl CommitteeKeyCache {
         let validators: Vec<ValidatorId> = validator_set.iter().map(|v| v.id).collect();
         let num_validators = validators.len();
         let num_committees = (num_validators + committee_size - 1) / committee_size;
-        
+
         let mut validator_committee = HashMap::new();
         let mut committee_members: HashMap<usize, Vec<ValidatorId>> = HashMap::new();
-        
+
         for (i, validator) in validators.iter().enumerate() {
             let committee_idx = i / committee_size;
             validator_committee.insert(*validator, committee_idx);
@@ -50,7 +50,7 @@ impl CommitteeKeyCache {
                 .or_default()
                 .push(*validator);
         }
-        
+
         Self {
             epoch: validator_set.epoch(),
             num_committees,
@@ -73,13 +73,10 @@ impl CommitteeKeyCache {
     /// Compute effective participant count for a participation bitmap.
     ///
     /// For each committee, count how many are present vs absent.
-    pub fn analyze_participation(
-        &self,
-        participation: &[bool],
-    ) -> ParticipationAnalysis {
+    pub fn analyze_participation(&self, participation: &[bool]) -> ParticipationAnalysis {
         let mut present = 0usize;
         let mut absent_per_committee: HashMap<usize, usize> = HashMap::new();
-        
+
         for (i, &is_present) in participation.iter().enumerate() {
             if is_present {
                 present += 1;
@@ -88,7 +85,7 @@ impl CommitteeKeyCache {
                 *absent_per_committee.entry(committee).or_insert(0) += 1;
             }
         }
-        
+
         ParticipationAnalysis {
             present,
             absent: participation.len() - present,
@@ -153,7 +150,7 @@ mod tests {
     fn test_build_cache() {
         let vs = make_validator_set(300);
         let cache = CommitteeKeyCache::build(&vs, 128);
-        
+
         // 300 / 128 = 3 committees (rounded up)
         assert_eq!(cache.num_committees(), 3);
         assert_eq!(cache.total_validators(), 300);
@@ -163,13 +160,13 @@ mod tests {
     fn test_committee_assignment() {
         let vs = make_validator_set(256);
         let cache = CommitteeKeyCache::build(&vs, 128);
-        
+
         // All validators should be assigned to a committee
         let v0 = ValidatorId::new([0u8; 32]);
         let committee = cache.get_committee(&v0);
         assert!(committee.is_some());
         assert!(committee.unwrap() < cache.num_committees());
-        
+
         // Different validator should also be assigned
         let mut v129 = [0u8; 32];
         v129[0..4].copy_from_slice(&(129u32).to_le_bytes());
@@ -182,15 +179,15 @@ mod tests {
     fn test_participation_analysis() {
         let vs = make_validator_set(100);
         let cache = CommitteeKeyCache::build(&vs, 50);
-        
+
         // 80 present, 20 absent
         let mut participation = vec![true; 100];
         for i in 80..100 {
             participation[i] = false;
         }
-        
+
         let analysis = cache.analyze_participation(&participation);
-        
+
         assert_eq!(analysis.present, 80);
         assert_eq!(analysis.absent, 20);
         assert!((analysis.participation_rate() - 0.8).abs() < 0.001);

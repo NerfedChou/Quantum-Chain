@@ -42,8 +42,7 @@ impl Prover {
 
         // 3. Generate challenge (in practice, use Fiat-Shamir)
         let challenge = FieldElement::new(
-            witness_commitment.root()[0] as u64 * 256 + 
-            witness_commitment.root()[1] as u64
+            witness_commitment.root()[0] as u64 * 256 + witness_commitment.root()[1] as u64,
         );
 
         // 4. Evaluate at challenge point
@@ -87,8 +86,7 @@ impl Verifier {
 
         // 3. Challenge must match (Fiat-Shamir check)
         let expected_challenge = FieldElement::new(
-            proof.witness_commitment[0] as u64 * 256 + 
-            proof.witness_commitment[1] as u64
+            proof.witness_commitment[0] as u64 * 256 + proof.witness_commitment[1] as u64,
         );
 
         if proof.challenge != expected_challenge {
@@ -112,10 +110,7 @@ mod tests {
 
     #[test]
     fn test_prove_and_verify() {
-        let constraint = Polynomial::new(vec![
-            FieldElement::new(1),
-            FieldElement::new(1),
-        ]);
+        let constraint = Polynomial::new(vec![FieldElement::new(1), FieldElement::new(1)]);
 
         let prover = Prover::new(constraint);
         let witness = vec![FieldElement::new(5), FieldElement::new(10)];

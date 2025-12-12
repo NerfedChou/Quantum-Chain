@@ -4,10 +4,8 @@
 //!
 //! Reference: SPEC-13 Section 3.1 (Lines 166-217)
 
+use crate::domain::{ChainTip, Hash, LightClientError, ProvenTransaction, SyncResult};
 use async_trait::async_trait;
-use crate::domain::{
-    Hash, ChainTip, SyncResult, ProvenTransaction, LightClientError,
-};
 
 /// Address type alias
 pub type Address = [u8; 20];

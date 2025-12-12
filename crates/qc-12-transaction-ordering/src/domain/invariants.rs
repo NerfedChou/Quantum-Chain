@@ -138,8 +138,16 @@ mod tests {
         graph.add_node(tx1.clone());
         graph.add_node(tx2.clone());
         graph.add_node(tx3.clone());
-        graph.add_edge(Dependency::new(tx1.hash, tx2.hash, DependencyKind::ReadAfterWrite));
-        graph.add_edge(Dependency::new(tx2.hash, tx3.hash, DependencyKind::ReadAfterWrite));
+        graph.add_edge(Dependency::new(
+            tx1.hash,
+            tx2.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
+        graph.add_edge(Dependency::new(
+            tx2.hash,
+            tx3.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
 
         assert!(invariant_no_cycles(&graph));
     }
@@ -154,9 +162,21 @@ mod tests {
         graph.add_node(tx1.clone());
         graph.add_node(tx2.clone());
         graph.add_node(tx3.clone());
-        graph.add_edge(Dependency::new(tx1.hash, tx2.hash, DependencyKind::ReadAfterWrite));
-        graph.add_edge(Dependency::new(tx2.hash, tx3.hash, DependencyKind::ReadAfterWrite));
-        graph.add_edge(Dependency::new(tx3.hash, tx1.hash, DependencyKind::ReadAfterWrite)); // Cycle!
+        graph.add_edge(Dependency::new(
+            tx1.hash,
+            tx2.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
+        graph.add_edge(Dependency::new(
+            tx2.hash,
+            tx3.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
+        graph.add_edge(Dependency::new(
+            tx3.hash,
+            tx1.hash,
+            DependencyKind::ReadAfterWrite,
+        )); // Cycle!
 
         assert!(!invariant_no_cycles(&graph));
     }
@@ -183,7 +203,11 @@ mod tests {
 
         graph.add_node(tx1.clone());
         graph.add_node(tx2.clone());
-        graph.add_edge(Dependency::new(tx1.hash, tx2.hash, DependencyKind::ReadAfterWrite));
+        graph.add_edge(Dependency::new(
+            tx1.hash,
+            tx2.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
 
         let group = ParallelGroup::new(0, vec![tx1.hash, tx2.hash]);
         assert!(!invariant_parallel_safety(&group, &graph)); // Should fail - they have a dependency
@@ -197,7 +221,11 @@ mod tests {
 
         graph.add_node(tx1.clone());
         graph.add_node(tx2.clone());
-        graph.add_edge(Dependency::new(tx1.hash, tx2.hash, DependencyKind::ReadAfterWrite));
+        graph.add_edge(Dependency::new(
+            tx1.hash,
+            tx2.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
 
         let schedule = ExecutionSchedule::new(vec![
             ParallelGroup::new(0, vec![tx1.hash]),
@@ -215,7 +243,11 @@ mod tests {
 
         graph.add_node(tx1.clone());
         graph.add_node(tx2.clone());
-        graph.add_edge(Dependency::new(tx1.hash, tx2.hash, DependencyKind::ReadAfterWrite));
+        graph.add_edge(Dependency::new(
+            tx1.hash,
+            tx2.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
 
         // Wrong order: tx2 before tx1
         let schedule = ExecutionSchedule::new(vec![

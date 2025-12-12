@@ -20,13 +20,13 @@
 // =============================================================================
 
 /// Network adapters: SystemTimeSource, NoOpNetworkSocket, etc.
-/// 
+///
 /// Pure types are always available. Tokio-based types require `network` feature.
 pub mod network;
 
 pub use network::{
-    NoOpNetworkSocket, NoOpNodeIdValidator, ProofOfWorkValidator, 
-    StaticConfigProvider, SystemTimeSource,
+    NoOpNetworkSocket, NoOpNodeIdValidator, ProofOfWorkValidator, StaticConfigProvider,
+    SystemTimeSource,
 };
 
 #[cfg(feature = "network")]

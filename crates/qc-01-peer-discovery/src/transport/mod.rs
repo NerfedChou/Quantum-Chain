@@ -6,4 +6,4 @@
 
 pub mod quic;
 
-pub use quic::{QuicConfig, QuicTransport, ReplayProtection, QuicConnectionState};
+pub use quic::{QuicConfig, QuicConnectionState, QuicTransport, ReplayProtection};

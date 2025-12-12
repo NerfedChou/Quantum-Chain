@@ -50,4 +50,3 @@ pub use invariants::*;
 pub use services::{
     AccountState, NonceValidator, PoSProposer, PoWMiner, StatePrefetchCache, TransactionSelector,
 };
-

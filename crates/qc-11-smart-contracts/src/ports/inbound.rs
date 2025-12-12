@@ -71,7 +71,7 @@ impl Default for SignedTransaction {
             value: U256::zero(),
             nonce: 0,
             gas_price: U256::from(1_000_000_000u64), // 1 gwei
-            gas_limit: 21000, // Basic transfer gas
+            gas_limit: 21000,                        // Basic transfer gas
             data: Bytes::new(),
             hash: Hash::ZERO,
         }
@@ -150,11 +150,7 @@ pub trait SmartContractApi: Send + Sync {
     /// # Returns
     ///
     /// * `u64` - Estimated gas required
-    async fn estimate_gas(
-        &self,
-        context: ExecutionContext,
-        code: &[u8],
-    ) -> Result<u64, VmError>;
+    async fn estimate_gas(&self, context: ExecutionContext, code: &[u8]) -> Result<u64, VmError>;
 
     /// Execute a read-only call (eth_call).
     ///
@@ -169,11 +165,7 @@ pub trait SmartContractApi: Send + Sync {
     /// # Returns
     ///
     /// * `Bytes` - Return data from the call
-    async fn call(
-        &self,
-        context: ExecutionContext,
-        code: &[u8],
-    ) -> Result<Bytes, VmError>;
+    async fn call(&self, context: ExecutionContext, code: &[u8]) -> Result<Bytes, VmError>;
 }
 
 // =============================================================================

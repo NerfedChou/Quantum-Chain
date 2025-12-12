@@ -8,7 +8,7 @@
 //! - Efficient multiplication via Montgomery reduction
 //! - FFT-friendly (has 2^32 roots of unity)
 
-use std::ops::{Add, Mul, Sub, Neg};
+use std::ops::{Add, Mul, Neg, Sub};
 
 /// Goldilocks prime: p = 2^64 - 2^32 + 1
 pub const GOLDILOCKS_PRIME: u64 = 0xFFFF_FFFF_0000_0001;
@@ -22,7 +22,7 @@ impl GoldilocksField {
     pub const MODULUS: u64 = GOLDILOCKS_PRIME;
 
     /// Create a field element.
-    pub fn new(value: u64) -> FieldElement {
+    pub fn element(value: u64) -> FieldElement {
         FieldElement::new(value)
     }
 
@@ -53,8 +53,9 @@ impl FieldElement {
     }
 
     /// Create from u128, reducing mod p.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn from_u128(value: u128) -> Self {
-        Self((value % GOLDILOCKS_PRIME as u128) as u64)
+        Self((value % u128::from(GOLDILOCKS_PRIME)) as u64)
     }
 
     /// Get the raw value.
@@ -72,6 +73,7 @@ impl FieldElement {
     }
 
     /// Exponentiation by squaring.
+    #[must_use]
     pub fn pow(&self, mut exp: u64) -> Self {
         let mut base = *self;
         let mut result = FieldElement(1);

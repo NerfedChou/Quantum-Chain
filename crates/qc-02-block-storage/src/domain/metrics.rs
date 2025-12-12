@@ -38,7 +38,8 @@ impl CompactionMetrics {
     pub fn record_compaction(&self, bytes: u64, duration_ms: u64) {
         self.total_compactions.fetch_add(1, Ordering::Relaxed);
         self.bytes_compacted.fetch_add(bytes, Ordering::Relaxed);
-        self.total_duration_ms.fetch_add(duration_ms, Ordering::Relaxed);
+        self.total_duration_ms
+            .fetch_add(duration_ms, Ordering::Relaxed);
     }
 
     /// Mark a compaction as started
@@ -159,10 +160,10 @@ mod tests {
     #[test]
     fn test_compaction_record() {
         let metrics = CompactionMetrics::new();
-        
+
         metrics.record_compaction(1000, 50);
         metrics.record_compaction(2000, 100);
-        
+
         assert_eq!(metrics.compaction_count(), 2);
         assert_eq!(metrics.bytes_total(), 3000);
         assert_eq!(metrics.avg_duration_ms(), 75);
@@ -171,11 +172,11 @@ mod tests {
     #[test]
     fn test_compaction_in_progress() {
         let metrics = CompactionMetrics::new();
-        
+
         metrics.start_compaction();
         metrics.start_compaction();
         assert_eq!(metrics.in_progress_count(), 2);
-        
+
         metrics.finish_compaction();
         assert_eq!(metrics.in_progress_count(), 1);
     }
@@ -183,10 +184,10 @@ mod tests {
     #[test]
     fn test_storage_metrics_block_write() {
         let collector = StorageMetricsCollector::new();
-        
+
         collector.record_block_write(1024);
         collector.record_block_write(2048);
-        
+
         assert_eq!(collector.blocks_stored.load(Ordering::Relaxed), 2);
         assert_eq!(collector.bytes_stored.load(Ordering::Relaxed), 3072);
         assert_eq!(collector.write_ops.load(Ordering::Relaxed), 2);
@@ -195,11 +196,11 @@ mod tests {
     #[test]
     fn test_storage_metrics_reads() {
         let collector = StorageMetricsCollector::new();
-        
+
         collector.record_read();
         collector.record_read();
         collector.record_read();
-        
+
         assert_eq!(collector.read_ops.load(Ordering::Relaxed), 3);
     }
 
@@ -208,9 +209,9 @@ mod tests {
         let collector = StorageMetricsCollector::new();
         collector.record_block_write(100);
         collector.record_read();
-        
+
         let output = collector.export_prometheus();
-        
+
         assert!(output.contains("qc02_blocks_stored 1"));
         assert!(output.contains("qc02_bytes_stored 100"));
         assert!(output.contains("qc02_read_ops 1"));

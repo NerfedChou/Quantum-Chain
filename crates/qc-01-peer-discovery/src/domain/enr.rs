@@ -117,13 +117,13 @@ impl NodeRecord {
     /// Get the signing payload (everything except signature)
     pub fn signing_payload(&self) -> Vec<u8> {
         let mut payload = Vec::new();
-        
+
         // Sequence number (8 bytes)
         payload.extend_from_slice(&self.seq.to_be_bytes());
-        
+
         // Public key (33 bytes)
         payload.extend_from_slice(&self.pubkey.0);
-        
+
         // IP address (4 or 16 bytes)
         match &self.ip {
             IpAddr::V4(bytes) => {
@@ -135,17 +135,17 @@ impl NodeRecord {
                 payload.extend_from_slice(bytes);
             }
         }
-        
+
         // Ports (4 bytes)
         payload.extend_from_slice(&self.udp_port.to_be_bytes());
         payload.extend_from_slice(&self.tcp_port.to_be_bytes());
-        
+
         // Capabilities
         payload.push(self.capabilities.len() as u8);
         for cap in &self.capabilities {
             payload.extend_from_slice(&cap.to_bytes());
         }
-        
+
         payload
     }
 
@@ -157,19 +157,19 @@ impl NodeRecord {
         // Simplified: check signature is valid hash of payload
         let payload = self.signing_payload();
         let expected_hash = simple_hash(&payload);
-        
+
         // Check if signature contains the expected hash
         if self.signature.0.len() < 4 {
             return false;
         }
-        
+
         let sig_hash = u32::from_be_bytes([
             self.signature.0[0],
             self.signature.0[1],
             self.signature.0[2],
             self.signature.0[3],
         ]);
-        
+
         sig_hash == expected_hash
     }
 
@@ -179,7 +179,7 @@ impl NodeRecord {
     pub fn sign(&mut self, _private_key: &[u8; 32]) {
         let payload = self.signing_payload();
         let hash = simple_hash(&payload);
-        
+
         // Simplified signature: embed hash
         let mut sig = [0u8; 64];
         sig[0..4].copy_from_slice(&hash.to_be_bytes());
@@ -193,7 +193,10 @@ impl NodeRecord {
 
     /// Get all capabilities of a specific type
     pub fn get_capabilities(&self, cap_type: CapabilityType) -> Vec<&Capability> {
-        self.capabilities.iter().filter(|c| c.cap_type == cap_type).collect()
+        self.capabilities
+            .iter()
+            .filter(|c| c.cap_type == cap_type)
+            .collect()
     }
 }
 
@@ -283,7 +286,10 @@ impl Capability {
 
     /// Create a "shard range" capability
     pub fn shard_range(start: u16, end: u16) -> Self {
-        Self::new(CapabilityType::ShardRange, CapabilityData::ShardRange { start, end })
+        Self::new(
+            CapabilityType::ShardRange,
+            CapabilityData::ShardRange { start, end },
+        )
     }
 
     /// Serialize to bytes
@@ -397,11 +403,14 @@ impl EnrCache {
         }
 
         // Insert
-        self.records.insert(node_id, CachedRecord {
-            record,
-            received_at: now_secs,
-            last_verified: None,
-        });
+        self.records.insert(
+            node_id,
+            CachedRecord {
+                record,
+                received_at: now_secs,
+                last_verified: None,
+            },
+        );
 
         true
     }
@@ -424,11 +433,10 @@ impl EnrCache {
     pub fn gc_stale(&mut self, now_secs: u64) -> usize {
         let max_age = self.config.max_record_age_secs;
         let before = self.records.len();
-        
-        self.records.retain(|_, cached| {
-            now_secs - cached.received_at < max_age
-        });
-        
+
+        self.records
+            .retain(|_, cached| now_secs - cached.received_at < max_age);
+
         before - self.records.len()
     }
 
@@ -496,7 +504,7 @@ mod tests {
     #[test]
     fn test_record_creation() {
         let record = make_record(1, 8080);
-        
+
         assert_eq!(record.seq, 1);
         assert_eq!(record.udp_port, 8080);
         assert_eq!(record.capabilities.len(), 1);
@@ -506,13 +514,13 @@ mod tests {
     fn test_record_signing_and_verification() {
         let mut record = make_record(1, 8080);
         let private_key = [1u8; 32];
-        
+
         // Before signing, verification should fail
         assert!(!record.verify_signature());
-        
+
         // Sign the record
         record.sign(&private_key);
-        
+
         // After signing, verification should succeed
         assert!(record.verify_signature());
     }
@@ -522,10 +530,10 @@ mod tests {
         let mut record = make_record(1, 8080);
         let private_key = [1u8; 32];
         record.sign(&private_key);
-        
+
         // Modify the record
         record.seq = 2;
-        
+
         // Verification should now fail
         assert!(!record.verify_signature());
     }
@@ -538,10 +546,10 @@ mod tests {
     fn test_node_id_derived_from_pubkey() {
         let record1 = make_record(1, 8080);
         let record2 = make_record(2, 9000); // Same pubkey
-        
+
         // Same pubkey should produce same node ID
         assert_eq!(record1.node_id(), record2.node_id());
-        
+
         // Different pubkey should produce different node ID
         let mut record3 = make_record(1, 8080);
         record3.pubkey = make_pubkey(2);
@@ -562,7 +570,7 @@ mod tests {
     fn test_capability_shard_range() {
         let cap = Capability::shard_range(0, 10);
         assert_eq!(cap.cap_type, CapabilityType::ShardRange);
-        
+
         if let CapabilityData::ShardRange { start, end } = cap.data {
             assert_eq!(start, 0);
             assert_eq!(end, 10);
@@ -575,7 +583,7 @@ mod tests {
     fn test_has_capability() {
         let mut record = make_record(1, 8080);
         record.capabilities.push(Capability::light_server());
-        
+
         assert!(record.has_capability(CapabilityType::FullNode));
         assert!(record.has_capability(CapabilityType::LightServer));
         assert!(!record.has_capability(CapabilityType::Archive));
@@ -589,13 +597,13 @@ mod tests {
     fn test_cache_insert_and_get() {
         let config = EnrConfig::default();
         let mut cache = EnrCache::new(config);
-        
+
         let mut record = make_record(1, 8080);
         record.sign(&[1u8; 32]);
-        
+
         let node_id = record.node_id();
         let now = 1000u64;
-        
+
         assert!(cache.insert(record, now));
         assert!(cache.get(&node_id).is_some());
     }
@@ -605,17 +613,17 @@ mod tests {
         let config = EnrConfig::default();
         let mut cache = EnrCache::new(config);
         let now = 1000u64;
-        
+
         // Insert seq=2
         let mut record2 = make_record(2, 8080);
         record2.sign(&[1u8; 32]);
         assert!(cache.insert(record2.clone(), now));
-        
+
         // Try to insert seq=1 (should be rejected)
         let mut record1 = make_record(1, 8080);
         record1.sign(&[1u8; 32]);
         assert!(!cache.insert(record1, now));
-        
+
         // Stored record should still be seq=2
         let node_id = record2.node_id();
         assert_eq!(cache.get(&node_id).unwrap().seq, 2);
@@ -626,18 +634,18 @@ mod tests {
         let config = EnrConfig::default();
         let mut cache = EnrCache::new(config);
         let now = 1000u64;
-        
+
         // Insert seq=1
         let mut record1 = make_record(1, 8080);
         record1.sign(&[1u8; 32]);
         let node_id = record1.node_id();
         assert!(cache.insert(record1, now));
-        
+
         // Insert seq=2 (should replace)
         let mut record2 = make_record(2, 9000);
         record2.sign(&[1u8; 32]);
         assert!(cache.insert(record2, now));
-        
+
         // Stored record should be seq=2 with new port
         assert_eq!(cache.get(&node_id).unwrap().seq, 2);
         assert_eq!(cache.get(&node_id).unwrap().udp_port, 9000);
@@ -648,12 +656,12 @@ mod tests {
         let config = EnrConfig::default();
         let mut cache = EnrCache::new(config);
         let now = 1000u64;
-        
+
         // Full node
         let mut record1 = make_record(1, 8080);
         record1.sign(&[1u8; 32]);
         cache.insert(record1, now);
-        
+
         // Light server
         let mut record2 = NodeRecord::new_unsigned(
             1,
@@ -665,10 +673,10 @@ mod tests {
         );
         record2.sign(&[2u8; 32]);
         cache.insert(record2, now);
-        
+
         let full_nodes = cache.find_by_capability(CapabilityType::FullNode);
         let light_servers = cache.find_by_capability(CapabilityType::LightServer);
-        
+
         assert_eq!(full_nodes.len(), 1);
         assert_eq!(light_servers.len(), 1);
     }
@@ -678,19 +686,19 @@ mod tests {
         let mut config = EnrConfig::default();
         config.max_record_age_secs = 100;
         let mut cache = EnrCache::new(config);
-        
+
         // Insert at time 0
         let mut record = make_record(1, 8080);
         record.sign(&[1u8; 32]);
         cache.insert(record, 0);
-        
+
         assert_eq!(cache.len(), 1);
-        
+
         // GC at time 50 - should keep
         let removed = cache.gc_stale(50);
         assert_eq!(removed, 0);
         assert_eq!(cache.len(), 1);
-        
+
         // GC at time 150 - should remove (age > 100)
         let removed = cache.gc_stale(150);
         assert_eq!(removed, 1);

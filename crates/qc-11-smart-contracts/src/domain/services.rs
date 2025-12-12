@@ -167,49 +167,40 @@ pub mod precompiles {
     use super::Address;
 
     /// ecrecover (0x01)
-    pub const ECRECOVER: Address = Address([
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    ]);
+    pub const ECRECOVER: Address =
+        Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
 
     /// SHA256 (0x02)
-    pub const SHA256: Address = Address([
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
-    ]);
+    pub const SHA256: Address =
+        Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
 
     /// RIPEMD160 (0x03)
-    pub const RIPEMD160: Address = Address([
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3,
-    ]);
+    pub const RIPEMD160: Address =
+        Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]);
 
     /// Identity / data copy (0x04)
-    pub const IDENTITY: Address = Address([
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4,
-    ]);
+    pub const IDENTITY: Address =
+        Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]);
 
     /// Modexp (0x05)
-    pub const MODEXP: Address = Address([
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
-    ]);
+    pub const MODEXP: Address =
+        Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]);
 
     /// BN128 Add (0x06)
-    pub const BN128_ADD: Address = Address([
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6,
-    ]);
+    pub const BN128_ADD: Address =
+        Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6]);
 
     /// BN128 Mul (0x07)
-    pub const BN128_MUL: Address = Address([
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7,
-    ]);
+    pub const BN128_MUL: Address =
+        Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7]);
 
     /// BN128 Pairing (0x08)
-    pub const BN128_PAIRING: Address = Address([
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8,
-    ]);
+    pub const BN128_PAIRING: Address =
+        Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8]);
 
     /// Blake2f (0x09)
-    pub const BLAKE2F: Address = Address([
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9,
-    ]);
+    pub const BLAKE2F: Address =
+        Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9]);
 
     /// Returns the precompile address for a given number (1-9).
     #[must_use]
@@ -242,8 +233,8 @@ mod tests {
     fn test_compute_contract_address_nonce_zero() {
         // Test vector from Ethereum
         let sender = Address::new([
-            0x6a, 0xc7, 0xea, 0x33, 0xf8, 0x83, 0x1e, 0xa9, 0xdd, 0xc2,
-            0x8e, 0xa9, 0x9d, 0xdc, 0x3c, 0x4d, 0xdb, 0x70, 0x2c, 0x1c,
+            0x6a, 0xc7, 0xea, 0x33, 0xf8, 0x83, 0x1e, 0xa9, 0xdd, 0xc2, 0x8e, 0xa9, 0x9d, 0xdc,
+            0x3c, 0x4d, 0xdb, 0x70, 0x2c, 0x1c,
         ]);
         let addr = compute_contract_address(sender, 0);
         // The computed address should be deterministic
@@ -334,10 +325,7 @@ mod tests {
     fn test_keccak256() {
         // Test vector: keccak256("") = c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470
         let hash = keccak256(&[]);
-        assert_eq!(
-            hash.as_bytes()[0..4],
-            [0xc5, 0xd2, 0x46, 0x01]
-        );
+        assert_eq!(hash.as_bytes()[0..4], [0xc5, 0xd2, 0x46, 0x01]);
     }
 
     #[test]

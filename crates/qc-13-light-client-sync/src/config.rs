@@ -4,8 +4,8 @@
 //!
 //! Reference: SPEC-13 Section 7 (Lines 99-124)
 
+use crate::domain::{DEFAULT_CONFIRMATIONS, MIN_FULL_NODES};
 use serde::{Deserialize, Serialize};
-use crate::domain::{MIN_FULL_NODES, DEFAULT_CONFIRMATIONS};
 
 /// Light client configuration.
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -4,8 +4,8 @@
 //!
 //! Reference: SPEC-15 Section 2.1 (Lines 56-126)
 
+use super::errors::{Address, Hash};
 use serde::{Deserialize, Serialize};
-use super::errors::{Hash, Address};
 
 /// Supported blockchain identifiers.
 /// Reference: SPEC-15 Lines 57-65
@@ -29,10 +29,10 @@ impl ChainId {
     pub fn required_confirmations(&self) -> u64 {
         match self {
             ChainId::QuantumChain => 6,
-            ChainId::Ethereum => 12,    // PoS, 2 epochs
-            ChainId::Bitcoin => 6,      // PoW, ~1 hour
-            ChainId::Polygon => 128,    // Fast finality
-            ChainId::Arbitrum => 1,     // L2, verified by L1
+            ChainId::Ethereum => 12, // PoS, 2 epochs
+            ChainId::Bitcoin => 6,   // PoW, ~1 hour
+            ChainId::Polygon => 128, // Fast finality
+            ChainId::Arbitrum => 1,  // L2, verified by L1
         }
     }
 
@@ -109,11 +109,11 @@ impl SwapState {
     pub fn can_transition_to(&self, next: SwapState) -> bool {
         match (self, next) {
             (Self::Initiated, Self::SourceLocked) => true,
-            (Self::Initiated, Self::Refunded) => true,      // Abort before locking
+            (Self::Initiated, Self::Refunded) => true, // Abort before locking
             (Self::SourceLocked, Self::TargetLocked) => true,
-            (Self::SourceLocked, Self::Refunded) => true,   // Timeout
+            (Self::SourceLocked, Self::Refunded) => true, // Timeout
             (Self::TargetLocked, Self::Completed) => true,
-            (Self::TargetLocked, Self::Refunded) => true,   // Timeout
+            (Self::TargetLocked, Self::Refunded) => true, // Timeout
             _ => false,
         }
     }

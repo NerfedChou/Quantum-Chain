@@ -19,7 +19,6 @@ use crate::domain::{
 };
 use crate::ports::{PeerDiscoveryApi, TimeSource, VerificationHandler};
 
-
 /// Peer Discovery Service implementing the driving port.
 ///
 /// This service provides the primary API for interacting with peer discovery.
@@ -246,8 +245,6 @@ mod tests {
             Timestamp::new(1000),
         )
     }
-
-
 
     #[test]
     fn test_service_add_peer_stages_for_verification() {

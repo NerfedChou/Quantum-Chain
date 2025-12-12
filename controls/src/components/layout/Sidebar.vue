@@ -36,8 +36,8 @@ let healthInterval = null
 
 onMounted(() => {
   checkHealth()
-  // Check every 10 seconds
-  healthInterval = setInterval(checkHealth, 10000)
+  // Check every 15 seconds (more stable)
+  healthInterval = setInterval(checkHealth, 15000)
 })
 
 onUnmounted(() => {

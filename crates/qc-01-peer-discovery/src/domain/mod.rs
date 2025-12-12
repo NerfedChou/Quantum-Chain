@@ -14,8 +14,8 @@
 
 pub mod address_manager;
 pub mod connection_slots;
-pub mod entities;
 pub mod enr;
+pub mod entities;
 pub mod errors;
 pub mod feeler;
 pub mod handshake;
@@ -26,8 +26,8 @@ pub mod value_objects;
 
 pub use address_manager::*;
 pub use connection_slots::*;
-pub use entities::*;
 pub use enr::*;
+pub use entities::*;
 pub use errors::*;
 pub use feeler::*;
 pub use handshake::*;

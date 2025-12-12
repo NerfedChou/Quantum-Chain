@@ -79,7 +79,11 @@ impl std::fmt::Display for IndexingError {
                 write!(f, "Operation timed out: {}", operation)
             }
             Self::ProofTooDeep { depth, max } => {
-                write!(f, "Proof depth {} exceeds maximum {} (DoS protection)", depth, max)
+                write!(
+                    f,
+                    "Proof depth {} exceeds maximum {} (DoS protection)",
+                    depth, max
+                )
             }
         }
     }

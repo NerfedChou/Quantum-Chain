@@ -33,4 +33,3 @@ pub use proof::*;
 pub use slashing::*;
 pub use validator::*;
 pub use vdf::*;
-

@@ -4,11 +4,8 @@
 //!
 //! Reference: SPEC-15 Section 3.2 (Lines 253-291)
 
+use crate::domain::{Address, ChainId, CrossChainError, CrossChainProof, Hash, Secret, HTLC};
 use async_trait::async_trait;
-use crate::domain::{
-    Hash, Secret, Address, CrossChainError,
-    ChainId, HTLC, CrossChainProof,
-};
 
 /// External chain client - outbound port.
 ///
@@ -16,11 +13,8 @@ use crate::domain::{
 #[async_trait]
 pub trait ExternalChainClient: Send + Sync {
     /// Get block header.
-    async fn get_header(
-        &self,
-        chain: ChainId,
-        height: u64,
-    ) -> Result<BlockHeader, CrossChainError>;
+    async fn get_header(&self, chain: ChainId, height: u64)
+        -> Result<BlockHeader, CrossChainError>;
 
     /// Verify a cross-chain proof.
     async fn verify_proof(
@@ -30,11 +24,8 @@ pub trait ExternalChainClient: Send + Sync {
     ) -> Result<bool, CrossChainError>;
 
     /// Check if block is finalized.
-    async fn is_finalized(
-        &self,
-        chain: ChainId,
-        block_hash: Hash,
-    ) -> Result<bool, CrossChainError>;
+    async fn is_finalized(&self, chain: ChainId, block_hash: Hash)
+        -> Result<bool, CrossChainError>;
 
     /// Get current block height.
     async fn get_height(&self, chain: ChainId) -> Result<u64, CrossChainError>;
@@ -78,11 +69,7 @@ pub trait HTLCContract: Send + Sync {
     ) -> Result<(), CrossChainError>;
 
     /// Refund expired HTLC.
-    async fn refund(
-        &self,
-        chain: ChainId,
-        htlc_id: Hash,
-    ) -> Result<(), CrossChainError>;
+    async fn refund(&self, chain: ChainId, htlc_id: Hash) -> Result<(), CrossChainError>;
 
     /// Get HTLC proof.
     async fn get_proof(
@@ -179,7 +166,10 @@ mod tests {
             merkle_proof: vec![],
             confirmations: 12,
         };
-        assert!(client.verify_proof(ChainId::Ethereum, &proof).await.unwrap());
+        assert!(client
+            .verify_proof(ChainId::Ethereum, &proof)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]

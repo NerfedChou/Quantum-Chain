@@ -29,6 +29,6 @@ pub use config::OrderingConfig;
 pub use domain::entities::*;
 pub use domain::errors::OrderingError;
 pub use domain::value_objects::*;
-pub use ipc::{TransactionOrderingHandler, OrderTransactionsRequest, OrderTransactionsResponse};
+pub use ipc::{OrderTransactionsRequest, OrderTransactionsResponse, TransactionOrderingHandler};
 pub use ports::inbound::TransactionOrderingApi;
 pub use ports::outbound::{AccessPatternAnalyzer, ConflictDetector};

@@ -163,7 +163,11 @@ impl AddressBucket {
 
     /// Remove an entry by NodeId
     pub fn remove(&mut self, node_id: &NodeId) -> Option<AddressEntry> {
-        if let Some(pos) = self.entries.iter().position(|e| &e.peer_info.node_id == node_id) {
+        if let Some(pos) = self
+            .entries
+            .iter()
+            .position(|e| &e.peer_info.node_id == node_id)
+        {
             let entry = self.entries.remove(pos);
             let subnet = SubnetKey::from_ip(&entry.peer_info.socket_addr.ip);
             if let Some(count) = self.subnet_counts.get_mut(&subnet) {
@@ -304,8 +308,18 @@ impl AddressManager {
         let addr_subnet = SubnetKey::from_ip(&peer_info.socket_addr.ip);
 
         // Check total subnet limit
-        let total_count = self.new_table.subnet_totals.get(&addr_subnet).copied().unwrap_or(0)
-            + self.tried_table.subnet_totals.get(&addr_subnet).copied().unwrap_or(0);
+        let total_count = self
+            .new_table
+            .subnet_totals
+            .get(&addr_subnet)
+            .copied()
+            .unwrap_or(0)
+            + self
+                .tried_table
+                .subnet_totals
+                .get(&addr_subnet)
+                .copied()
+                .unwrap_or(0);
         if total_count >= self.config.max_per_subnet_total {
             return Ok(false);
         }
@@ -329,7 +343,11 @@ impl AddressManager {
     }
 
     /// Promote an address from New to Tried after successful connection
-    pub fn promote_to_tried(&mut self, node_id: &NodeId, now: Timestamp) -> Result<bool, AddressManagerError> {
+    pub fn promote_to_tried(
+        &mut self,
+        node_id: &NodeId,
+        now: Timestamp,
+    ) -> Result<bool, AddressManagerError> {
         // Find in New table
         let bucket_idx = match self.new_table.node_to_bucket.get(node_id) {
             Some(&idx) => idx,
@@ -365,8 +383,14 @@ impl AddressManager {
         }
 
         tried_bucket.add(entry);
-        *self.tried_table.subnet_totals.entry(addr_subnet).or_insert(0) += 1;
-        self.tried_table.node_to_bucket.insert(*node_id, tried_bucket_idx);
+        *self
+            .tried_table
+            .subnet_totals
+            .entry(addr_subnet)
+            .or_insert(0) += 1;
+        self.tried_table
+            .node_to_bucket
+            .insert(*node_id, tried_bucket_idx);
 
         Ok(true)
     }
@@ -400,8 +424,10 @@ impl AddressManager {
     fn calculate_new_bucket(&self, source_subnet: &SubnetKey, addr_subnet: &SubnetKey) -> usize {
         // Simple hash combining source and address group
         let combined = [
-            source_subnet.0[0], source_subnet.0[1],
-            addr_subnet.0[0], addr_subnet.0[1],
+            source_subnet.0[0],
+            source_subnet.0[1],
+            addr_subnet.0[0],
+            addr_subnet.0[1],
         ];
         let hash = simple_hash(&combined);
         hash % self.config.new_bucket_count
@@ -561,8 +587,8 @@ mod tests {
 
         // Peers from same /16 (192.168.x.x) but same source
         // may hit per-bucket subnet limits depending on hash distribution
-        let peer1 = make_peer(1, 1, 100);  // 192.168.1.100
-        let peer2 = make_peer(2, 2, 100);  // 192.168.2.100
+        let peer1 = make_peer(1, 1, 100); // 192.168.1.100
+        let peer2 = make_peer(2, 2, 100); // 192.168.2.100
 
         assert!(manager.add_new(peer1, &source, now).unwrap());
         assert!(manager.add_new(peer2, &source, now).unwrap());

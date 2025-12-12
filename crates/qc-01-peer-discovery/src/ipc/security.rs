@@ -346,8 +346,6 @@ impl AuthorizationRules {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;

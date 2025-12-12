@@ -95,10 +95,18 @@ impl std::fmt::Display for SnapshotError {
             SnapshotError::IoError(msg) => write!(f, "Snapshot I/O error: {}", msg),
             SnapshotError::Corrupted(msg) => write!(f, "Snapshot corrupted: {}", msg),
             SnapshotError::VersionMismatch { expected, found } => {
-                write!(f, "Snapshot version mismatch: expected {}, found {}", expected, found)
+                write!(
+                    f,
+                    "Snapshot version mismatch: expected {}, found {}",
+                    expected, found
+                )
             }
-            SnapshotError::HeightUnavailable(h) => write!(f, "Height {} not available for snapshot", h),
-            SnapshotError::VerificationFailed(msg) => write!(f, "Snapshot verification failed: {}", msg),
+            SnapshotError::HeightUnavailable(h) => {
+                write!(f, "Height {} not available for snapshot", h)
+            }
+            SnapshotError::VerificationFailed(msg) => {
+                write!(f, "Snapshot verification failed: {}", msg)
+            }
         }
     }
 }
@@ -112,12 +120,16 @@ impl std::error::Error for SnapshotError {}
 /// Trait for types that can export/import snapshots
 pub trait SnapshotService {
     /// Export a snapshot at the given height
-    fn export_snapshot(&self, height: u64, path: &Path, config: &SnapshotConfig) 
-        -> Result<SnapshotInfo, SnapshotError>;
-    
+    fn export_snapshot(
+        &self,
+        height: u64,
+        path: &Path,
+        config: &SnapshotConfig,
+    ) -> Result<SnapshotInfo, SnapshotError>;
+
     /// Import a snapshot from the given path
     fn import_snapshot(&mut self, path: &Path) -> Result<SnapshotInfo, SnapshotError>;
-    
+
     /// Verify a snapshot file without importing
     fn verify_snapshot(&self, path: &Path) -> Result<SnapshotInfo, SnapshotError>;
 }
@@ -203,7 +215,7 @@ mod tests {
     fn test_snapshot_header_validate_magic() {
         let mut header = SnapshotHeader::new(100, [0; 32], [0; 32], 101);
         header.magic = [0, 0, 0, 0]; // Invalid
-        
+
         let result = header.validate();
         assert!(matches!(result, Err(SnapshotError::Corrupted(_))));
     }
@@ -212,7 +224,7 @@ mod tests {
     fn test_snapshot_header_validate_version() {
         let mut header = SnapshotHeader::new(100, [0; 32], [0; 32], 101);
         header.version = 999; // Future version
-        
+
         let result = header.validate();
         assert!(matches!(result, Err(SnapshotError::VersionMismatch { .. })));
     }
@@ -227,8 +239,11 @@ mod tests {
     fn test_snapshot_error_display() {
         let err = SnapshotError::HeightUnavailable(1000);
         assert!(err.to_string().contains("1000"));
-        
-        let err = SnapshotError::VersionMismatch { expected: 1, found: 2 };
+
+        let err = SnapshotError::VersionMismatch {
+            expected: 1,
+            found: 2,
+        };
         assert!(err.to_string().contains("expected 1"));
     }
 }

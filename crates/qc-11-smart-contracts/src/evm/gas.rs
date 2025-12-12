@@ -359,14 +359,23 @@ mod tests {
         assert_eq!(exp_gas_cost(U256::zero()), costs::EXP);
         assert_eq!(exp_gas_cost(U256::from(1)), costs::EXP + costs::EXP_BYTE);
         assert_eq!(exp_gas_cost(U256::from(255)), costs::EXP + costs::EXP_BYTE);
-        assert_eq!(exp_gas_cost(U256::from(256)), costs::EXP + costs::EXP_BYTE * 2);
+        assert_eq!(
+            exp_gas_cost(U256::from(256)),
+            costs::EXP + costs::EXP_BYTE * 2
+        );
     }
 
     #[test]
     fn test_keccak256_gas_cost() {
         assert_eq!(keccak256_gas_cost(0), costs::KECCAK256);
-        assert_eq!(keccak256_gas_cost(32), costs::KECCAK256 + costs::KECCAK256_WORD);
-        assert_eq!(keccak256_gas_cost(64), costs::KECCAK256 + costs::KECCAK256_WORD * 2);
+        assert_eq!(
+            keccak256_gas_cost(32),
+            costs::KECCAK256 + costs::KECCAK256_WORD
+        );
+        assert_eq!(
+            keccak256_gas_cost(64),
+            costs::KECCAK256 + costs::KECCAK256_WORD * 2
+        );
     }
 
     #[test]
@@ -377,7 +386,10 @@ mod tests {
 
         // LOG2 with 64 bytes data
         let cost = log_gas_cost(64, 2);
-        assert_eq!(cost, costs::LOG + costs::LOG_TOPIC * 2 + costs::LOG_DATA * 64);
+        assert_eq!(
+            cost,
+            costs::LOG + costs::LOG_TOPIC * 2 + costs::LOG_DATA * 64
+        );
     }
 
     #[test]
@@ -402,7 +414,10 @@ mod tests {
             has_value: true,
             is_empty: false,
         };
-        assert_eq!(call_gas_cost(&params), costs::WARM_ACCOUNT_ACCESS + costs::CALL_VALUE);
+        assert_eq!(
+            call_gas_cost(&params),
+            costs::WARM_ACCOUNT_ACCESS + costs::CALL_VALUE
+        );
 
         let params = CallGasParams {
             is_cold: true,
@@ -437,7 +452,7 @@ mod tests {
     #[test]
     fn test_opcode_gas_table() {
         assert_eq!(OPCODE_GAS[0x01], costs::VERY_LOW); // ADD
-        assert_eq!(OPCODE_GAS[0x02], costs::LOW);      // MUL
+        assert_eq!(OPCODE_GAS[0x02], costs::LOW); // MUL
         assert_eq!(OPCODE_GAS[0x60], costs::VERY_LOW); // PUSH1
         assert_eq!(OPCODE_GAS[0x80], costs::VERY_LOW); // DUP1
     }

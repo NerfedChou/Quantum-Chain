@@ -403,7 +403,8 @@ mod tests {
         let handler = create_test_handler();
 
         let batch = AttestationBatch::new(vec![], 1, 32);
-        let (message, bytes) = create_authenticated_message(batch, CROSS_CHAIN_SUBSYSTEM, &[1u8; 32]);
+        let (message, bytes) =
+            create_authenticated_message(batch, CROSS_CHAIN_SUBSYSTEM, &[1u8; 32]);
 
         let result = handler.handle_attestation_batch(message, &bytes).await;
         assert!(
@@ -439,7 +440,8 @@ mod tests {
             block_hash: [0u8; 32],
             block_height: 100,
         };
-        let (message, bytes) = create_authenticated_message(request, CROSS_CHAIN_SUBSYSTEM, &[1u8; 32]);
+        let (message, bytes) =
+            create_authenticated_message(request, CROSS_CHAIN_SUBSYSTEM, &[1u8; 32]);
 
         let result = handler.handle_finality_check(message, &bytes).await;
         assert!(
@@ -457,7 +459,8 @@ mod tests {
             block_hash: [0u8; 32],
             block_height: 100,
         };
-        let (message, bytes) = create_authenticated_message(request, CONSENSUS_SUBSYSTEM, &[1u8; 32]);
+        let (message, bytes) =
+            create_authenticated_message(request, CONSENSUS_SUBSYSTEM, &[1u8; 32]);
 
         let result = handler.handle_finality_proof_request(message, &bytes).await;
         assert!(
@@ -547,10 +550,13 @@ mod tests {
             block_hash: [0u8; 32],
             block_height: 100,
         };
-        let (message, bytes) = create_authenticated_message(request, CONSENSUS_SUBSYSTEM, &[1u8; 32]);
+        let (message, bytes) =
+            create_authenticated_message(request, CONSENSUS_SUBSYSTEM, &[1u8; 32]);
 
         let result = handler.handle_finality_check(message, &bytes).await;
-        assert!(result.is_ok(), "Consensus (8) should be authorized for FinalityCheckRequest");
+        assert!(
+            result.is_ok(),
+            "Consensus (8) should be authorized for FinalityCheckRequest"
+        );
     }
 }
-

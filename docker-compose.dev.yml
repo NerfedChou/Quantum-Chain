@@ -5,12 +5,15 @@
 # Uses the same production image but optimized for development workflow.
 #
 # USAGE:
-#   Development (volume mount pre-built binary):
+#   Development with Frontend (hot-reload):
 #     1. cargo build --release
 #     2. docker compose -f docker-compose.dev.yml up
 #
 #   Development with Monitoring (Grafana, Prometheus, Loki, Tempo):
 #     docker compose -f docker-compose.dev.yml --profile monitoring up
+#
+#   Production Build (nginx-served frontend):
+#     docker compose -f docker-compose.dev.yml --profile production up
 #
 #   GPU Development (NVIDIA):
 #     docker compose -f docker-compose.dev.yml --profile gpu-nvidia up
@@ -22,6 +25,7 @@
 #   - 30303: P2P Discovery
 #   - 8545:  JSON-RPC API
 #   - 8546:  WebSocket API
+#   - 8765:  Controls Panel (Frontend)
 #   - 3000:  Grafana (monitoring profile)
 #   - 9090:  Prometheus (monitoring profile)
 # ==============================================================================
@@ -36,20 +40,20 @@ x-common-env: &common-env
   QC_NETWORK: ${QC_NETWORK:-devnet}
   RUST_BACKTRACE: full
   RUST_LOG: "info,qc_17_block_production=debug,qc_02_block_storage=debug,qc_08_consensus=debug,node_runtime=debug"
+  OTEL_SDK_DISABLED: "true" # Disable OpenTelemetry when monitoring profile isn't running
 
 # ==============================================================================
 # SERVICES
 # ==============================================================================
 services:
   # ============================================================================
-  # CORE: Quantum-Chain Node (Development Mode)
+  # CORE: Quantum-Chain Node (Development Mode - uses host binary)
   # ============================================================================
   quantum-chain:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: debian:bookworm-slim
     container_name: qc-dev-node
     hostname: quantum-chain
+    command: [ "/usr/local/bin/quantum-chain", "--data-dir", "/var/quantum-chain/data", "--config-dir", "/var/quantum-chain/config" ]
     environment:
       <<: *common-env
       QC_DATA_DIR: /var/quantum-chain/data
@@ -70,15 +74,63 @@ services:
       - "${QC_WS_PORT:-8546}:8546/tcp"
     networks:
       - qc-dev
+    # Limit CPU to leave headroom for API responses
+    # Mining will use all available CPU, starving the API Gateway
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0' # Limit to 4 CPU cores for dev mode
     restart: unless-stopped
 
   # ============================================================================
-  # GPU: NVIDIA Support
+  # FRONTEND: Controls Panel (Production Build)
+  # ============================================================================
+  controls-panel:
+    build:
+      context: ./controls
+      dockerfile: Dockerfile
+    container_name: qc-controls-panel
+    ports:
+      - "${QC_CONTROLS_PORT:-8765}:80"
+    networks:
+      - qc-dev
+    depends_on:
+      - quantum-chain
+    profiles:
+      - production
+    restart: unless-stopped
+
+  # ============================================================================
+  # FRONTEND: Controls Panel (Development Mode - Hot Reload)
+  # ============================================================================
+  controls-dev:
+    image: node:22-alpine
+    container_name: qc-controls-dev
+    working_dir: /app
+    command: sh -c "npm install 2>/dev/null || npm ci && npm run dev -- --host 0.0.0.0 --port 8765"
+    volumes:
+      - ./controls:/app
+      - /app/node_modules
+    ports:
+      - "${QC_CONTROLS_PORT:-8765}:8765"
+    environment:
+      - VITE_API_URL=http://quantum-chain:8545
+      - VITE_WS_URL=ws://quantum-chain:8546
+      - NODE_ENV=development
+    networks:
+      - qc-dev
+    depends_on:
+      - quantum-chain
+    restart: unless-stopped
+
+  # ============================================================================
+  # GPU: NVIDIA Support (Development Mode - uses host binary)
   # ============================================================================
   quantum-chain-gpu-nvidia:
-    extends:
-      service: quantum-chain
+    image: ubuntu:24.04
     container_name: qc-dev-node-nvidia
+    command: [ "/usr/local/bin/quantum-chain", "--data-dir", "/var/quantum-chain/data", "--config-dir", "/var/quantum-chain/config" ]
+    runtime: nvidia
     deploy:
       resources:
         reservations:
@@ -91,8 +143,26 @@ services:
       QC_COMPUTE_BACKEND: auto
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      # Mount pre-built binary from host (fast iteration)
+      - ./target/release/node-runtime:/usr/local/bin/quantum-chain:ro
+      # Mount host OpenCL libs (no container build needed)
+      - /usr/lib/libOpenCL.so.1:/usr/lib/x86_64-linux-gnu/libOpenCL.so.1:ro
+      - /etc/OpenCL/vendors:/etc/OpenCL/vendors:ro
+      # Mount config for live editing
+      - ./config:/var/quantum-chain/config:ro
+      # Persistent data in local folder
+      - ./data:/var/quantum-chain/data
+    ports:
+      - "${QC_P2P_PORT:-30303}:30303/tcp"
+      - "${QC_P2P_PORT:-30303}:30303/udp"
+      - "${QC_RPC_PORT:-8545}:8545/tcp"
+      - "${QC_WS_PORT:-8546}:8546/tcp"
+    networks:
+      - qc-dev
     profiles:
       - gpu-nvidia
+    restart: unless-stopped
 
   # ============================================================================
   # GPU: AMD Support
@@ -101,6 +171,11 @@ services:
     extends:
       service: quantum-chain
     container_name: qc-dev-node-amd
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GPU_BACKEND: amd
     devices:
       - /dev/dri:/dev/dri
       - /dev/kfd:/dev/kfd

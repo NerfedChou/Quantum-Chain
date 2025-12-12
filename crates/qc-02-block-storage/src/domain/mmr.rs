@@ -74,7 +74,7 @@ impl MmrStore {
         if self.peaks.is_empty() {
             return [0u8; 32];
         }
-        
+
         // Bag peaks right-to-left
         let mut root = self.peaks.last().unwrap().hash;
         for peak in self.peaks.iter().rev().skip(1) {
@@ -89,16 +89,19 @@ impl MmrStore {
     pub fn append(&mut self, leaf: Hash) -> u64 {
         let leaf_index = self.leaf_count;
         let pos = self.leaf_index_to_pos(leaf_index);
-        
+
         // Store the leaf
         self.nodes.insert(pos, leaf);
-        
+
         // Add as new peak with height 0 (leaf)
-        self.peaks.push(Peak { hash: leaf, height: 0 });
-        
+        self.peaks.push(Peak {
+            hash: leaf,
+            height: 0,
+        });
+
         // Merge peaks of same height
         self.merge_peaks();
-        
+
         self.leaf_count += 1;
         leaf_index
     }
@@ -111,7 +114,7 @@ impl MmrStore {
 
         let mut siblings = Vec::new();
         let pos = self.leaf_index_to_pos(leaf_index);
-        
+
         if let Some(hash) = self.nodes.get(&pos) {
             siblings.push(*hash);
         }
@@ -129,7 +132,7 @@ impl MmrStore {
         if proof.siblings.is_empty() {
             return false;
         }
-        
+
         if proof.siblings[0] != *leaf {
             return false;
         }
@@ -137,12 +140,12 @@ impl MmrStore {
         if proof.peaks.is_empty() {
             return *root == [0u8; 32];
         }
-        
+
         let mut computed_root = *proof.peaks.last().unwrap();
         for peak in proof.peaks.iter().rev().skip(1) {
             computed_root = Self::hash_pair(peak, &computed_root);
         }
-        
+
         computed_root == *root
     }
 
@@ -156,16 +159,16 @@ impl MmrStore {
         while self.peaks.len() >= 2 {
             let last_height = self.peaks[self.peaks.len() - 1].height;
             let prev_height = self.peaks[self.peaks.len() - 2].height;
-            
+
             // Only merge if same height
             if last_height != prev_height {
                 break;
             }
-            
+
             let right = self.peaks.pop().unwrap();
             let left = self.peaks.pop().unwrap();
             let parent_hash = Self::hash_pair(&left.hash, &right.hash);
-            
+
             // Parent is one height higher
             self.peaks.push(Peak {
                 hash: parent_hash,
@@ -176,7 +179,7 @@ impl MmrStore {
 
     /// Hash two nodes together
     fn hash_pair(left: &Hash, right: &Hash) -> Hash {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(left);
         hasher.update(right);
@@ -252,9 +255,9 @@ mod tests {
     fn test_mmr_append_single() {
         let mut mmr = MmrStore::new();
         let leaf = make_leaf(1);
-        
+
         let index = mmr.append(leaf);
-        
+
         assert_eq!(index, 0);
         assert_eq!(mmr.leaf_count(), 1);
         assert_eq!(mmr.peaks().len(), 1);
@@ -264,10 +267,10 @@ mod tests {
     #[test]
     fn test_mmr_append_merges_peaks() {
         let mut mmr = MmrStore::new();
-        
+
         mmr.append(make_leaf(1));
         mmr.append(make_leaf(2));
-        
+
         // Two leaves should merge into one peak
         assert_eq!(mmr.leaf_count(), 2);
         assert_eq!(mmr.peaks().len(), 1);
@@ -276,11 +279,11 @@ mod tests {
     #[test]
     fn test_mmr_append_three_leaves() {
         let mut mmr = MmrStore::new();
-        
+
         mmr.append(make_leaf(1));
         mmr.append(make_leaf(2));
         mmr.append(make_leaf(3));
-        
+
         // 2 merged + 1 = 2 peaks
         assert_eq!(mmr.leaf_count(), 3);
         assert_eq!(mmr.peaks().len(), 2);
@@ -289,13 +292,13 @@ mod tests {
     #[test]
     fn test_mmr_root_changes() {
         let mut mmr = MmrStore::new();
-        
+
         mmr.append(make_leaf(1));
         let root1 = mmr.root();
-        
+
         mmr.append(make_leaf(2));
         let root2 = mmr.root();
-        
+
         assert_ne!(root1, root2);
     }
 
@@ -305,7 +308,7 @@ mod tests {
         mmr.append(make_leaf(1));
         mmr.append(make_leaf(2));
         mmr.append(make_leaf(3));
-        
+
         let proof = mmr.get_proof(0).expect("should generate proof");
         assert_eq!(proof.leaf_index, 0);
         assert_eq!(proof.leaf_count, 3);
@@ -323,10 +326,10 @@ mod tests {
         let mut mmr = MmrStore::new();
         let leaf = make_leaf(1);
         mmr.append(leaf);
-        
+
         let root = mmr.root();
         let proof = mmr.get_proof(0).expect("proof");
-        
+
         assert!(MmrStore::verify_proof(&root, &leaf, &proof));
     }
 }

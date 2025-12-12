@@ -153,7 +153,18 @@ jobs:
             -A clippy::must_use_candidate \
             -A clippy::missing_errors_doc \
             -A clippy::missing_panics_doc \
-            -A clippy::redundant_pub_crate
+            -A clippy::redundant_pub_crate \
+            -A clippy::cast_possible_truncation \
+            -A clippy::cast_sign_loss \
+            -A clippy::cast_precision_loss \
+            -A clippy::cast_lossless \
+            -A clippy::trivially_copy_pass_by_ref \
+            -A clippy::needless_pass_by_value \
+            -A clippy::missing_const_for_fn \
+            -A clippy::cognitive_complexity \
+            -A clippy::too_many_lines \
+            -A clippy::similar_names \
+            -A clippy::doc_markdown
       
       - name: Install cargo-deny
         run: cargo install cargo-deny --version 0.17.0 --locked

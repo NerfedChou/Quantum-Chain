@@ -170,7 +170,7 @@ mod tests {
             ..Default::default()
         };
         let validator = WeakSubjectivityValidator::new(config);
-        
+
         let result = validator.validate_chain(|_| false);
         assert!(result.is_ok());
     }
@@ -188,7 +188,7 @@ mod tests {
             ..Default::default()
         };
         let validator = WeakSubjectivityValidator::new(config);
-        
+
         let result = validator.validate_chain(|h| *h == checkpoint_hash());
         assert!(result.is_ok());
     }
@@ -206,9 +206,12 @@ mod tests {
             ..Default::default()
         };
         let validator = WeakSubjectivityValidator::new(config);
-        
+
         let result = validator.validate_chain(|h| *h == other_hash());
-        assert!(matches!(result, Err(WeakSubjectivityError::CheckpointNotFound { .. })));
+        assert!(matches!(
+            result,
+            Err(WeakSubjectivityError::CheckpointNotFound { .. })
+        ));
     }
 
     #[test]
@@ -224,10 +227,10 @@ mod tests {
             enforce: true,
         };
         let validator = WeakSubjectivityValidator::new(config);
-        
+
         // Not stale
         assert!(!validator.is_checkpoint_stale(500));
-        
+
         // Stale
         assert!(validator.is_checkpoint_stale(2000));
     }

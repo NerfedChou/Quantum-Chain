@@ -12,8 +12,8 @@
 //! Strictly iterative verification with depth limits.
 
 use super::{
-    AccountState, Address, Hash, StateProof, MAX_PROOF_DEPTH,
-    LEAF_DOMAIN, EXTENSION_DOMAIN, BRANCH_DOMAIN,
+    AccountState, Address, Hash, StateProof, BRANCH_DOMAIN, EXTENSION_DOMAIN, LEAF_DOMAIN,
+    MAX_PROOF_DEPTH,
 };
 use sha3::{Digest, Keccak256};
 
@@ -37,9 +37,18 @@ pub enum VerifyError {
 /// Node type in proof.
 #[derive(Debug, Clone)]
 pub enum ProofNode {
-    Leaf { path: Vec<u8>, value: Vec<u8> },
-    Extension { path: Vec<u8>, child_hash: Hash },
-    Branch { children: [Option<Hash>; 16], value: Option<Vec<u8>> },
+    Leaf {
+        path: Vec<u8>,
+        value: Vec<u8>,
+    },
+    Extension {
+        path: Vec<u8>,
+        child_hash: Hash,
+    },
+    Branch {
+        children: [Option<Hash>; 16],
+        value: Option<Vec<u8>>,
+    },
 }
 
 /// Verify a state proof iteratively (no recursion).
@@ -205,7 +214,10 @@ fn decode_proof_node(data: &[u8]) -> Result<ProofNode, VerifyError> {
         0x02 => {
             // Branch node (simplified): just children
             let children: [Option<Hash>; 16] = [None; 16];
-            Ok(ProofNode::Branch { children, value: None })
+            Ok(ProofNode::Branch {
+                children,
+                value: None,
+            })
         }
         _ => Err(VerifyError::UnexpectedNodeType),
     }
@@ -238,7 +250,7 @@ mod tests {
     fn test_proof_too_deep() {
         let proof = make_test_proof(100); // Exceeds MAX_PROOF_DEPTH
         let result = verify_proof_iterative(&proof, None);
-        
+
         assert!(matches!(result, Err(VerifyError::ProofTooDeep { .. })));
     }
 
@@ -250,17 +262,19 @@ mod tests {
             proof_nodes: vec![],
             state_root: [0xAA; 32],
         };
-        
+
         let result = verify_proof_iterative(&proof, None);
         assert!(matches!(result, Err(VerifyError::EmptyProof)));
     }
 
     #[test]
     fn test_address_to_nibbles() {
-        let addr = [0x12, 0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let addr = [
+            0x12, 0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
         let nibbles = address_to_nibbles(&addr);
-        
+
         assert_eq!(nibbles.len(), 40);
         assert_eq!(nibbles[0], 0x01);
         assert_eq!(nibbles[1], 0x02);
@@ -271,11 +285,11 @@ mod tests {
     #[test]
     fn test_hash_with_domain() {
         let data = b"test";
-        
+
         let h1 = hash_with_domain(LEAF_DOMAIN, data);
         let h2 = hash_with_domain(EXTENSION_DOMAIN, data);
         let h3 = hash_with_domain(BRANCH_DOMAIN, data);
-        
+
         // Different domains produce different hashes
         assert_ne!(h1, h2);
         assert_ne!(h1, h3);
@@ -287,7 +301,7 @@ mod tests {
         // [0x00, path_len=2, path..., value...]
         let data = vec![0x00, 2, 0x01, 0x02, 0xAA, 0xBB];
         let node = decode_proof_node(&data).unwrap();
-        
+
         match node {
             ProofNode::Leaf { path, value } => {
                 assert_eq!(path, vec![0x01, 0x02]);

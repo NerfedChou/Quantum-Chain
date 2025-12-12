@@ -12,8 +12,8 @@
 //! - Cold boot attacks
 //! - Core dump exposure
 
-use zeroize::{Zeroize, ZeroizeOnDrop};
 use serde::{Deserialize, Serialize};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// A secure secret that zeroizes on drop.
 ///

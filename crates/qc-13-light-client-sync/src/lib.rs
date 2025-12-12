@@ -46,24 +46,20 @@ pub mod ports;
 
 // Re-exports
 pub use algorithms::{
-    verify_merkle_proof, compute_merkle_root, build_merkle_proof,
-    check_consensus, check_strict_consensus,
-    validate_header_batch, append_headers_batch,
+    append_headers_batch, build_merkle_proof, check_consensus, check_strict_consensus,
+    compute_merkle_root, validate_header_batch, verify_merkle_proof,
 };
 pub use application::LightClientService;
 pub use config::LightClientConfig;
 pub use domain::{
-    Hash, LightClientError,
-    BlockHeader, HeaderChain, ProvenTransaction,
-    Checkpoint, CheckpointSource, ChainTip, SyncResult,
-    MerkleProof, ProofNode, Position,
-    MIN_FULL_NODES, CONSENSUS_THRESHOLD, DEFAULT_CONFIRMATIONS,
-    invariant_multi_node, invariant_consensus, invariant_checkpoint_chain,
+    invariant_checkpoint_chain, invariant_consensus, invariant_multi_node, BlockHeader, ChainTip,
+    Checkpoint, CheckpointSource, Hash, HeaderChain, LightClientError, MerkleProof, Position,
+    ProofNode, ProvenTransaction, SyncResult, CONSENSUS_THRESHOLD, DEFAULT_CONFIRMATIONS,
+    MIN_FULL_NODES,
 };
 pub use ports::{
-    LightClientApi, Address,
-    FullNodeConnection, PeerDiscovery, MerkleProofProvider, BloomFilterProvider,
-    MockFullNode,
+    Address, BloomFilterProvider, FullNodeConnection, LightClientApi, MerkleProofProvider,
+    MockFullNode, PeerDiscovery,
 };
 
 /// Crate version

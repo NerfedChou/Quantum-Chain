@@ -96,9 +96,9 @@ impl ExecutionContext {
     pub fn child_delegatecall(&self, _code_address: Address, data: Bytes, gas: u64) -> Self {
         Self {
             origin: self.origin,
-            caller: self.caller, // Preserves caller
+            caller: self.caller,   // Preserves caller
             address: self.address, // Preserves address
-            value: self.value, // Preserves value
+            value: self.value,     // Preserves value
             data,
             gas_limit: gas,
             gas_price: self.gas_price,
@@ -311,15 +311,9 @@ pub enum StateChange {
         value: StorageValue,
     },
     /// Delete storage slot (set to zero).
-    StorageDelete {
-        address: Address,
-        key: StorageKey,
-    },
+    StorageDelete { address: Address, key: StorageKey },
     /// Create a new contract.
-    ContractCreate {
-        address: Address,
-        code: Bytes,
-    },
+    ContractCreate { address: Address, code: Bytes },
     /// Self-destruct a contract.
     ContractDestroy {
         address: Address,
@@ -383,8 +377,8 @@ impl Default for VmConfig {
     fn default() -> Self {
         Self {
             max_call_depth: 1024,
-            max_code_size: 24_576,         // 24 KB (EIP-170)
-            max_init_code_size: 49_152,    // 48 KB (EIP-3860)
+            max_code_size: 24_576,      // 24 KB (EIP-170)
+            max_init_code_size: 49_152, // 48 KB (EIP-3860)
             max_stack_size: 1024,
             max_memory_size: 16 * 1024 * 1024, // 16 MB
             evm_version: EvmVersion::Shanghai,
@@ -439,10 +433,9 @@ pub struct AccountState {
 impl AccountState {
     /// Empty code hash (keccak256 of empty bytes).
     pub const EMPTY_CODE_HASH: Hash = Hash([
-        0xc5, 0xd2, 0x46, 0x01, 0x86, 0xf7, 0x23, 0x3c,
-        0x92, 0x7e, 0x7d, 0xb2, 0xdc, 0xc7, 0x03, 0xc0,
-        0xe5, 0x00, 0xb6, 0x53, 0xca, 0x82, 0x27, 0x3b,
-        0x7b, 0xfa, 0xd8, 0x04, 0x5d, 0x85, 0xa4, 0x70,
+        0xc5, 0xd2, 0x46, 0x01, 0x86, 0xf7, 0x23, 0x3c, 0x92, 0x7e, 0x7d, 0xb2, 0xdc, 0xc7, 0x03,
+        0xc0, 0xe5, 0x00, 0xb6, 0x53, 0xca, 0x82, 0x27, 0x3b, 0x7b, 0xfa, 0xd8, 0x04, 0x5d, 0x85,
+        0xa4, 0x70,
     ]);
 
     /// Creates a new empty EOA.
@@ -518,11 +511,7 @@ mod tests {
     #[test]
     fn test_execution_context_staticcall() {
         let parent = ExecutionContext::default();
-        let child = parent.child_staticcall(
-            Address::new([1u8; 20]),
-            Bytes::new(),
-            100,
-        );
+        let child = parent.child_staticcall(Address::new([1u8; 20]), Bytes::new(), 100);
 
         assert!(child.is_static);
         assert!(child.value.is_zero());
@@ -530,10 +519,7 @@ mod tests {
 
     #[test]
     fn test_execution_result_success() {
-        let result = ExecutionResult::success(
-            Bytes::from_slice(&[0x01, 0x02]),
-            21000,
-        );
+        let result = ExecutionResult::success(Bytes::from_slice(&[0x01, 0x02]), 21000);
 
         assert!(result.success);
         assert_eq!(result.gas_used, 21000);

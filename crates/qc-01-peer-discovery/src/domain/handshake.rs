@@ -165,7 +165,7 @@ pub fn verify_handshake(
     // -------------------------------------------------------------------------
     // Filter 1: Network Match (O(1))
     // -------------------------------------------------------------------------
-    
+
     if ours.genesis_hash != theirs.genesis_hash {
         return HandshakeResult::Reject(RejectReason::WrongNetwork);
     }
@@ -177,7 +177,7 @@ pub fn verify_handshake(
     // -------------------------------------------------------------------------
     // Filter 2: Protocol Version (O(1))
     // -------------------------------------------------------------------------
-    
+
     if theirs.protocol_version < config.min_protocol_version
         || theirs.protocol_version > config.max_protocol_version
     {
@@ -187,7 +187,7 @@ pub fn verify_handshake(
     // -------------------------------------------------------------------------
     // Filter 3: Fork Check - Peer Not Too Far Behind (O(1))
     // -------------------------------------------------------------------------
-    
+
     // If peer is behind our finalized height by too much, they're useless
     if theirs.head_height + config.max_behind_blocks < config.finalized_height {
         return HandshakeResult::Reject(RejectReason::TooFarBehind);
@@ -196,7 +196,7 @@ pub fn verify_handshake(
     // -------------------------------------------------------------------------
     // Filter 4: Classification by Total Difficulty
     // -------------------------------------------------------------------------
-    
+
     let classification = if theirs.total_difficulty > ours.total_difficulty {
         // Peer has more work done - potential sync source
         PeerClassification::SyncSource
@@ -301,12 +301,15 @@ mod tests {
     fn test_wrong_network_id_rejected() {
         let genesis = make_genesis();
 
-        let ours = make_handshake(genesis, 1, 100, 1000);  // Mainnet
+        let ours = make_handshake(genesis, 1, 100, 1000); // Mainnet
         let theirs = make_handshake(genesis, 2, 100, 1000); // Testnet
         let config = HandshakeConfig::default();
 
         let result = verify_handshake(&ours, &theirs, &config);
-        assert_eq!(result, HandshakeResult::Reject(RejectReason::NetworkIdMismatch));
+        assert_eq!(
+            result,
+            HandshakeResult::Reject(RejectReason::NetworkIdMismatch)
+        );
     }
 
     // =========================================================================
@@ -324,7 +327,10 @@ mod tests {
         let config = HandshakeConfig::default();
 
         let result = verify_handshake(&ours, &theirs, &config);
-        assert_eq!(result, HandshakeResult::Reject(RejectReason::ProtocolMismatch));
+        assert_eq!(
+            result,
+            HandshakeResult::Reject(RejectReason::ProtocolMismatch)
+        );
     }
 
     // =========================================================================
@@ -375,7 +381,10 @@ mod tests {
         let config = HandshakeConfig::default();
 
         let result = verify_handshake(&ours, &theirs, &config);
-        assert_eq!(result, HandshakeResult::Accept(PeerClassification::SyncSource));
+        assert_eq!(
+            result,
+            HandshakeResult::Accept(PeerClassification::SyncSource)
+        );
     }
 
     #[test]
@@ -388,7 +397,10 @@ mod tests {
         let config = HandshakeConfig::default();
 
         let result = verify_handshake(&ours, &theirs, &config);
-        assert_eq!(result, HandshakeResult::Accept(PeerClassification::SyncTarget));
+        assert_eq!(
+            result,
+            HandshakeResult::Accept(PeerClassification::SyncTarget)
+        );
     }
 
     #[test]

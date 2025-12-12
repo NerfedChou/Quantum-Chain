@@ -99,21 +99,21 @@ fn hash_to_seed(mix: &Hash, epoch: u64) -> Hash {
 pub fn shuffle_with_seed<T: Clone>(items: &[T], seed: &Hash) -> Vec<T> {
     let mut result = items.to_vec();
     let len = result.len();
-    
+
     if len <= 1 {
         return result;
     }
-    
+
     // Use seed to generate random indices
     let mut rng_state = *seed;
-    
+
     for i in (1..len).rev() {
         // Generate pseudo-random index
         rng_state = hash_to_seed(&rng_state, i as u64);
         let j = u64::from_le_bytes(rng_state[0..8].try_into().unwrap()) as usize % (i + 1);
         result.swap(i, j);
     }
-    
+
     result
 }
 
@@ -126,10 +126,10 @@ pub fn compute_committees<T: Clone>(
     if committee_count == 0 {
         return Vec::new();
     }
-    
+
     let shuffled = shuffle_with_seed(validators, seed);
     let validators_per_committee = (shuffled.len() + committee_count - 1) / committee_count;
-    
+
     shuffled
         .chunks(validators_per_committee)
         .map(|chunk| chunk.to_vec())
@@ -143,11 +143,11 @@ mod tests {
     #[test]
     fn test_mix_in() {
         let mut acc = RandaoAccumulator::new(0, [0u8; 32]);
-        
+
         acc.mix_in(&[1u8; 32]);
         assert_eq!(acc.contributions(), 1);
         assert_eq!(acc.get_mix(), [1u8; 32]);
-        
+
         acc.mix_in(&[1u8; 32]);
         assert_eq!(acc.contributions(), 2);
         assert_eq!(acc.get_mix(), [0u8; 32]); // XOR cancels out
@@ -156,10 +156,10 @@ mod tests {
     #[test]
     fn test_advance_epoch() {
         let mut acc = RandaoAccumulator::new(5, [0xAB; 32]);
-        
+
         acc.mix_in(&[0x11; 32]);
         let seed = acc.advance_epoch();
-        
+
         assert_eq!(acc.epoch(), 6);
         assert_eq!(acc.contributions(), 0);
         assert_ne!(seed, [0u8; 32]);
@@ -169,20 +169,20 @@ mod tests {
     fn test_shuffle_deterministic() {
         let items = vec![1, 2, 3, 4, 5];
         let seed = [0xAB; 32];
-        
+
         let result1 = shuffle_with_seed(&items, &seed);
         let result2 = shuffle_with_seed(&items, &seed);
-        
+
         assert_eq!(result1, result2);
     }
 
     #[test]
     fn test_shuffle_different_seeds() {
         let items = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        
+
         let result1 = shuffle_with_seed(&items, &[0xAA; 32]);
         let result2 = shuffle_with_seed(&items, &[0xBB; 32]);
-        
+
         assert_ne!(result1, result2);
     }
 
@@ -190,11 +190,11 @@ mod tests {
     fn test_compute_committees() {
         let validators: Vec<u32> = (0..100).collect();
         let seed = [0xCD; 32];
-        
+
         let committees = compute_committees(&validators, &seed, 4);
-        
+
         assert_eq!(committees.len(), 4);
-        
+
         // All validators should be assigned
         let total: usize = committees.iter().map(|c| c.len()).sum();
         assert_eq!(total, 100);

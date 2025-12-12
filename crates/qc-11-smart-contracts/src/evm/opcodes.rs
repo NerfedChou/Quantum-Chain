@@ -85,9 +85,9 @@ pub enum Opcode {
     MSize = 0x59,
     Gas = 0x5A,
     JumpDest = 0x5B,
-    TLoad = 0x5C,   // EIP-1153
-    TStore = 0x5D,  // EIP-1153
-    MCopy = 0x5E,   // EIP-5656
+    TLoad = 0x5C,  // EIP-1153
+    TStore = 0x5D, // EIP-1153
+    MCopy = 0x5E,  // EIP-5656
 
     // 0x5F - Push0 (EIP-3855)
     Push0 = 0x5F,
@@ -389,11 +389,7 @@ impl Opcode {
     pub fn is_terminating(&self) -> bool {
         matches!(
             self,
-            Self::Stop
-                | Self::Return
-                | Self::Revert
-                | Self::Invalid
-                | Self::SelfDestruct
+            Self::Stop | Self::Return | Self::Revert | Self::Invalid | Self::SelfDestruct
         )
     }
 

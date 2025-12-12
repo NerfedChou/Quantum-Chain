@@ -4,9 +4,9 @@
 //!
 //! Reference: System.md Lines 736, 739
 
-use sha2::{Sha256, Digest};
+use crate::domain::{CrossChainError, Hash, Secret};
 use rand::RngCore;
-use crate::domain::{Hash, Secret, CrossChainError};
+use sha2::{Digest, Sha256};
 
 /// Generate a cryptographically secure random secret.
 ///

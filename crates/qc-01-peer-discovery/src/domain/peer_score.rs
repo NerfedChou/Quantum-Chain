@@ -32,30 +32,30 @@ pub struct PeerScoreConfig {
     pub time_in_mesh_weight: f64,
     /// P1: Maximum bonus from time in mesh
     pub time_in_mesh_cap: f64,
-    
+
     /// P2: Points per first valid block delivery
     pub first_block_delivery_weight: f64,
     /// P2: Points per first valid tx delivery
     pub first_tx_delivery_weight: f64,
-    
+
     /// P3: Points per invalid block (negative)
     pub invalid_block_penalty: f64,
     /// P3: Points per invalid signature (negative)
     pub invalid_signature_penalty: f64,
-    
+
     /// P4: Points per mesh delivery failure (negative)
     pub mesh_failure_penalty: f64,
-    
+
     /// Score below which peer is graylisted
     pub graylist_threshold: f64,
     /// Score below which peer is blacklisted
     pub blacklist_threshold: f64,
-    
+
     /// How long a graylisted peer is ignored
     pub graylist_duration: Duration,
     /// How long a blacklisted peer is banned
     pub blacklist_duration: Duration,
-    
+
     /// Score decay per minute (regression to mean)
     pub decay_rate: f64,
 }
@@ -72,9 +72,9 @@ impl Default for PeerScoreConfig {
             mesh_failure_penalty: -1.0,
             graylist_threshold: 0.0,
             blacklist_threshold: -100.0,
-            graylist_duration: Duration::from_secs(3600),      // 1 hour
-            blacklist_duration: Duration::from_secs(86400),    // 24 hours
-            decay_rate: 0.9, // Score decays towards 0
+            graylist_duration: Duration::from_secs(3600), // 1 hour
+            blacklist_duration: Duration::from_secs(86400), // 24 hours
+            decay_rate: 0.9,                              // Score decays towards 0
         }
     }
 }
@@ -195,11 +195,14 @@ impl PeerScore {
         let elapsed_minutes = elapsed_secs as f64 / 60.0;
 
         // P1: Time in mesh bonus
-        let connection_minutes = now.as_secs().saturating_sub(self.connected_at.as_secs()) as f64 / 60.0;
-        let time_bonus = (connection_minutes * config.time_in_mesh_weight).min(config.time_in_mesh_cap);
+        let connection_minutes =
+            now.as_secs().saturating_sub(self.connected_at.as_secs()) as f64 / 60.0;
+        let time_bonus =
+            (connection_minutes * config.time_in_mesh_weight).min(config.time_in_mesh_cap);
 
         // Apply decay (score regresses toward time_bonus baseline)
-        self.score = self.score * config.decay_rate.powf(elapsed_minutes) + time_bonus * (1.0 - config.decay_rate.powf(elapsed_minutes));
+        self.score = self.score * config.decay_rate.powf(elapsed_minutes)
+            + time_bonus * (1.0 - config.decay_rate.powf(elapsed_minutes));
 
         self.last_update = now;
     }
@@ -244,14 +247,16 @@ impl PeerScoreManager {
 
     /// Check if peer should be graylisted
     pub fn should_graylist(&self, node_id: &NodeId) -> bool {
-        self.scores.get(node_id)
+        self.scores
+            .get(node_id)
             .map(|s| s.is_graylistable(&self.config))
             .unwrap_or(false)
     }
 
     /// Check if peer should be blacklisted
     pub fn should_blacklist(&self, node_id: &NodeId) -> bool {
-        self.scores.get(node_id)
+        self.scores
+            .get(node_id)
             .map(|s| s.is_blacklistable(&self.config))
             .unwrap_or(false)
     }
@@ -300,7 +305,8 @@ impl PeerScoreManager {
 
     /// Get peers that should be graylisted
     pub fn get_graylist_candidates(&self) -> Vec<NodeId> {
-        self.scores.iter()
+        self.scores
+            .iter()
             .filter(|(_, s)| s.is_graylistable(&self.config))
             .map(|(id, _)| *id)
             .collect()
@@ -308,7 +314,8 @@ impl PeerScoreManager {
 
     /// Get peers that should be blacklisted
     pub fn get_blacklist_candidates(&self) -> Vec<NodeId> {
-        self.scores.iter()
+        self.scores
+            .iter()
             .filter(|(_, s)| s.is_blacklistable(&self.config))
             .map(|(id, _)| *id)
             .collect()
@@ -398,7 +405,7 @@ mod tests {
 
         let node = make_node_id(1);
         manager.on_peer_connected(node, now);
-        
+
         // Score is 0, should NOT be graylisted
         assert!(!manager.should_graylist(&node));
 
@@ -444,7 +451,7 @@ mod tests {
         // Multiple good actions
         manager.on_first_block_delivery(&node); // +5
         manager.on_first_block_delivery(&node); // +5
-        manager.on_first_tx_delivery(&node);   // +0.5
+        manager.on_first_tx_delivery(&node); // +0.5
 
         let score = manager.get_score(&node).unwrap();
         assert_eq!(score, 10.5);
@@ -467,7 +474,7 @@ mod tests {
         manager.on_peer_connected(bad_node, now);
 
         manager.on_first_block_delivery(&good_node); // +5
-        manager.on_invalid_block(&bad_node);        // -10
+        manager.on_invalid_block(&bad_node); // -10
 
         let candidates = manager.get_graylist_candidates();
         assert_eq!(candidates.len(), 1);

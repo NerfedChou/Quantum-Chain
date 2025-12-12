@@ -11,9 +11,8 @@
 
 #[cfg(feature = "qc-15")]
 use qc_15_cross_chain::{
-    ChainId, Hash, Secret, CrossChainConfig,
-    create_atomic_swap, validate_swap_timelocks, calculate_timelocks,
-    create_hash_lock, verify_secret, AtomicSwap, HTLC,
+    calculate_timelocks, create_atomic_swap, create_hash_lock, validate_swap_timelocks,
+    verify_secret, AtomicSwap, ChainId, CrossChainConfig, Hash, Secret, HTLC,
 };
 
 #[cfg(feature = "qc-15")]
@@ -135,7 +134,7 @@ mod tests {
 
         assert_eq!(adapter.swap_count(), 1);
         assert_eq!(swap.source_amount, 1000);
-        
+
         // Verify secret matches hashlock
         assert!(verify_secret(&secret, &swap.hash_lock));
     }
@@ -150,10 +149,7 @@ mod tests {
     #[test]
     fn test_adapter_get_timelocks() {
         let adapter = CrossChainAdapter::with_defaults();
-        let (source, target) = adapter.get_timelocks(
-            ChainId::QuantumChain,
-            ChainId::Ethereum,
-        );
+        let (source, target) = adapter.get_timelocks(ChainId::QuantumChain, ChainId::Ethereum);
         assert!(source > target);
     }
 }

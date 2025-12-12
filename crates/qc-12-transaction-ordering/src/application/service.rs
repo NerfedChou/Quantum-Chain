@@ -54,7 +54,11 @@ impl TransactionOrderingService {
     }
 
     /// Check if we should fallback to sequential execution
-    fn should_fallback(&self, conflicts: &[crate::domain::value_objects::Conflict], tx_count: usize) -> bool {
+    fn should_fallback(
+        &self,
+        conflicts: &[crate::domain::value_objects::Conflict],
+        tx_count: usize,
+    ) -> bool {
         let percent = conflict_detector::conflict_percentage(conflicts, tx_count);
         percent > self.config.conflict_threshold_percent
     }
@@ -87,7 +91,8 @@ impl TransactionOrderingApi for TransactionOrderingService {
         // 3. Check conflict threshold for fallback
         if self.should_fallback(&conflicts, transactions.len()) {
             warn!(
-                conflict_percent = conflict_detector::conflict_percentage(&conflicts, transactions.len()),
+                conflict_percent =
+                    conflict_detector::conflict_percentage(&conflicts, transactions.len()),
                 threshold = self.config.conflict_threshold_percent,
                 "Conflict threshold exceeded, falling back to sequential"
             );
@@ -195,7 +200,10 @@ mod tests {
             AccessPattern::new().with_reads(vec![loc(1, 1)]),
         );
 
-        let schedule = service.order_transactions(vec![tx1.clone(), tx2.clone()]).await.unwrap();
+        let schedule = service
+            .order_transactions(vec![tx1.clone(), tx2.clone()])
+            .await
+            .unwrap();
 
         // tx2 depends on tx1, should be in separate groups
         assert_eq!(schedule.parallel_groups.len(), 2);
@@ -221,14 +229,7 @@ mod tests {
         let service = TransactionOrderingService::with_config(config);
 
         let transactions: Vec<_> = (0..5)
-            .map(|i| {
-                AnnotatedTransaction::new(
-                    make_hash(i),
-                    make_addr(i),
-                    0,
-                    AccessPattern::new(),
-                )
-            })
+            .map(|i| AnnotatedTransaction::new(make_hash(i), make_addr(i), 0, AccessPattern::new()))
             .collect();
 
         let result = service.order_transactions(transactions).await;

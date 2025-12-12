@@ -167,10 +167,10 @@ mod tests {
     #[test]
     fn test_valid_vote() {
         let mut db = SlashingDb::new();
-        
+
         let result = db.check_and_record(validator(1), 5, 10, block_hash(0xAB));
         assert!(result.is_none());
-        
+
         let record = db.get_record(&validator(1)).unwrap();
         assert_eq!(record.highest_source, 5);
         assert_eq!(record.highest_target, 10);
@@ -179,36 +179,39 @@ mod tests {
     #[test]
     fn test_double_vote_detection() {
         let mut db = SlashingDb::new();
-        
+
         // First vote
         db.check_and_record(validator(1), 5, 10, block_hash(0xAB));
-        
+
         // Second vote at same target epoch, different block
         let result = db.check_and_record(validator(1), 5, 10, block_hash(0xCD));
-        
+
         assert!(matches!(result, Some(SlashingEvidence::DoubleVote { .. })));
     }
 
     #[test]
     fn test_surround_vote_detection() {
         let mut db = SlashingDb::new();
-        
+
         // First vote: 2 -> 3
         db.check_and_record(validator(1), 2, 3, block_hash(0xAB));
-        
+
         // Second vote: 1 -> 4 (surrounds first)
         let result = db.check_and_record(validator(1), 1, 4, block_hash(0xCD));
-        
-        assert!(matches!(result, Some(SlashingEvidence::SurroundVote { .. })));
+
+        assert!(matches!(
+            result,
+            Some(SlashingEvidence::SurroundVote { .. })
+        ));
     }
 
     #[test]
     fn test_same_vote_is_idempotent() {
         let mut db = SlashingDb::new();
-        
+
         db.check_and_record(validator(1), 5, 10, block_hash(0xAB));
         let result = db.check_and_record(validator(1), 5, 10, block_hash(0xAB));
-        
+
         assert!(result.is_none());
     }
 }

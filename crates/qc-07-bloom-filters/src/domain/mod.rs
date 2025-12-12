@@ -31,9 +31,7 @@ pub use block_filter::BlockFilter;
 pub use bloom_filter::BloomFilter;
 pub use config::{BloomConfig, BloomConfigBuilder};
 pub use counting_bloom::CountingBloomFilter;
-pub use cuckoo::{CuckooFilter, Bucket, Fingerprint, ENTRIES_PER_BUCKET};
+pub use cuckoo::{Bucket, CuckooFilter, Fingerprint, ENTRIES_PER_BUCKET};
 pub use gap_limit::{ClientMatchHistory, GapLimitEnforcer, ThrottleReason};
-pub use gcs_filter::{GcsFilter, GOLOMB_P, GCS_FPR};
+pub use gcs_filter::{GcsFilter, GCS_FPR, GOLOMB_P};
 pub use parameters::{calculate_optimal_parameters, AdaptiveBloomParams, BloomFilterParams};
-
-

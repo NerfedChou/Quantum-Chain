@@ -170,7 +170,7 @@ mod tests {
         let nonce = Uuid::new_v4();
 
         assert!(!cache.is_replay(&nonce)); // First time - fresh
-        assert!(cache.is_replay(&nonce));  // Second time - replay!
+        assert!(cache.is_replay(&nonce)); // Second time - replay!
     }
 
     #[test]

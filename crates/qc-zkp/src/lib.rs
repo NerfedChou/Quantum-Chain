@@ -18,10 +18,10 @@ pub mod field;
 pub mod polynomial;
 pub mod proof;
 
-pub use errors::ZkpError;
-pub use field::{GoldilocksField, FieldElement};
-pub use polynomial::Polynomial;
 pub use commitment::MerkleCommitment;
+pub use errors::ZkpError;
+pub use field::{FieldElement, GoldilocksField};
+pub use polynomial::Polynomial;
 pub use proof::{Proof, Prover, Verifier};
 
 /// Crate version

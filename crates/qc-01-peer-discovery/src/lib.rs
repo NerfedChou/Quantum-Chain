@@ -100,20 +100,48 @@ pub use domain::{
 
 // Domain services
 pub use domain::{
-    bucket_for_peer, calculate_bucket_index, find_k_closest, is_same_subnet, sort_peers_by_distance, xor_distance,
+    bucket_for_peer, calculate_bucket_index, find_k_closest, is_same_subnet,
+    sort_peers_by_distance, xor_distance,
 };
 
 // Advanced Peer Discovery (Phase 1-3)
 pub use domain::{
-    // Phase 1: Anti-Eclipse Hardening
-    AddressManager, AddressManagerConfig, AddressManagerError, AddressManagerStats,
-    PeerScore, PeerScoreConfig, PeerScoreManager,
+    verify_handshake,
     // Phase 2: Network Health
-    AcceptResult, ConnectionDirection, ConnectionInfo, ConnectionSlots, ConnectionSlotsConfig, ConnectionStats,
-    BucketFreshness, FeelerConfig, FeelerProbe, FeelerResult, FeelerState,
-    ForkId, HandshakeConfig, HandshakeData, HandshakeResult, PeerClassification, RejectReason, verify_handshake,
+    AcceptResult,
+    // Phase 1: Anti-Eclipse Hardening
+    AddressManager,
+    AddressManagerConfig,
+    AddressManagerError,
+    AddressManagerStats,
+    BucketFreshness,
     // Phase 3: Enhanced Identity
-    Capability, CapabilityData, CapabilityType, EnrCache, EnrConfig, NodeRecord, PublicKey, Signature,
+    Capability,
+    CapabilityData,
+    CapabilityType,
+    ConnectionDirection,
+    ConnectionInfo,
+    ConnectionSlots,
+    ConnectionSlotsConfig,
+    ConnectionStats,
+    EnrCache,
+    EnrConfig,
+    FeelerConfig,
+    FeelerProbe,
+    FeelerResult,
+    FeelerState,
+    ForkId,
+    HandshakeConfig,
+    HandshakeData,
+    HandshakeResult,
+    NodeRecord,
+    PeerClassification,
+    PeerScore,
+    PeerScoreConfig,
+    PeerScoreManager,
+    PublicKey,
+    RejectReason,
+    Signature,
 };
 
 // Port traits
@@ -131,10 +159,10 @@ pub use service::PeerDiscoveryService;
 
 #[cfg(feature = "ipc")]
 pub use ipc::{
-    AuthorizationRules, FullNodeListRequestPayload, IpcHandler, PeerConnectedPayload,
-    PeerDisconnectedPayload, PeerDiscoveryEventPayload, PeerDiscoveryRequestPayload, PeerFilter,
-    PeerListRequestPayload, PeerListResponsePayload, SecurityError, SubsystemId,
-    BootstrapRequest, BootstrapResult, VerifyNodeIdentityRequest,
+    AuthorizationRules, BootstrapRequest, BootstrapResult, FullNodeListRequestPayload, IpcHandler,
+    PeerConnectedPayload, PeerDisconnectedPayload, PeerDiscoveryEventPayload,
+    PeerDiscoveryRequestPayload, PeerFilter, PeerListRequestPayload, PeerListResponsePayload,
+    SecurityError, SubsystemId, VerifyNodeIdentityRequest,
 };
 
 // =============================================================================
@@ -142,26 +170,31 @@ pub use ipc::{
 // =============================================================================
 
 // Network adapters - pure types always available when adapters module exists
-#[cfg(any(feature = "ipc", feature = "rpc", feature = "bootstrap", feature = "network"))]
+#[cfg(any(
+    feature = "ipc",
+    feature = "rpc",
+    feature = "bootstrap",
+    feature = "network"
+))]
 pub use adapters::{
-    NoOpNetworkSocket, NoOpNodeIdValidator, ProofOfWorkValidator, 
-    StaticConfigProvider, SystemTimeSource,
+    NoOpNetworkSocket, NoOpNodeIdValidator, ProofOfWorkValidator, StaticConfigProvider,
+    SystemTimeSource,
 };
 
 // IPC/EDA adapters (publisher, subscriber)
 #[cfg(feature = "ipc")]
 pub use adapters::{
-    EventBuilder, EventHandler, InMemoryEventPublisher, NoOpEventPublisher,
-    NodeIdentityVerificationResult, PeerDiscoveryEventPublisher, PeerDiscoveryEventSubscriber,
-    SubscriptionError, SubscriptionFilter, VerificationOutcome,
-    InMemoryVerificationPublisher, NoOpVerificationPublisher, VerificationRequestPublisher,
+    EventBuilder, EventHandler, InMemoryEventPublisher, InMemoryVerificationPublisher,
+    NoOpEventPublisher, NoOpVerificationPublisher, NodeIdentityVerificationResult,
+    PeerDiscoveryEventPublisher, PeerDiscoveryEventSubscriber, SubscriptionError,
+    SubscriptionFilter, VerificationOutcome, VerificationRequestPublisher,
 };
 
 // RPC adapters (serde-based)
 #[cfg(feature = "rpc")]
 pub use adapters::{
-    handle_api_query, ApiGatewayHandler, ApiQueryError, Qc01Metrics, RpcNetworkInfo,
-    RpcNodeInfo, RpcPeerInfo, RpcPorts, RpcProtocols,
+    handle_api_query, ApiGatewayHandler, ApiQueryError, Qc01Metrics, RpcNetworkInfo, RpcNodeInfo,
+    RpcPeerInfo, RpcPorts, RpcProtocols,
 };
 
 // Bootstrap handler
@@ -178,4 +211,3 @@ pub use adapters::{ConfigError, MessageType, TomlConfigProvider, UdpNetworkSocke
 
 #[cfg(feature = "test-utils")]
 pub use test_utils::FixedTimeSource;
-

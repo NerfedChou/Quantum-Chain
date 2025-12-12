@@ -191,9 +191,9 @@ mod tests {
     #[test]
     fn test_first_vote_no_slashing() {
         let mut db = SlashingDB::new();
-        
+
         let result = db.check_and_record(validator(1), 10, block_hash(0xAB), None);
-        
+
         assert!(result.is_none());
         assert!(db.has_vote(validator(1), 10));
     }
@@ -201,10 +201,10 @@ mod tests {
     #[test]
     fn test_same_vote_no_slashing() {
         let mut db = SlashingDB::new();
-        
+
         db.check_and_record(validator(1), 10, block_hash(0xAB), None);
         let result = db.check_and_record(validator(1), 10, block_hash(0xAB), None);
-        
+
         assert!(result.is_none());
         assert_eq!(db.total_slashings(), 0);
     }
@@ -212,15 +212,21 @@ mod tests {
     #[test]
     fn test_double_vote_triggers_slashing() {
         let mut db = SlashingDB::new();
-        
+
         db.check_and_record(validator(1), 10, block_hash(0xAB), None);
         let result = db.check_and_record(validator(1), 10, block_hash(0xCD), None);
-        
+
         assert!(result.is_some());
         let evidence = result.unwrap();
-        
+
         match evidence {
-            SlashingEvidence::DoubleVote { validator: v, epoch, vote_a, vote_b, .. } => {
+            SlashingEvidence::DoubleVote {
+                validator: v,
+                epoch,
+                vote_a,
+                vote_b,
+                ..
+            } => {
                 assert_eq!(v, validator(1));
                 assert_eq!(epoch, 10);
                 assert_eq!(vote_a, block_hash(0xAB));
@@ -228,17 +234,17 @@ mod tests {
             }
             _ => panic!("Expected DoubleVote"),
         }
-        
+
         assert_eq!(db.total_slashings(), 1);
     }
 
     #[test]
     fn test_different_epochs_no_slashing() {
         let mut db = SlashingDB::new();
-        
+
         db.check_and_record(validator(1), 10, block_hash(0xAB), None);
         let result = db.check_and_record(validator(1), 11, block_hash(0xCD), None);
-        
+
         assert!(result.is_none());
         assert_eq!(db.total_slashings(), 0);
     }
@@ -246,13 +252,13 @@ mod tests {
     #[test]
     fn test_prune_old_epochs() {
         let mut db = SlashingDB::new();
-        
+
         db.check_and_record(validator(1), 5, block_hash(0xAA), None);
         db.check_and_record(validator(1), 10, block_hash(0xBB), None);
         db.check_and_record(validator(1), 15, block_hash(0xCC), None);
-        
+
         db.prune_before(10);
-        
+
         assert!(!db.has_vote(validator(1), 5));
         assert!(db.has_vote(validator(1), 10));
         assert!(db.has_vote(validator(1), 15));

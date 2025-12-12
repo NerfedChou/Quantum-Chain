@@ -130,7 +130,10 @@ mod tests {
 
     #[test]
     fn test_not_finalized_error() {
-        let err = CrossChainError::NotFinalized { got: 3, required: 6 };
+        let err = CrossChainError::NotFinalized {
+            got: 3,
+            required: 6,
+        };
         assert!(err.to_string().contains("3/6"));
     }
 

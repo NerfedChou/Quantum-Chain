@@ -81,7 +81,10 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        let err = OrderingError::BatchTooLarge { size: 2000, max: 1000 };
+        let err = OrderingError::BatchTooLarge {
+            size: 2000,
+            max: 1000,
+        };
         assert_eq!(err.to_string(), "Batch size exceeded: 2000 > 1000");
     }
 

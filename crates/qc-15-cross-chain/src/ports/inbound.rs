@@ -4,11 +4,10 @@
 //!
 //! Reference: SPEC-15 Section 3.1 (Lines 219-250)
 
-use async_trait::async_trait;
 use crate::domain::{
-    Hash, Secret, Address, CrossChainError,
-    ChainId, AtomicSwap, HTLC, CrossChainProof,
+    Address, AtomicSwap, ChainId, CrossChainError, CrossChainProof, Hash, Secret, HTLC,
 };
+use async_trait::async_trait;
 
 /// Cross-chain API - inbound port.
 ///
@@ -44,11 +43,7 @@ pub trait CrossChainApi: Send + Sync {
     ) -> Result<HTLC, CrossChainError>;
 
     /// Claim an HTLC with secret.
-    async fn claim(
-        &self,
-        htlc_id: Hash,
-        secret: Secret,
-    ) -> Result<(), CrossChainError>;
+    async fn claim(&self, htlc_id: Hash, secret: Secret) -> Result<(), CrossChainError>;
 
     /// Refund an expired HTLC.
     async fn refund(&self, htlc_id: Hash) -> Result<(), CrossChainError>;

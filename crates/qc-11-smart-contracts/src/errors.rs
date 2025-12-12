@@ -236,7 +236,10 @@ mod tests {
         let err = VmError::InvalidOpcode(0xFE);
         assert_eq!(err.to_string(), "invalid opcode: 0xFE");
 
-        let err = VmError::CallDepthExceeded { depth: 1025, max: 1024 };
+        let err = VmError::CallDepthExceeded {
+            depth: 1025,
+            max: 1024,
+        };
         assert_eq!(err.to_string(), "call depth exceeded: 1025 > 1024");
     }
 

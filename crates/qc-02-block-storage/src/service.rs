@@ -148,7 +148,10 @@ where
 
         // Load transaction index if persistence is enabled
         if let Err(e) = service.load_transaction_index_from_storage() {
-            tracing::warn!("[qc-02] Failed to load transaction index from storage: {:?}", e);
+            tracing::warn!(
+                "[qc-02] Failed to load transaction index from storage: {:?}",
+                e
+            );
         }
 
         service
@@ -1316,9 +1319,7 @@ mod tests {
         block.transactions.push(validated_tx);
 
         // Write block
-        let _hash = service
-            .write_block(block, [0xAA; 32], [0xBB; 32])
-            .unwrap();
+        let _hash = service.write_block(block, [0xAA; 32], [0xBB; 32]).unwrap();
 
         // Verify transaction is indexed and can be found
         let location = service.get_transaction_location(&tx_hash).unwrap();

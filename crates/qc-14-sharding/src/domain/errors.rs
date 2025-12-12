@@ -103,13 +103,19 @@ mod tests {
 
     #[test]
     fn test_insufficient_signatures_error() {
-        let err = ShardError::InsufficientSignatures { got: 5, required: 10 };
+        let err = ShardError::InsufficientSignatures {
+            got: 5,
+            required: 10,
+        };
         assert!(err.to_string().contains("5/10"));
     }
 
     #[test]
     fn test_epoch_mismatch_error() {
-        let err = ShardError::EpochMismatch { expected: 100, got: 99 };
+        let err = ShardError::EpochMismatch {
+            expected: 100,
+            got: 99,
+        };
         assert!(err.to_string().contains("100"));
         assert!(err.to_string().contains("99"));
     }

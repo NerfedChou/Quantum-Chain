@@ -102,8 +102,16 @@ mod tests {
         graph.add_node(tx_a.clone());
         graph.add_node(tx_b.clone());
         graph.add_node(tx_c.clone());
-        graph.add_edge(Dependency::new(tx_a.hash, tx_b.hash, DependencyKind::ReadAfterWrite));
-        graph.add_edge(Dependency::new(tx_b.hash, tx_c.hash, DependencyKind::ReadAfterWrite));
+        graph.add_edge(Dependency::new(
+            tx_a.hash,
+            tx_b.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
+        graph.add_edge(Dependency::new(
+            tx_b.hash,
+            tx_c.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
 
         let schedule = kahns_topological_sort(&graph).unwrap();
 
@@ -159,10 +167,26 @@ mod tests {
         graph.add_node(tx_c.clone());
         graph.add_node(tx_d.clone());
 
-        graph.add_edge(Dependency::new(tx_a.hash, tx_b.hash, DependencyKind::ReadAfterWrite));
-        graph.add_edge(Dependency::new(tx_a.hash, tx_c.hash, DependencyKind::ReadAfterWrite));
-        graph.add_edge(Dependency::new(tx_b.hash, tx_d.hash, DependencyKind::ReadAfterWrite));
-        graph.add_edge(Dependency::new(tx_c.hash, tx_d.hash, DependencyKind::ReadAfterWrite));
+        graph.add_edge(Dependency::new(
+            tx_a.hash,
+            tx_b.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
+        graph.add_edge(Dependency::new(
+            tx_a.hash,
+            tx_c.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
+        graph.add_edge(Dependency::new(
+            tx_b.hash,
+            tx_d.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
+        graph.add_edge(Dependency::new(
+            tx_c.hash,
+            tx_d.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
 
         let schedule = kahns_topological_sort(&graph).unwrap();
 
@@ -186,9 +210,21 @@ mod tests {
         graph.add_node(tx_b.clone());
         graph.add_node(tx_c.clone());
 
-        graph.add_edge(Dependency::new(tx_a.hash, tx_b.hash, DependencyKind::ReadAfterWrite));
-        graph.add_edge(Dependency::new(tx_b.hash, tx_c.hash, DependencyKind::ReadAfterWrite));
-        graph.add_edge(Dependency::new(tx_c.hash, tx_a.hash, DependencyKind::ReadAfterWrite)); // Cycle!
+        graph.add_edge(Dependency::new(
+            tx_a.hash,
+            tx_b.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
+        graph.add_edge(Dependency::new(
+            tx_b.hash,
+            tx_c.hash,
+            DependencyKind::ReadAfterWrite,
+        ));
+        graph.add_edge(Dependency::new(
+            tx_c.hash,
+            tx_a.hash,
+            DependencyKind::ReadAfterWrite,
+        )); // Cycle!
 
         let result = kahns_topological_sort(&graph);
 

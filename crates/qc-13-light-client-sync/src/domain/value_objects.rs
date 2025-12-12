@@ -4,8 +4,8 @@
 //!
 //! Reference: SPEC-13 Section 2.1 (Lines 74-124)
 
-use serde::{Deserialize, Serialize};
 use super::errors::Hash;
+use serde::{Deserialize, Serialize};
 
 /// Checkpoint source type.
 /// Reference: SPEC-13 Lines 82-87

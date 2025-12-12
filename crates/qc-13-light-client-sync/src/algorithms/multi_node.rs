@@ -4,7 +4,7 @@
 //!
 //! Reference: System.md Line 644, SPEC-13 Lines 579-617
 
-use crate::domain::{LightClientError, MIN_FULL_NODES, CONSENSUS_THRESHOLD};
+use crate::domain::{LightClientError, CONSENSUS_THRESHOLD, MIN_FULL_NODES};
 
 /// Check if responses from multiple nodes reach consensus.
 ///
@@ -29,7 +29,9 @@ pub fn check_consensus<T: Clone + PartialEq>(
     }
 
     if responses.is_empty() {
-        return Err(LightClientError::ConsensusFailed("No responses".to_string()));
+        return Err(LightClientError::ConsensusFailed(
+            "No responses".to_string(),
+        ));
     }
 
     // Count occurrences of each response
@@ -72,7 +74,9 @@ pub fn check_strict_consensus<T: Clone + PartialEq>(
     }
 
     if responses.is_empty() {
-        return Err(LightClientError::ConsensusFailed("No responses".to_string()));
+        return Err(LightClientError::ConsensusFailed(
+            "No responses".to_string(),
+        ));
     }
 
     let first = &responses[0];
@@ -109,7 +113,7 @@ mod tests {
     #[test]
     fn test_check_consensus_supermajority() {
         let responses = vec![1, 1, 1, 2, 3]; // 3/5 agree on 1 (60% >= 2/3?)
-        // 2/3 of 5 = 3.33 -> 4 required, so this fails
+                                             // 2/3 of 5 = 3.33 -> 4 required, so this fails
         let result = check_consensus(&responses, 3);
         assert!(result.is_err());
     }
@@ -118,7 +122,10 @@ mod tests {
     fn test_check_consensus_insufficient_nodes() {
         let responses = vec![42, 42];
         let result = check_consensus(&responses, 3);
-        assert!(matches!(result, Err(LightClientError::InsufficientNodes { .. })));
+        assert!(matches!(
+            result,
+            Err(LightClientError::InsufficientNodes { .. })
+        ));
     }
 
     #[test]

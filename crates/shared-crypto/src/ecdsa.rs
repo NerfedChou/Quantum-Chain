@@ -29,8 +29,7 @@ impl Secp256k1PublicKey {
     /// Create from compressed bytes (33 bytes, starting with 0x02 or 0x03).
     pub fn from_bytes(bytes: [u8; 33]) -> Result<Self, CryptoError> {
         // Validate it's a valid compressed point
-        VerifyingKey::from_sec1_bytes(&bytes)
-            .map_err(|_| CryptoError::InvalidPublicKey)?;
+        VerifyingKey::from_sec1_bytes(&bytes).map_err(|_| CryptoError::InvalidPublicKey)?;
         Ok(Self(bytes))
     }
 
@@ -40,12 +39,15 @@ impl Secp256k1PublicKey {
     }
 
     /// Verify a signature.
-    pub fn verify(&self, message: &[u8], signature: &Secp256k1Signature) -> Result<(), CryptoError> {
-        let verifying_key = VerifyingKey::from_sec1_bytes(&self.0)
-            .map_err(|_| CryptoError::InvalidPublicKey)?;
+    pub fn verify(
+        &self,
+        message: &[u8],
+        signature: &Secp256k1Signature,
+    ) -> Result<(), CryptoError> {
+        let verifying_key =
+            VerifyingKey::from_sec1_bytes(&self.0).map_err(|_| CryptoError::InvalidPublicKey)?;
 
-        let sig = Signature::from_slice(&signature.0)
-            .map_err(|_| CryptoError::InvalidSignature)?;
+        let sig = Signature::from_slice(&signature.0).map_err(|_| CryptoError::InvalidSignature)?;
 
         verifying_key
             .verify(message, &sig)
@@ -91,8 +93,8 @@ impl Secp256k1KeyPair {
 
     /// Create from secret key bytes (32 bytes).
     pub fn from_bytes(bytes: [u8; 32]) -> Result<Self, CryptoError> {
-        let signing_key = SigningKey::from_bytes((&bytes).into())
-            .map_err(|_| CryptoError::InvalidPrivateKey)?;
+        let signing_key =
+            SigningKey::from_bytes((&bytes).into()).map_err(|_| CryptoError::InvalidPrivateKey)?;
         Ok(Self { signing_key })
     }
 

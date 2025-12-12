@@ -1,11 +1,13 @@
-use std::sync::Arc;
-use tracing::{error, info, warn};
-use shared_bus::{InMemoryEventBus, events::BlockchainEvent, EventPublisher, EventFilter, EventTopic};
+use crate::container::config::NodeConfig;
 use qc_10_signature_verification::adapters::ipc::IpcHandler;
 use qc_10_signature_verification::SignatureVerificationApi;
-use shared_types::ipc::{VerifyNodeIdentityPayload, VerifyNodeIdentityResponse};
+use shared_bus::{
+    events::BlockchainEvent, EventFilter, EventPublisher, EventTopic, InMemoryEventBus,
+};
 use shared_types::envelope::AuthenticatedMessage;
-use crate::container::config::NodeConfig;
+use shared_types::ipc::{VerifyNodeIdentityPayload, VerifyNodeIdentityResponse};
+use std::sync::Arc;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 /// Handler for Signature Verification (qc-10) events.
@@ -34,13 +36,18 @@ impl<S: SignatureVerificationApi + Clone + Send + Sync + 'static> SignatureVerif
     /// Run the handler loop processing events.
     pub async fn run(self) {
         // Subscribe only to Peer Discovery events (where VerifyNodeIdentity comes from)
-        let mut rx = self.bus.subscribe(EventFilter::topics(vec![EventTopic::PeerDiscovery]));
+        let mut rx = self
+            .bus
+            .subscribe(EventFilter::topics(vec![EventTopic::PeerDiscovery]));
         info!("Signature Verification Handler started");
 
         // We specifically listen for VerifyNodeIdentity events
         while let Some(event) = rx.recv().await {
             match event {
-                BlockchainEvent::VerifyNodeIdentity { correlation_id, payload } => {
+                BlockchainEvent::VerifyNodeIdentity {
+                    correlation_id,
+                    payload,
+                } => {
                     self.handle_verification(correlation_id, payload).await;
                 }
                 _ => {}
@@ -48,7 +55,11 @@ impl<S: SignatureVerificationApi + Clone + Send + Sync + 'static> SignatureVerif
         }
     }
 
-    async fn handle_verification(&self, correlation_id: String, payload: VerifyNodeIdentityPayload) {
+    async fn handle_verification(
+        &self,
+        correlation_id: String,
+        payload: VerifyNodeIdentityPayload,
+    ) {
         // Parse correlation ID or generate new if invalid (logging error)
         let msg_correlation_id = match Uuid::parse_str(&correlation_id) {
             Ok(uuid) => uuid,
@@ -63,7 +74,7 @@ impl<S: SignatureVerificationApi + Clone + Send + Sync + 'static> SignatureVerif
                     if bytes.len() == 16 {
                         Uuid::from_bytes(bytes.try_into().unwrap())
                     } else {
-                         Uuid::nil()
+                        Uuid::nil()
                     }
                 } else {
                     Uuid::nil()
@@ -74,40 +85,43 @@ impl<S: SignatureVerificationApi + Clone + Send + Sync + 'static> SignatureVerif
         // Construct AuthenticatedMessage
         // We act as the transport layer here, wrapping the payload
         let msg = AuthenticatedMessage {
-             version: 1,
-             sender_id: 1, // Peer Discovery (SubsystemId::PeerDiscovery)
-             recipient_id: 10, // Signature Verification (SubsystemId::SignatureVerification)
-             correlation_id: msg_correlation_id,
-             timestamp: std::time::SystemTime::now()
+            version: 1,
+            sender_id: 1,     // Peer Discovery (SubsystemId::PeerDiscovery)
+            recipient_id: 10, // Signature Verification (SubsystemId::SignatureVerification)
+            correlation_id: msg_correlation_id,
+            timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-             nonce: Uuid::new_v4(),
-             payload,
-             signature: [0u8; 64], // Signature not checked by IpcHandler logic yet
-             reply_to: None, // No specific reply topic needed
+            nonce: Uuid::new_v4(),
+            payload,
+            signature: [0u8; 64], // Signature not checked by IpcHandler logic yet
+            reply_to: None,       // No specific reply topic needed
         };
-        
-        // Note: msg.sign() is not available on the struct directly here, 
+
+        // Note: msg.sign() is not available on the struct directly here,
         // and IpcHandler does not enforce HMAC verification in its current validate_envelope implementation.
         // If strict security is needed, we would need to implement signing here manually.
 
         // Call Handler
         match self.ipc_handler.handle_verify_node_identity(msg) {
-             Ok(response) => {
-                 // Publish Result back to Bus
-                 let event = BlockchainEvent::NodeIdentityVerified {
-                     correlation_id,
-                     payload: response,
-                 };
-                 // Publish response
-                 self.bus.publish(event).await;
-                 
-                 // info!("Verified node identity for correlation {}", correlation_id);
-             }
-             Err(e) => {
-                 error!("Error verifying node identity (correlation {}): {}", correlation_id, e);
-             }
+            Ok(response) => {
+                // Publish Result back to Bus
+                let event = BlockchainEvent::NodeIdentityVerified {
+                    correlation_id,
+                    payload: response,
+                };
+                // Publish response
+                self.bus.publish(event).await;
+
+                // info!("Verified node identity for correlation {}", correlation_id);
+            }
+            Err(e) => {
+                error!(
+                    "Error verifying node identity (correlation {}): {}",
+                    correlation_id, e
+                );
+            }
         }
     }
 }

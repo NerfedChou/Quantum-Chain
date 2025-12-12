@@ -39,7 +39,10 @@ pub fn detect_conflicts(transactions: &[AnnotatedTransaction]) -> Vec<Conflict> 
 }
 
 /// Detect data conflict between two transactions
-fn detect_data_conflict(tx1: &AnnotatedTransaction, tx2: &AnnotatedTransaction) -> Option<Conflict> {
+fn detect_data_conflict(
+    tx1: &AnnotatedTransaction,
+    tx2: &AnnotatedTransaction,
+) -> Option<Conflict> {
     let p1 = &tx1.access_pattern;
     let p2 = &tx2.access_pattern;
 
@@ -167,14 +170,12 @@ mod tests {
 
     #[test]
     fn test_conflict_percentage() {
-        let conflicts = vec![
-            Conflict {
-                tx1: make_hash(1),
-                tx2: make_hash(2),
-                kind: DependencyKind::WriteAfterWrite,
-                location: None,
-            },
-        ];
+        let conflicts = vec![Conflict {
+            tx1: make_hash(1),
+            tx2: make_hash(2),
+            kind: DependencyKind::WriteAfterWrite,
+            location: None,
+        }];
 
         // 3 transactions = 3 pairs max, 1 conflict = 33%
         assert_eq!(conflict_percentage(&conflicts, 3), 33);

@@ -30,12 +30,18 @@ pub struct FlatKey {
 impl FlatKey {
     /// Key for account state.
     pub fn account(address: Address) -> Self {
-        Self { address, slot: None }
+        Self {
+            address,
+            slot: None,
+        }
     }
 
     /// Key for storage slot.
     pub fn storage(address: Address, slot: StorageKey) -> Self {
-        Self { address, slot: Some(slot) }
+        Self {
+            address,
+            slot: Some(slot),
+        }
     }
 
     /// Serialize to bytes for DB key.
@@ -130,16 +136,12 @@ impl FlatStorage {
 
     /// Get balance - O(1).
     pub fn get_balance(&self, address: &Address) -> u128 {
-        self.get_account(address)
-            .map(|a| a.balance)
-            .unwrap_or(0)
+        self.get_account(address).map(|a| a.balance).unwrap_or(0)
     }
 
     /// Get nonce - O(1).
     pub fn get_nonce(&self, address: &Address) -> u64 {
-        self.get_account(address)
-            .map(|a| a.nonce)
-            .unwrap_or(0)
+        self.get_account(address).map(|a| a.nonce).unwrap_or(0)
     }
 
     /// Get storage value - O(1).
@@ -159,11 +161,9 @@ impl FlatStorage {
 
     /// Get statistics.
     pub fn stats(&self) -> FlatStorageStats {
-        let accounts = self.data.keys()
-            .filter(|k| k.slot.is_none())
-            .count();
+        let accounts = self.data.keys().filter(|k| k.slot.is_none()).count();
         let slots = self.data.len() - accounts;
-        
+
         FlatStorageStats {
             accounts,
             storage_slots: slots,
@@ -209,9 +209,9 @@ mod tests {
         let mut storage = FlatStorage::new();
         let addr = [0x01; 20];
         let state = AccountState::new(1000);
-        
+
         storage.put_account(addr, state);
-        
+
         let retrieved = storage.get_account(&addr);
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().balance, 1000);
@@ -222,7 +222,7 @@ mod tests {
         let mut storage = FlatStorage::new();
         let addr = [0x01; 20];
         storage.put_account(addr, AccountState::new(5000));
-        
+
         // O(1) balance lookup
         assert_eq!(storage.get_balance(&addr), 5000);
         assert_eq!(storage.get_balance(&[0xFF; 20]), 0);
@@ -234,9 +234,9 @@ mod tests {
         let addr = [0x01; 20];
         let slot = [0x02; 32];
         let value = [0x03; 32];
-        
+
         storage.put_storage(addr, slot, value);
-        
+
         let retrieved = storage.get_storage(&addr, &slot);
         assert_eq!(retrieved, Some(value));
     }
@@ -246,10 +246,10 @@ mod tests {
         let mut storage = FlatStorage::new();
         let addr = [0x01; 20];
         let slot = [0x02; 32];
-        
+
         storage.put_storage(addr, slot, [0xFF; 32]);
         assert!(storage.get_storage(&addr, &slot).is_some());
-        
+
         storage.delete_storage(addr, slot);
         assert!(storage.get_storage(&addr, &slot).is_none());
     }
@@ -257,14 +257,14 @@ mod tests {
     #[test]
     fn test_stats() {
         let mut storage = FlatStorage::new();
-        
+
         // Add 2 accounts and 3 storage slots
         storage.put_account([0x01; 20], AccountState::new(100));
         storage.put_account([0x02; 20], AccountState::new(200));
         storage.put_storage([0x01; 20], [0xAA; 32], [0xBB; 32]);
         storage.put_storage([0x01; 20], [0xCC; 32], [0xDD; 32]);
         storage.put_storage([0x02; 20], [0xEE; 32], [0xFF; 32]);
-        
+
         let stats = storage.stats();
         assert_eq!(stats.accounts, 2);
         assert_eq!(stats.storage_slots, 3);
