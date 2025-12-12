@@ -28,7 +28,7 @@ pub struct CrossChainAdapter {
     /// Active swaps.
     swaps: HashMap<Hash, AtomicSwap>,
     /// Active HTLCs.
-    _htlcs: HashMap<Hash, HTLC>,
+    htlcs: HashMap<Hash, HTLC>,
 }
 
 #[cfg(feature = "qc-15")]
@@ -39,7 +39,7 @@ impl CrossChainAdapter {
             config,
             subsystem_id: 15,
             swaps: HashMap::new(),
-            _htlcs: HashMap::new(),
+            htlcs: HashMap::new(),
         }
     }
 
@@ -101,6 +101,30 @@ impl CrossChainAdapter {
     pub fn swap_count(&self) -> usize {
         self.swaps.len()
     }
+
+    // =========================================================================
+    // HTLC Lifecycle Methods
+    // =========================================================================
+
+    /// Register a new HTLC after deploying on-chain.
+    pub fn register_htlc(&mut self, htlc: HTLC) {
+        self.htlcs.insert(htlc.id, htlc);
+    }
+
+    /// Get an HTLC by ID.
+    pub fn get_htlc(&self, id: &Hash) -> Option<&HTLC> {
+        self.htlcs.get(id)
+    }
+
+    /// Get mutable reference to an HTLC by ID.
+    pub fn get_htlc_mut(&mut self, id: &Hash) -> Option<&mut HTLC> {
+        self.htlcs.get_mut(id)
+    }
+
+    /// Count of active HTLCs.
+    pub fn htlc_count(&self) -> usize {
+        self.htlcs.len()
+    }
 }
 
 #[cfg(feature = "qc-15")]
@@ -113,7 +137,9 @@ impl Default for CrossChainAdapter {
 #[cfg(all(test, feature = "qc-15"))]
 mod tests {
     use super::*;
-    use qc_15_cross_chain::verify_secret;
+    use qc_15_cross_chain::{
+        create_hash_lock, generate_random_secret, verify_secret, ChainAddress, HTLCState,
+    };
 
     #[test]
     fn test_adapter_creation() {
@@ -152,5 +178,126 @@ mod tests {
         let adapter = CrossChainAdapter::with_defaults();
         let (source, target) = adapter.get_timelocks(ChainId::QuantumChain, ChainId::Ethereum);
         assert!(source > target);
+    }
+
+    // =========================================================================
+    // TDD TESTS: Phase 2 - HTLC Lifecycle
+    // =========================================================================
+
+    fn create_test_htlc() -> HTLC {
+        let secret = generate_random_secret();
+        let hash_lock = create_hash_lock(&secret);
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        HTLC::new(
+            [0xAA; 32],                                          // id
+            hash_lock,                                           // hash_lock
+            current_time + 86400,                                // time_lock (24h from now)
+            1000,                                                // amount
+            ChainAddress::new(ChainId::QuantumChain, [1u8; 20]), // sender
+            ChainAddress::new(ChainId::Ethereum, [2u8; 20]),     // recipient
+            current_time,                                        // created_at
+        )
+    }
+
+    #[test]
+    fn test_register_and_get_htlc() {
+        let mut adapter = CrossChainAdapter::with_defaults();
+        let htlc = create_test_htlc();
+        let htlc_id = htlc.id;
+
+        adapter.register_htlc(htlc);
+
+        assert_eq!(adapter.htlc_count(), 1);
+        let retrieved = adapter.get_htlc(&htlc_id);
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().amount, 1000);
+    }
+
+    #[test]
+    fn test_htlc_not_found() {
+        let adapter = CrossChainAdapter::with_defaults();
+        let unknown_id = [0xFF; 32];
+
+        assert!(adapter.get_htlc(&unknown_id).is_none());
+    }
+
+    #[test]
+    fn test_htlc_claim_via_adapter() {
+        let mut adapter = CrossChainAdapter::with_defaults();
+        let secret = generate_random_secret();
+        let hash_lock = create_hash_lock(&secret);
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let htlc = HTLC::new(
+            [0xBB; 32],
+            hash_lock,
+            current_time + 86400, // expires in 24h
+            2000,
+            ChainAddress::new(ChainId::QuantumChain, [1u8; 20]),
+            ChainAddress::new(ChainId::Ethereum, [2u8; 20]),
+            current_time,
+        );
+        let htlc_id = htlc.id;
+
+        adapter.register_htlc(htlc);
+
+        if let Some(htlc) = adapter.get_htlc_mut(&htlc_id) {
+            htlc.state = HTLCState::Locked;
+        }
+
+        // Claim with valid secret
+        if let Some(htlc) = adapter.get_htlc_mut(&htlc_id) {
+            let result = htlc.claim(secret, current_time);
+            assert!(result.is_ok());
+        }
+
+        // Verify state changed to Claimed
+        let htlc = adapter.get_htlc(&htlc_id).unwrap();
+        assert_eq!(htlc.state, HTLCState::Claimed);
+    }
+
+    #[test]
+    fn test_htlc_refund_via_adapter() {
+        let mut adapter = CrossChainAdapter::with_defaults();
+        let secret = generate_random_secret();
+        let hash_lock = create_hash_lock(&secret);
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let htlc = HTLC::new(
+            [0xCC; 32],
+            hash_lock,
+            current_time - 1, // Already expired
+            3000,
+            ChainAddress::new(ChainId::QuantumChain, [1u8; 20]),
+            ChainAddress::new(ChainId::Ethereum, [2u8; 20]),
+            current_time - 86400, // Created yesterday
+        );
+        let htlc_id = htlc.id;
+
+        adapter.register_htlc(htlc);
+
+        if let Some(htlc) = adapter.get_htlc_mut(&htlc_id) {
+            htlc.state = HTLCState::Locked;
+        }
+
+        // Refund after expiry
+        if let Some(htlc) = adapter.get_htlc_mut(&htlc_id) {
+            let result = htlc.refund(current_time);
+            assert!(result.is_ok());
+        }
+
+        // Verify state changed to Refunded
+        let htlc = adapter.get_htlc(&htlc_id).unwrap();
+        assert_eq!(htlc.state, HTLCState::Refunded);
     }
 }

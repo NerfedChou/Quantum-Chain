@@ -432,8 +432,14 @@ impl NodeRuntime {
             sv_service,
             &container.config,
         );
-        let _sv_handler_task = tokio::spawn(async move {
-            sv_handler.run().await;
+        let mut sv_shutdown = self.shutdown_rx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = sv_handler.run() => {}
+                _ = sv_shutdown.changed() => {
+                    info!("[SignatureVerificationHandler] Shutdown signal received");
+                }
+            }
         });
 
         // Start API Query handler (bridges qc-16 to subsystems)

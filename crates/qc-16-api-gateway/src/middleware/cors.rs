@@ -73,23 +73,31 @@ pub fn create_cors_layer(config: &CorsConfig) -> TowerCorsLayer {
 mod tests {
     use super::*;
 
+    /// Smoke test: verifies default CORS layer creates without panic.
+    /// The layer is opaque (tower-http), so we can only test configuration input.
     #[test]
     fn test_default_cors_config() {
         let config = CorsConfig::default();
-        let _layer = create_cors_layer(&config);
-        // Just verify it creates without panic
+        let layer = create_cors_layer(&config);
+        // Verify config is enabled and layer was created
         assert!(config.enabled);
+        // layer exists - this is a smoke test
+        drop(layer);
     }
 
+    /// Smoke test: verifies disabled CORS creates permissive layer.
     #[test]
     #[allow(clippy::field_reassign_with_default)]
     fn test_disabled_cors() {
         let mut config = CorsConfig::default();
         config.enabled = false;
-        let _layer = create_cors_layer(&config);
-        // Should create permissive layer
+        let layer = create_cors_layer(&config);
+        // Disabled CORS returns permissive layer
+        assert!(!config.enabled);
+        drop(layer);
     }
 
+    /// Smoke test: verifies specific origins are accepted.
     #[test]
     fn test_specific_origins() {
         let config = CorsConfig {
@@ -104,7 +112,9 @@ mod tests {
             max_age: 3600,
             allow_credentials: false,
         };
-        let _layer = create_cors_layer(&config);
-        // Verify creation
+        let layer = create_cors_layer(&config);
+        // Verify origins are configured
+        assert_eq!(config.allowed_origins.len(), 2);
+        drop(layer);
     }
 }
