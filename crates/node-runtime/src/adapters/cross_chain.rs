@@ -11,8 +11,8 @@
 
 #[cfg(feature = "qc-15")]
 use qc_15_cross_chain::{
-    calculate_timelocks, create_atomic_swap, verify_secret, AtomicSwap, ChainId, CrossChainConfig,
-    Hash, Secret, HTLC,
+    calculate_timelocks, create_atomic_swap, AtomicSwap, ChainId, CrossChainConfig, Hash, Secret,
+    HTLC,
 };
 
 #[cfg(feature = "qc-15")]
@@ -28,7 +28,7 @@ pub struct CrossChainAdapter {
     /// Active swaps.
     swaps: HashMap<Hash, AtomicSwap>,
     /// Active HTLCs.
-    htlcs: HashMap<Hash, HTLC>,
+    _htlcs: HashMap<Hash, HTLC>,
 }
 
 #[cfg(feature = "qc-15")]
@@ -39,7 +39,7 @@ impl CrossChainAdapter {
             config,
             subsystem_id: 15,
             swaps: HashMap::new(),
-            htlcs: HashMap::new(),
+            _htlcs: HashMap::new(),
         }
     }
 
@@ -113,6 +113,7 @@ impl Default for CrossChainAdapter {
 #[cfg(all(test, feature = "qc-15"))]
 mod tests {
     use super::*;
+    use qc_15_cross_chain::verify_secret;
 
     #[test]
     fn test_adapter_creation() {

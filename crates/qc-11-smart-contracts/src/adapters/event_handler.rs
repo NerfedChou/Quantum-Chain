@@ -110,7 +110,7 @@ impl<T: SmartContractApi> SmartContractEventHandler<T> {
     pub async fn handle_execute_htlc(
         &self,
         sender_id: u8,
-        payload: ExecuteHTLCRequestPayload,
+        _payload: ExecuteHTLCRequestPayload,
     ) -> Result<ExecuteHTLCResponsePayload, IpcError> {
         // Validate sender (IPC-MATRIX.md)
         if !subsystem_ids::is_authorized_htlc_sender(sender_id) {

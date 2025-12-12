@@ -379,7 +379,7 @@ mod udp_socket {
     /// Parse a raw Bootstrap message.
     ///
     /// # Protocol
-    /// [Type(1)][NodeId(32)][PoW(32)][PubKey(33)][Sig(64)][Port(2)][IP(4/16)]
+    /// \[Type(1)\]\[NodeId(32)\]\[PoW(32)\]\[PubKey(33)\]\[Sig(64)\]\[Port(2)\]\[IP(4/16)\]
     #[cfg(feature = "ipc")]
     pub fn parse_bootstrap_request(
         data: &[u8],
