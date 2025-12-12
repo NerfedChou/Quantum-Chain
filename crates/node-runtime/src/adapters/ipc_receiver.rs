@@ -102,13 +102,13 @@ impl EventBusIpcReceiver {
 
                             // Complete the pending request
                             let completed = self.pending_store.complete(cid, response_result);
-
                             if completed {
                                 debug!(
                                     correlation_id = %correlation_id,
                                     "Completed pending request"
                                 );
-                            } else {
+                            }
+                            if !completed {
                                 warn!(
                                     correlation_id = %correlation_id,
                                     "No pending request found for correlation ID (may have timed out)"

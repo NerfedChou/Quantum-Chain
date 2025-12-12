@@ -418,16 +418,13 @@ impl FinalityHandler {
                             sender_id: SubsystemId::Finality,
                         };
 
-                        match publisher.publish(event) {
-                            Ok(_) => {
-                                info!(
-                                    "[qc-09] ✓ Block #{} FINALIZED at epoch {}",
-                                    block_height, epoch
-                                );
-                            }
-                            Err(e) => {
-                                error!("[qc-09] ❌ Failed to finalize: {}", e);
-                            }
+                        if let Err(e) = publisher.publish(event) {
+                            error!("[qc-09] ❌ Failed to finalize: {}", e);
+                        } else {
+                            info!(
+                                "[qc-09] ✓ Block #{} FINALIZED at epoch {}",
+                                block_height, epoch
+                            );
                         }
                     }
                 }

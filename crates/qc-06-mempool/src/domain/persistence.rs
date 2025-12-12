@@ -73,7 +73,7 @@ impl MempoolPersistence {
 
     /// Serialize transactions for persistence.
     ///
-    /// Format: [MAGIC][VERSION][COUNT][TX1][TX2]...
+    /// Format: \[MAGIC\]\[VERSION\]\[COUNT\]\[TX1\]\[TX2\]...
     pub fn serialize(&self, transactions: &[PersistedTransaction], current_height: u64) -> Vec<u8> {
         let mut buf = Vec::with_capacity(transactions.len() * 256);
 

@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn test_gas_price_validation() {
         let min_gas_price = U256::from(1_000_000_000u64);
-        let validator = SecurityValidator::new(8_000_000, min_gas_price);
+        let _validator = SecurityValidator::new(8_000_000, min_gas_price);
 
         // Create mock transaction with low gas price
         // (simplified - actual implementation would need full transaction)
