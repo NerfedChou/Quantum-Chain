@@ -349,7 +349,7 @@ mod tests {
             operation: HtlcOperationPayload::Claim { secret },
             block_context: BlockContext {
                 number: 100,
-                timestamp: 1700000000,
+                timestamp: 1_700_000_000,
                 ..Default::default()
             },
         };
@@ -374,7 +374,7 @@ mod tests {
             operation: HtlcOperationPayload::Refund,
             block_context: BlockContext {
                 number: 200,
-                timestamp: 1700000000 + 86400, // 1 day later
+                timestamp: 1_700_000_000 + 86_400, // 1 day later
                 ..Default::default()
             },
         };
@@ -397,7 +397,7 @@ mod tests {
         let result = handler.handle_execute_htlc(15, payload).await;
         assert!(result.is_ok());
         let response = result.unwrap();
-        // gas_used should be 0 or some value, not undefined
-        assert!(response.gas_used == 0 || response.gas_used > 0);
+        // Placeholder returns 0 gas used; will be non-zero after EVM integration
+        assert_eq!(response.gas_used, 0);
     }
 }

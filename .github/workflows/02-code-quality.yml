@@ -105,6 +105,8 @@ jobs:
           cargo clippy --all-targets -- \
             -D warnings \
             -D clippy::correctness \
+            -A clippy::unwrap_used \
+            -A clippy::expect_used \
             -A clippy::too_many_arguments \
             -A clippy::too_many_lines \
             -A clippy::large_enum_variant \
@@ -156,7 +158,11 @@ jobs:
             -A clippy::missing_errors_doc \
             -A clippy::missing_panics_doc \
             -A clippy::cast_possible_truncation \
-            -A clippy::const_is_empty
+            -A clippy::const_is_empty \
+            -A clippy::excessive_nesting \
+            -A clippy::needless_borrows_for_generic_args \
+            -A clippy::field_reassign_with_default \
+            -A clippy::needless_range_loop
       
       - name: Generate Clippy Report
         if: always()

@@ -334,9 +334,11 @@ mod tests {
 
     #[test]
     fn test_config_validation() {
-        let mut config = GenesisConfig::default();
-        config.initial_validators = vec![[0u8; 33]];
-        // No matching stakes
+        let config = GenesisConfig {
+            initial_validators: vec![[0u8; 33]],
+            // No matching stakes - should fail validation
+            ..Default::default()
+        };
 
         let result = config.validate();
         assert!(result.is_err());
@@ -344,8 +346,10 @@ mod tests {
 
     #[test]
     fn test_extra_data_limit() {
-        let mut config = GenesisConfig::default();
-        config.extra_data = vec![0u8; 33]; // Too long
+        let config = GenesisConfig {
+            extra_data: vec![0u8; 33], // Too long
+            ..Default::default()
+        };
 
         let result = config.validate();
         assert!(result.is_err());

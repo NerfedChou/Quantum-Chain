@@ -107,8 +107,7 @@ impl EventBusIpcReceiver {
                                     correlation_id = %correlation_id,
                                     "Completed pending request"
                                 );
-                            }
-                            if !completed {
+                            } else {
                                 warn!(
                                     correlation_id = %correlation_id,
                                     "No pending request found for correlation ID (may have timed out)"

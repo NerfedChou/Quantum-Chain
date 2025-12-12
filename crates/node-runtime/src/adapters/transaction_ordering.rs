@@ -73,7 +73,10 @@ impl TransactionOrderingAdapter {
         );
 
         // Query State Management for conflicts (currently returns empty - WIP)
-        if let Err(e) = self.query_state_for_conflicts(&request.transaction_hashes).await {
+        if let Err(e) = self
+            .query_state_for_conflicts(&request.transaction_hashes)
+            .await
+        {
             error!("[qc-12] Failed to query state for conflicts: {}", e);
         }
 

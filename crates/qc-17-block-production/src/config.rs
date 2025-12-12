@@ -18,7 +18,6 @@ pub struct BlockProductionConfig {
     pub min_gas_price: U256,
 
     /// Enable MEV protection (fair ordering)
-    #[allow(dead_code)]
     pub fair_ordering: bool,
 
     /// Minimum transactions per block (0 = allow empty blocks)

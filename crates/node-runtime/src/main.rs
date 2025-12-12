@@ -104,7 +104,6 @@ pub struct NodeRuntime {
     /// Choreography coordinator for event routing.
     choreography: ChoreographyCoordinator,
     /// API Gateway service (optional).
-    #[allow(dead_code)]
     api_gateway: Option<ApiGatewayService>,
     /// Shutdown signal sender.
     shutdown_tx: tokio::sync::watch::Sender<bool>,
@@ -143,6 +142,13 @@ impl NodeRuntime {
             shutdown_tx,
             shutdown_rx,
         }
+    }
+
+    /// Get reference to API Gateway if running.
+    ///
+    /// Returns None if API Gateway is disabled or not yet started.
+    pub fn api_gateway(&self) -> Option<&ApiGatewayService> {
+        self.api_gateway.as_ref()
     }
 
     /// Start the node runtime.

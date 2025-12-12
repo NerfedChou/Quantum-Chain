@@ -37,7 +37,6 @@ pub struct ConcreteBlockProducer {
     config: std::sync::RwLock<BlockProductionConfig>,
 
     /// Security validator (used for transaction validation)
-    #[allow(dead_code)]
     security: SecurityValidator,
 
     /// Current production status
@@ -47,7 +46,6 @@ pub struct ConcreteBlockProducer {
     is_active: std::sync::atomic::AtomicBool,
 
     /// PoW miner instance (used in mining task)
-    #[allow(dead_code)]
     pow_miner: PoWMiner,
 
     /// Mining thread handle
@@ -205,6 +203,22 @@ impl ConcreteBlockProducer {
     /// Get the event bus
     pub fn event_bus(&self) -> Arc<InMemoryEventBus> {
         Arc::clone(&self.event_bus)
+    }
+
+    /// Get reference to security validator for transaction validation.
+    ///
+    /// Used by external systems (e.g., transaction ordering) to validate
+    /// transactions before including them in blocks.
+    pub fn security_validator(&self) -> &SecurityValidator {
+        &self.security
+    }
+
+    /// Get reference to PoW miner for hash rate queries.
+    ///
+    /// The miner is primarily used internally during block production,
+    /// but exposed for monitoring and metrics collection.
+    pub fn pow_miner(&self) -> &PoWMiner {
+        &self.pow_miner
     }
 }
 
