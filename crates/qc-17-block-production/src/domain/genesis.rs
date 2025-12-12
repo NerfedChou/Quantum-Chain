@@ -9,6 +9,8 @@ use shared_types::entities::{
     ValidatedBlock, ValidatedTransaction, U256,
 };
 
+use crate::domain::difficulty::DifficultyConfig;
+
 /// Creates the genesis block from configuration
 pub fn create_genesis_block(config: &GenesisConfig) -> Result<ValidatedBlock, GenesisError> {
     // Create genesis transactions for initial allocations
@@ -34,8 +36,9 @@ pub fn create_genesis_block(config: &GenesisConfig) -> Result<ValidatedBlock, Ge
         state_root: [0u8; 32], // Initial state root
         timestamp: config.timestamp,
         proposer: [0u8; 32], // System genesis
-        // Genesis uses initial (easy) difficulty - 2^252
-        difficulty: U256::from(2).pow(U256::from(252)),
+        // Genesis uses same initial difficulty as DifficultyConfig - 2^220
+        // This ensures proper difficulty adjustment from the start
+        difficulty: DifficultyConfig::default().initial_difficulty,
         nonce: 0, // Genesis doesn't require mining
     };
 

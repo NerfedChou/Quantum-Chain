@@ -179,8 +179,8 @@ pub use metrics::Metrics;
 
 // Re-export commonly used types
 pub use domain::{
-    BlockHeader, BlockTemplate, ConsensusMode, MiningJob, PoSProposer, PoWMiner, ProposerDuty,
-    SimulationResult, StatePrefetchCache, TransactionBundle, TransactionCandidate,
+    BlockHeader, BlockTemplate, ConsensusMode, DifficultyConfig, MiningJob, PoSProposer, PoWMiner,
+    ProposerDuty, SimulationResult, StatePrefetchCache, TransactionBundle, TransactionCandidate,
     TransactionSelector, VRFProof,
 };
 
