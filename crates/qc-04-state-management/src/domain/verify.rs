@@ -46,7 +46,7 @@ pub enum ProofNode {
         child_hash: Hash,
     },
     Branch {
-        children: [Option<Hash>; 16],
+        children: Box<[Option<Hash>; 16]>,
         value: Option<Vec<u8>>,
     },
 }
@@ -213,7 +213,7 @@ fn decode_proof_node(data: &[u8]) -> Result<ProofNode, VerifyError> {
         }
         0x02 => {
             // Branch node (simplified): just children
-            let children: [Option<Hash>; 16] = [None; 16];
+            let children: Box<[Option<Hash>; 16]> = Box::new([None; 16]);
             Ok(ProofNode::Branch {
                 children,
                 value: None,

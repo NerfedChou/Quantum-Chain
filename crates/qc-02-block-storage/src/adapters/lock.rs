@@ -144,7 +144,8 @@ impl DatabaseLock {
 
 impl Drop for DatabaseLock {
     fn drop(&mut self) {
-        // Unlock the file (release flock)
+        // Unlock the file (release flock) - fs2::FileExt::unlock is stable
+        #[allow(clippy::incompatible_msrv)]
         let _ = self.file.unlock();
         // Optionally remove lock file (not strictly necessary)
         let _ = std::fs::remove_file(&self.path);

@@ -72,7 +72,7 @@ impl<T: TransactionDataProvider> BloomFilterService<T> {
 
     /// Compute contract creation address
     ///
-    /// Address = keccak256(rlp([sender, nonce]))[12:]
+    /// Address = keccak256(rlp(\[sender, nonce\]))\[12:\]
     fn compute_contract_address(&self, sender: &Address, nonce: u64) -> Address {
         use sha2::{Digest, Sha256};
 
