@@ -209,6 +209,8 @@ pub fn validate_hmac_signature(
 ///
 /// A 64-byte signature (HMAC in first 32 bytes, zeros in remaining 32)
 pub fn sign_message(message_bytes: &[u8], shared_secret: &[u8]) -> [u8; 64] {
+    // SAFETY: HMAC-SHA256 can take a key of any size, so this never fails
+    #[allow(clippy::expect_used)]
     let mut mac = HmacSha256::new_from_slice(shared_secret).expect("HMAC can take key of any size");
 
     mac.update(message_bytes);
@@ -520,6 +522,8 @@ impl DerivedKeyProvider {
 
     /// Derives a subsystem-specific key from the master secret.
     fn derive_key(&self, subsystem_id: u8) -> Vec<u8> {
+        // SAFETY: HMAC-SHA256 can take a key of any size, so this never fails
+        #[allow(clippy::expect_used)]
         let mut mac =
             HmacSha256::new_from_slice(&self.master_secret).expect("HMAC can take key of any size");
         mac.update(&[subsystem_id]);

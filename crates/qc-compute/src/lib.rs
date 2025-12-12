@@ -182,7 +182,11 @@ pub fn create_backend(backend: Backend) -> Result<Arc<dyn ComputeEngine>, Comput
 pub fn recommended_backend_for(subsystem: &str) -> Backend {
     match subsystem {
         // GPU-accelerated (embarrassingly parallel): Mining, signatures, Merkle trees
-        "qc-17" | "qc-17-block-production" | "qc-10" | "qc-10-signature-verification" | "qc-03"
+        "qc-17"
+        | "qc-17-block-production"
+        | "qc-10"
+        | "qc-10-signature-verification"
+        | "qc-03"
         | "qc-03-transaction-indexing" => Backend::OpenCL,
 
         // CPU-preferred (memory-bound or logic-heavy)
