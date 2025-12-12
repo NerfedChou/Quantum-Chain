@@ -767,8 +767,8 @@ where
                     == AccessStatus::Cold;
                 if is_cold
                     && !self.consume_gas(costs::COLD_SLOAD) {
-                        return Err(VmError::OutOfGas);
-                    }
+                    return Err(VmError::OutOfGas);
+                }
 
                 // Simplified SSTORE gas (full implementation needs original value)
                 let gas = if value.is_zero() {
