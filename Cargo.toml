@@ -27,6 +27,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75.0"
 authors = ["Quantum-Chain Contributors"]
 license = "Unlicense"
 repository = "https://github.com/NerfedChou/Quantum-Chain"
