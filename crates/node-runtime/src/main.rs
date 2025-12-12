@@ -87,7 +87,7 @@ use crate::handlers::{
 use crate::wiring::ChoreographyCoordinator;
 use qc_02_block_storage::BlockStorageApi;
 use qc_16_api_gateway::{ApiGatewayService, GatewayConfig};
-use qc_17_block_production::BlockProducerService;
+use qc_17_block_production::{BlockProducerService, DifficultyConfig};
 use quantum_telemetry::{init_telemetry, TelemetryConfig};
 
 /// Helper to describe difficulty for logging
@@ -600,8 +600,8 @@ impl NodeRuntime {
                 hasher.finalize().into()
             }
 
-            let initial_difficulty =
-                primitive_types::U256::from(2).pow(primitive_types::U256::from(252));
+            // Use initial difficulty from DifficultyConfig for consistency
+            let initial_difficulty = DifficultyConfig::default().initial_difficulty;
 
             // Load the last block's hash and difficulty from storage if we have blocks
             if chain_height > 0 {
