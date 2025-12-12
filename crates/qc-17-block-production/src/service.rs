@@ -428,11 +428,63 @@ impl BlockProducerService for ConcreteBlockProducer {
                             pow_miner.backend_name()
                         );
 
-                        // Use async GPU-accelerated mining (falls back to CPU if unavailable)
-                        match pow_miner
-                            .mine_block_async(template.clone(), difficulty)
-                            .await
-                        {
+                        // Async mining with GPU/CPU compute engine (async I/O in service layer)
+                        // This logic was moved from domain layer to maintain domain purity
+                        let mining_result: Option<(u64, [u8; 32])> = {
+                            if let Some(engine) = pow_miner.get_compute_engine() {
+                                // Use GPU/CPU compute engine
+                                let header_bytes = crate::utils::hashing::serialize_block_header(
+                                    &template.header.parent_hash,
+                                    template.header.block_number,
+                                    template.header.timestamp,
+                                    &template.header.beneficiary,
+                                    template.header.gas_used,
+                                    None,
+                                );
+                                
+                                const BATCH_SIZE: u64 = 10_000_000;
+                                let mut nonce_start = 0u64;
+                                let mut result = None;
+                                
+                                loop {
+                                    match engine.pow_mine(&header_bytes, difficulty, nonce_start, BATCH_SIZE).await {
+                                        Ok(Some((nonce, hash))) => {
+                                            result = Some((nonce, hash));
+                                            break;
+                                        }
+                                        Ok(None) => {
+                                            nonce_start += BATCH_SIZE;
+                                            if nonce_start > u64::MAX - BATCH_SIZE {
+                                                break;
+                                            }
+                                        }
+                                        Err(_) => break,
+                                    }
+                                }
+                                result
+                            } else {
+                                None
+                            }
+                        };
+                        
+                        // Fallback to CPU mining if compute engine unavailable or failed
+                        let mining_result = mining_result.or_else(|| {
+                            let template_for_hash = template.clone();
+                            pow_miner.mine_block(template, difficulty).map(|nonce| {
+                                let header_bytes = crate::utils::hashing::serialize_block_header(
+                                    &template_for_hash.header.parent_hash,
+                                    template_for_hash.header.block_number,
+                                    template_for_hash.header.timestamp,
+                                    &template_for_hash.header.beneficiary,
+                                    template_for_hash.header.gas_used,
+                                    Some(nonce),
+                                );
+                                let hash = crate::utils::hashing::sha256d(&header_bytes);
+                                (nonce, hash)
+                            })
+                        });
+
+                        match mining_result {
                             Some((nonce, block_hash)) => {
                                 blocks_mined += 1;
                                 let elapsed = start_time.elapsed().as_secs();
