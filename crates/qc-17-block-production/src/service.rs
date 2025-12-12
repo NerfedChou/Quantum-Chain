@@ -442,19 +442,19 @@ impl BlockProducerService for ConcreteBlockProducer {
                                     None,
                                 );
                                 
-                                let batch_size = self.config.batch_size;
+                                const BATCH_SIZE: u64 = 10_000_000;
                                 let mut nonce_start = 0u64;
                                 let mut result = None;
                                 
                                 loop {
-                                    match engine.pow_mine(&header_bytes, difficulty, nonce_start, batch_size).await {
+                                    match engine.pow_mine(&header_bytes, difficulty, nonce_start, BATCH_SIZE).await {
                                         Ok(Some((nonce, hash))) => {
                                             result = Some((nonce, hash));
                                             break;
                                         }
                                         Ok(None) => {
-                                            nonce_start += batch_size;
-                                            if nonce_start > u64::MAX - batch_size {
+                                            nonce_start += BATCH_SIZE;
+                                            if nonce_start > u64::MAX - BATCH_SIZE {
                                                 break;
                                             }
                                         }
