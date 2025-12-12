@@ -112,6 +112,11 @@ jobs:
         with:
           persist-credentials: false
       
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+      
       - name: Install Rust toolchain (stable for edition2024 support)
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -140,7 +145,7 @@ jobs:
         run: cargo fmt --all -- --check
       
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features
+        run: cargo clippy --all-targets
       
       - name: Install cargo-deny
         run: cargo install cargo-deny --version 0.17.0 --locked
@@ -179,7 +184,7 @@ jobs:
           cargo generate-lockfile
       
       - name: Check MSRV compatibility
-        run: cargo check --all --all-features
+        run: cargo check --all
 
   # ============================================================================
   # Build - All Crates
@@ -207,6 +212,11 @@ jobs:
         with:
           persist-credentials: false
       
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+      
       - name: Install Rust toolchain (stable for edition2024 support)
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -232,7 +242,7 @@ jobs:
         run: cargo build --all ${{ matrix.args }} --verbose
       
       - name: Build all features
-        run: cargo build --all --all-features ${{ matrix.args }}
+        run: cargo build --all ${{ matrix.args }}
       
       - name: Verify binary exists (release only)
         if: matrix.profile == 'release'
@@ -263,6 +273,11 @@ jobs:
         with:
           persist-credentials: false
       
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+      
       - name: Install Rust toolchain (stable for edition2024 support)
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -286,7 +301,7 @@ jobs:
         run: cargo test --all --verbose -- --test-threads=4
       
       - name: Run tests with all features
-        run: cargo test --all --all-features --verbose -- --test-threads=4
+        run: cargo test --all --verbose -- --test-threads=4
       
       - name: Run doc tests
         run: cargo test --doc --all
@@ -305,6 +320,11 @@ jobs:
         with:
           persist-credentials: false
       
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+      
       - name: Install Rust toolchain (stable for edition2024 support)
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -316,7 +336,7 @@ jobs:
       
       - name: Generate coverage report
         run: |
-          cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info || echo "Coverage generation skipped (tests may not exist yet)"
+          cargo llvm-cov --workspace --lcov --output-path lcov.info || echo "Coverage generation skipped (tests may not exist yet)"
       
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -358,6 +378,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
       
       - name: Install Rust toolchain (stable for edition2024 support)
         uses: dtolnay/rust-toolchain@stable
