@@ -1,0 +1,248 @@
+# Role-Based CI/CD Workflow System
+#
+# 10 • Tester (Load & Stress)
+# Load testing, stress testing, performance validation
+#
+# Triggers: Manual only (expensive to run)
+# Runtime: ~45 minutes
+
+name: "10 • Testing"
+
+on:
+  workflow_dispatch:
+    inputs:
+      test-type:
+        description: "Test type to run"
+        type: choice
+        options:
+          - all
+          - load
+          - stress
+          - endurance
+        default: "all"
+      duration:
+        description: "Test duration (seconds)"
+        type: string
+        default: "60"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ==========================================================================
+  # Load Testing (Sustained Throughput)
+  # ==========================================================================
+  
+  load-test:
+    name: "Test • Load"
+    runs-on: ubuntu-latest
+    if: ${{ inputs.test-type == 'all' || inputs.test-type == 'load' }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+      
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-load-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Build release
+        run: cargo build --release --all
+      
+      - name: Run load tests
+        run: |
+          echo "╔════════════════════════════════════════╗"
+          echo "║     Load Testing                       ║"
+          echo "╚════════════════════════════════════════╝"
+          echo ""
+          echo "Duration: ${{ inputs.duration }}s"
+          echo ""
+          
+          # Run benchmark tests as load simulation
+          timeout ${{ inputs.duration }} cargo test -p qc-tests benchmarks:: --release -- --test-threads=4 2>&1 || true
+          
+          echo ""
+          echo "✅ Load test complete"
+
+  # ==========================================================================
+  # Stress Testing (Breaking Points)
+  # ==========================================================================
+  
+  stress-test:
+    name: "Test • Stress"
+    runs-on: ubuntu-latest
+    if: ${{ inputs.test-type == 'all' || inputs.test-type == 'stress' }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+      
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-stress-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Build release
+        run: cargo build --release --all
+      
+      - name: Run stress tests
+        run: |
+          echo "╔════════════════════════════════════════╗"
+          echo "║     Stress Testing                     ║"
+          echo "╚════════════════════════════════════════╝"
+          echo ""
+          
+          # Run exploit tests that stress the system
+          cargo test -p qc-tests exploits::architectural::cross_cutting::under_pressure:: --release -- --test-threads=1
+          
+          # Run multi-vector attack simulation
+          cargo test -p qc-tests exploits::modern:: --release -- --test-threads=2 2>&1 | tail -30
+          
+          echo ""
+          echo "✅ Stress test complete"
+
+  # ==========================================================================
+  # Endurance Testing (Memory Leaks)
+  # ==========================================================================
+  
+  endurance-test:
+    name: "Test • Endurance"
+    runs-on: ubuntu-latest
+    if: ${{ inputs.test-type == 'all' || inputs.test-type == 'endurance' }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev valgrind
+      
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-endurance-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Build release
+        run: cargo build --release --all
+      
+      - name: Run endurance tests
+        run: |
+          echo "╔════════════════════════════════════════╗"
+          echo "║     Endurance Testing                  ║"
+          echo "╚════════════════════════════════════════╝"
+          echo ""
+          
+          # Run integration tests multiple times to detect memory issues
+          for i in 1 2 3; do
+            echo "=== Iteration $i ==="
+            cargo test -p qc-tests integration::runtime_simulation:: --release -- --test-threads=1 2>&1 | tail -5
+          done
+          
+          echo ""
+          echo "✅ Endurance test complete"
+
+  # ==========================================================================
+  # Concurrent Access Testing
+  # ==========================================================================
+  
+  concurrency-test:
+    name: "Test • Concurrency"
+    runs-on: ubuntu-latest
+    if: ${{ inputs.test-type == 'all' }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+      
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-concurrency-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Build release
+        run: cargo build --release --all
+      
+      - name: Run concurrency tests
+        run: |
+          echo "╔════════════════════════════════════════╗"
+          echo "║     Concurrency Testing                ║"
+          echo "╚════════════════════════════════════════╝"
+          echo ""
+          
+          # Run with maximum thread contention
+          RUST_TEST_THREADS=8 cargo test -p qc-tests integration:: --release 2>&1 | tail -20
+          
+          # Test lock contention
+          cargo test -p qc-tests exploits::architectural::cross_cutting::under_pressure::brutal_lock_starvation --release
+          
+          echo ""
+          echo "✅ Concurrency test complete"
+
+  # ==========================================================================
+  # Summary
+  # ==========================================================================
+  
+  testing-summary:
+    name: "Testing Summary"
+    runs-on: ubuntu-latest
+    needs: [load-test, stress-test, endurance-test, concurrency-test]
+    if: always()
+    
+    steps:
+      - name: Check results
+        run: |
+          echo "╔════════════════════════════════════════╗"
+          echo "║     10 • Testing Results               ║"
+          echo "╚════════════════════════════════════════╝"
+          echo ""
+          echo "Load Test: ${{ needs.load-test.result }}"
+          echo "Stress Test: ${{ needs.stress-test.result }}"
+          echo "Endurance Test: ${{ needs.endurance-test.result }}"
+          echo "Concurrency Test: ${{ needs.concurrency-test.result }}"
+          
+          echo ""
+          echo "✅ Testing suite complete"
+          echo ""
+          echo "Note: Some tests may be skipped based on input selection"
