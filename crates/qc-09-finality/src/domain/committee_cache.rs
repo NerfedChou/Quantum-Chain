@@ -37,7 +37,7 @@ impl CommitteeKeyCache {
     pub fn build(validator_set: &ValidatorSet, committee_size: usize) -> Self {
         let validators: Vec<ValidatorId> = validator_set.iter().map(|v| v.id).collect();
         let num_validators = validators.len();
-        let num_committees = (num_validators + committee_size - 1) / committee_size;
+        let num_committees = num_validators.div_ceil(committee_size);
 
         let mut validator_committee = HashMap::new();
         let mut committee_members: HashMap<usize, Vec<ValidatorId>> = HashMap::new();

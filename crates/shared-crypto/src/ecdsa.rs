@@ -58,7 +58,7 @@ impl Secp256k1PublicKey {
     pub fn to_node_id(&self) -> [u8; 32] {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
-        hasher.update(&self.0);
+        hasher.update(self.0);
         hasher.finalize().into()
     }
 }

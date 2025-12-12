@@ -42,7 +42,7 @@ impl Memory {
     /// Returns the memory size in 32-byte words (rounded up).
     #[must_use]
     pub fn word_size(&self) -> usize {
-        (self.data.len() + WORD_SIZE - 1) / WORD_SIZE
+        self.data.len().div_ceil(WORD_SIZE)
     }
 
     /// Ensures memory is at least `size` bytes, expanding if necessary.
@@ -64,7 +64,7 @@ impl Memory {
         }
 
         // Calculate new size (round up to word boundary)
-        let new_word_size = (size + WORD_SIZE - 1) / WORD_SIZE;
+        let new_word_size = size.div_ceil(WORD_SIZE);
         let new_byte_size = new_word_size * WORD_SIZE;
         let old_word_size = self.word_size();
 
@@ -106,6 +106,7 @@ impl Memory {
 
     /// Read bytes from memory into a buffer.
     /// Returns zero-padded if reading past end of allocated memory.
+    #[must_use] 
     pub fn read_bytes(&self, offset: usize, size: usize) -> Vec<u8> {
         let mut result = vec![0u8; size];
         let len = self.data.len();
@@ -201,7 +202,7 @@ impl Memory {
 
 /// Calculate memory expansion gas cost.
 ///
-/// Cost = (word_size^2 / 512) + (3 * word_size)
+/// Cost = (`word_size^2` / 512) + (3 * `word_size`)
 #[must_use]
 pub fn memory_gas_cost(word_size: usize) -> u64 {
     let word_size = word_size as u64;

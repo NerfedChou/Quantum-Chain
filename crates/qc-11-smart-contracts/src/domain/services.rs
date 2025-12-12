@@ -65,7 +65,7 @@ pub fn compute_contract_address(sender: Address, nonce: u64) -> Address {
 
 /// Computes the contract address for CREATE2 opcode.
 ///
-/// Address = keccak256(0xff ++ sender ++ salt ++ keccak256(init_code))[12:]
+/// Address = keccak256(0xff ++ sender ++ salt ++ `keccak256(init_code)`)[12:]
 ///
 /// Per EIP-1014.
 #[must_use]
@@ -146,7 +146,7 @@ pub fn empty_code_hash() -> Hash {
 
 /// Derives address from public key (compressed or uncompressed).
 ///
-/// Address = keccak256(public_key)[12:]
+/// Address = `keccak256(public_key)`[12:]
 ///
 /// Note: For ECDSA, the public key should be the uncompressed form (64 bytes)
 /// without the 0x04 prefix.
@@ -205,7 +205,7 @@ pub mod precompiles {
     /// Returns the precompile address for a given number (1-9).
     #[must_use]
     pub fn from_number(n: u8) -> Option<Address> {
-        if n >= 1 && n <= 9 {
+        if (1..=9).contains(&n) {
             let mut addr = [0u8; 20];
             addr[19] = n;
             Some(Address::new(addr))

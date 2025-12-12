@@ -1,4 +1,4 @@
-//! # ModExp Precompile (0x05)
+//! # `ModExp` Precompile (0x05)
 //!
 //! Arbitrary-precision modular exponentiation.
 //!
@@ -17,15 +17,15 @@ use crate::errors::PrecompileError;
 /// Minimum gas cost.
 const MODEXP_MIN_GAS: u64 = 200;
 
-/// ModExp precompile.
+/// `ModExp` precompile.
 pub struct ModExp;
 
 impl Precompile for ModExp {
     fn execute(&self, input: &[u8], gas_limit: u64) -> Result<PrecompileOutput, PrecompileError> {
         // Parse lengths
-        let base_len = parse_u256(&input, 0).as_usize();
-        let exp_len = parse_u256(&input, 32).as_usize();
-        let mod_len = parse_u256(&input, 64).as_usize();
+        let base_len = parse_u256(input, 0).as_usize();
+        let exp_len = parse_u256(input, 32).as_usize();
+        let mod_len = parse_u256(input, 64).as_usize();
 
         // Sanity check lengths
         if base_len > 1024 || exp_len > 1024 || mod_len > 1024 {
@@ -36,7 +36,7 @@ impl Precompile for ModExp {
 
         // Calculate gas (simplified formula per EIP-2565)
         let max_len = base_len.max(mod_len);
-        let words = (max_len + 7) / 8;
+        let words = max_len.div_ceil(8);
         let multiplication_complexity = (words * words) as u64;
 
         // Get exponent for iteration count
@@ -113,7 +113,7 @@ fn calculate_iteration_count(input: &[u8], exp_start: usize, exp_len: usize) -> 
         if exp.is_zero() {
             0
         } else {
-            (256 - exp.leading_zeros()) as u64
+            u64::from(256 - exp.leading_zeros())
         }
     } else {
         // For large exponents, use first 32 bytes plus additional length
@@ -122,7 +122,7 @@ fn calculate_iteration_count(input: &[u8], exp_start: usize, exp_len: usize) -> 
         if first_32.is_zero() {
             extra_bits
         } else {
-            (256 - first_32.leading_zeros()) as u64 + extra_bits
+            u64::from(256 - first_32.leading_zeros()) + extra_bits
         }
     }
 }
@@ -156,7 +156,7 @@ fn mod_exp(base: &[u8], exp: &[u8], modulus: &[u8], result_len: usize) -> Vec<u8
         let mut output = vec![0u8; result_len];
         let mut bytes = [0u8; 32];
         result.to_big_endian(&mut bytes);
-        let start = if result_len >= 32 { result_len - 32 } else { 0 };
+        let start = result_len.saturating_sub(32);
         let copy_len = result_len.min(32);
         output[start..start + copy_len].copy_from_slice(&bytes[32 - copy_len..]);
         output

@@ -225,7 +225,7 @@ impl ApiQueryHandler {
                             "gasLimit": "0x1c9c380",
                             "gasUsed": "0x0",
                             "transactions": block.transactions.iter().map(|tx| {
-                                format!("0x{}", hex::encode(&tx.tx_hash))
+                                format!("0x{}", hex::encode(tx.tx_hash))
                             }).collect::<Vec<_>>(),
                             "size": "0x0"
                         }))
@@ -271,7 +271,7 @@ impl ApiQueryHandler {
                             "gasLimit": "0x1c9c380",
                             "gasUsed": "0x0",
                             "transactions": block.transactions.iter().map(|tx| {
-                                format!("0x{}", hex::encode(&tx.tx_hash))
+                                format!("0x{}", hex::encode(tx.tx_hash))
                             }).collect::<Vec<_>>(),
                             "size": "0x0"
                         }))
@@ -319,10 +319,10 @@ impl ApiQueryHandler {
                 > = std::collections::HashMap::new();
 
                 for tx in pending_txs {
-                    let sender = format!("0x{}", hex::encode(&tx.sender));
+                    let sender = format!("0x{}", hex::encode(tx.sender));
                     let nonce = format!("0x{:x}", tx.nonce);
                     let tx_data = serde_json::json!({
-                        "hash": format!("0x{}", hex::encode(&tx.hash)),
+                        "hash": format!("0x{}", hex::encode(tx.hash)),
                         "nonce": nonce.clone(),
                         "gasPrice": format!("0x{}", tx.gas_price.to_string()),
                         "gas": format!("0x{:x}", tx.gas_limit),
@@ -564,7 +564,7 @@ impl ApiQueryHandler {
                     "latest_height": latest_height,
                     "finalized_height": finalized_height,
                     "total_blocks": metadata.total_blocks,
-                    "genesis_hash": metadata.genesis_hash.map(|h| hex::encode(h)),
+                    "genesis_hash": metadata.genesis_hash.map(hex::encode),
                     "storage_version": metadata.storage_version,
                     "disk_used_bytes": disk_used_bytes,
                     "disk_capacity_bytes": disk_capacity_bytes,
@@ -611,7 +611,7 @@ impl ApiQueryHandler {
                     "sync_speed": stats.blocks_per_second,
                     "e2e_latency_ms": stats.e2e_latency_ms,
                     "block_tx_counts": block_tx_counts,
-                    "last_merkle_root": stats.last_merkle_root.map(|r| hex::encode(r))
+                    "last_merkle_root": stats.last_merkle_root.map(hex::encode)
                 }))
             }
             // qc-04: State Management

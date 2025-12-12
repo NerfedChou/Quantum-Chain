@@ -114,14 +114,10 @@ impl DebugRpc {
         let payload =
             RequestPayload::GetSubsystemMetrics(GetSubsystemMetricsRequest { subsystem_id });
 
-        match self
+        (self
             .ipc
             .request("admin", payload, Some(Duration::from_millis(500)))
-            .await
-        {
-            Ok(value) => Some(value),
-            Err(_) => None,
-        }
+            .await).ok()
     }
 
     /// debug_ipcMetrics - Returns IPC metrics for subsystem communication

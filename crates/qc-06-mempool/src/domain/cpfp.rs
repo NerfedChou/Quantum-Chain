@@ -119,7 +119,7 @@ impl TransactionFamily {
             seen.insert(*parent);
 
             if let Some((fee, size)) = get_fee(parent) {
-                info.total_ancestor_fees = info.total_ancestor_fees + fee;
+                info.total_ancestor_fees += fee;
                 info.total_ancestor_size += size;
                 info.ancestor_count += 1;
                 info.ancestor_hashes.insert(*parent);

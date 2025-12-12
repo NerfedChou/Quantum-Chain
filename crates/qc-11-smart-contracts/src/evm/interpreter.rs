@@ -765,11 +765,10 @@ where
                     .access_list
                     .touch_storage(self.context.address, storage_key)
                     == AccessStatus::Cold;
-                if is_cold {
-                    if !self.consume_gas(costs::COLD_SLOAD) {
+                if is_cold
+                    && !self.consume_gas(costs::COLD_SLOAD) {
                         return Err(VmError::OutOfGas);
                     }
-                }
 
                 // Simplified SSTORE gas (full implementation needs original value)
                 let gas = if value.is_zero() {
@@ -1026,8 +1025,7 @@ where
             | Opcode::MCopy => {
                 // These need more complex implementation
                 return Err(VmError::Internal(format!(
-                    "Opcode {:?} not yet implemented",
-                    opcode
+                    "Opcode {opcode:?} not yet implemented"
                 )));
             }
         }
@@ -1097,10 +1095,10 @@ fn signed_div(a: U256, b: U256) -> U256 {
         b
     };
     let result = a_abs / b_abs;
-    if a_neg != b_neg {
-        (!result).overflowing_add(U256::one()).0
-    } else {
+    if a_neg == b_neg {
         result
+    } else {
+        (!result).overflowing_add(U256::one()).0
     }
 }
 

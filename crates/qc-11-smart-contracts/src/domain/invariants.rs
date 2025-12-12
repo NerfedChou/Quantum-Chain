@@ -20,8 +20,8 @@ use crate::domain::entities::{ExecutionContext, ExecutionResult, StateChange, Vm
 
 /// INVARIANT-1: Gas Limit Enforcement
 ///
-/// Execution cannot use more gas than gas_limit.
-/// This prevents infinite loops and DoS attacks.
+/// Execution cannot use more gas than `gas_limit`.
+/// This prevents infinite loops and `DoS` attacks.
 #[must_use]
 pub fn check_gas_limit_invariant(result: &ExecutionResult, ctx: &ExecutionContext) -> bool {
     result.gas_used <= ctx.gas_limit
@@ -54,11 +54,11 @@ pub fn check_determinism_invariant(result: &ExecutionResult) -> bool {
 /// All modifications must be rolled back.
 #[must_use]
 pub fn check_revert_rollback_invariant(result: &ExecutionResult) -> bool {
-    if !result.success {
+    if result.success {
+        true
+    } else {
         // On failure, there should be no state changes to apply
         result.state_changes.is_empty() && result.logs.is_empty()
-    } else {
-        true
     }
 }
 
@@ -177,7 +177,7 @@ impl std::fmt::Display for InvariantViolation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::GasLimitExceeded { used, limit } => {
-                write!(f, "gas limit exceeded: used {} > limit {}", used, limit)
+                write!(f, "gas limit exceeded: used {used} > limit {limit}")
             }
             Self::NonDeterministic => {
                 write!(f, "non-deterministic execution detected")
@@ -185,15 +185,14 @@ impl std::fmt::Display for InvariantViolation {
             Self::StateNotRolledBack { changes, logs } => {
                 write!(
                     f,
-                    "state not rolled back on revert: {} changes, {} logs",
-                    changes, logs
+                    "state not rolled back on revert: {changes} changes, {logs} logs"
                 )
             }
             Self::StaticCallViolation => {
                 write!(f, "static call attempted state modification")
             }
             Self::CallDepthExceeded { depth, max } => {
-                write!(f, "call depth exceeded: {} > {}", depth, max)
+                write!(f, "call depth exceeded: {depth} > {max}")
             }
         }
     }
@@ -265,7 +264,7 @@ mod tests {
     #[test]
     fn test_gas_limit_invariant_exceeded() {
         let ctx = create_test_context();
-        let mut result = ExecutionResult::success(Bytes::new(), 1500);
+        let result = ExecutionResult::success(Bytes::new(), 1500);
         assert!(!check_gas_limit_invariant(&result, &ctx));
     }
 

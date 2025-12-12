@@ -68,7 +68,7 @@ impl NetRpc {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[tokio::test]
     async fn test_net_version() {

@@ -171,7 +171,7 @@ fn address_to_nibbles(address: &Address) -> Vec<u8> {
 /// Hash with domain separation.
 fn hash_with_domain(domain: u8, data: &[u8]) -> Hash {
     let mut hasher = Keccak256::new();
-    hasher.update(&[domain]);
+    hasher.update([domain]);
     hasher.update(data);
     hasher.finalize().into()
 }

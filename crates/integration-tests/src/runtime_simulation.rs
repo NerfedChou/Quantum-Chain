@@ -109,6 +109,12 @@ pub struct StoredBlockData {
     pub tx_count: usize,
 }
 
+impl Default for SimulatedRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimulatedRuntime {
     pub fn new() -> Self {
         let (event_tx, _) = broadcast::channel(1024);
@@ -352,10 +358,10 @@ impl SimulatedRuntime {
     fn compute_block_hash(&self, height: u64, transactions: &[SimulatedTx]) -> Hash {
         let mut hasher = Keccak256::new();
         hasher.update(b"block_");
-        hasher.update(&height.to_le_bytes());
-        hasher.update(&(transactions.len() as u64).to_le_bytes());
+        hasher.update(height.to_le_bytes());
+        hasher.update((transactions.len() as u64).to_le_bytes());
         for tx in transactions {
-            hasher.update(&tx.hash);
+            hasher.update(tx.hash);
         }
         let result = hasher.finalize();
         let mut hash = [0u8; 32];
@@ -366,8 +372,8 @@ impl SimulatedRuntime {
     fn compute_tx_hash(&self, block_height: u64, tx_index: usize) -> Hash {
         let mut hasher = Keccak256::new();
         hasher.update(b"tx_");
-        hasher.update(&block_height.to_le_bytes());
-        hasher.update(&(tx_index as u64).to_le_bytes());
+        hasher.update(block_height.to_le_bytes());
+        hasher.update((tx_index as u64).to_le_bytes());
         let result = hasher.finalize();
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&result);

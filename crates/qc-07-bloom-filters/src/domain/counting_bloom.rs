@@ -47,7 +47,7 @@ impl CountingBloomFilter {
     /// Create a new counting Bloom filter.
     pub fn new(m: usize, k: usize) -> Self {
         Self {
-            counters: vec![0u8; (m + 1) / 2], // Pack 2 counters per byte
+            counters: vec![0u8; m.div_ceil(2)], // Pack 2 counters per byte
             k,
             m,
             n: 0,
@@ -58,7 +58,7 @@ impl CountingBloomFilter {
     /// Create with a specific tweak.
     pub fn new_with_tweak(m: usize, k: usize, tweak: u32) -> Self {
         Self {
-            counters: vec![0u8; (m + 1) / 2],
+            counters: vec![0u8; m.div_ceil(2)],
             k,
             m,
             n: 0,
@@ -172,7 +172,7 @@ impl CountingBloomFilter {
 
     /// Decompress from RLE-encoded bytes.
     pub fn from_rle(data: &[u8], m: usize, k: usize, tweak: u32) -> Option<Self> {
-        let mut counters = Vec::with_capacity((m + 1) / 2);
+        let mut counters = Vec::with_capacity(m.div_ceil(2));
         let mut i = 0;
 
         while i + 1 < data.len() {
@@ -185,7 +185,7 @@ impl CountingBloomFilter {
             i += 2;
         }
 
-        if counters.len() != (m + 1) / 2 {
+        if counters.len() != m.div_ceil(2) {
             return None;
         }
 

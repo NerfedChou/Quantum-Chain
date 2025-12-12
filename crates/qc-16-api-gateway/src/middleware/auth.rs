@@ -309,7 +309,7 @@ mod tests {
             allow_external_admin: false,
         };
 
-        let mut req = Request::builder()
+        let req = Request::builder()
             .header("Authorization", "Bearer test-key-123")
             .body(Body::empty())
             .unwrap();

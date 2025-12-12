@@ -37,7 +37,7 @@ impl InMemoryAccessList {
         for (addr, key) in storage {
             list.warm_storage
                 .entry(addr)
-                .or_insert_with(HashSet::new)
+                .or_default()
                 .insert(key);
         }
 
@@ -84,7 +84,7 @@ impl AccessList for InMemoryAccessList {
         let slots = self
             .warm_storage
             .entry(address)
-            .or_insert_with(HashSet::new);
+            .or_default();
         if slots.contains(&key) {
             AccessStatus::Warm
         } else {
@@ -100,8 +100,7 @@ impl AccessList for InMemoryAccessList {
     fn is_storage_warm(&self, address: Address, key: StorageKey) -> bool {
         self.warm_storage
             .get(&address)
-            .map(|slots| slots.contains(&key))
-            .unwrap_or(false)
+            .is_some_and(|slots| slots.contains(&key))
     }
 }
 

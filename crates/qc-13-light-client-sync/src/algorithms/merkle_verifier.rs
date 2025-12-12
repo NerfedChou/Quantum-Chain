@@ -79,7 +79,7 @@ pub fn compute_merkle_root(tx_hashes: &[Hash]) -> Hash {
     let mut level: Vec<Hash> = tx_hashes.to_vec();
 
     while level.len() > 1 {
-        let mut next_level = Vec::with_capacity((level.len() + 1) / 2);
+        let mut next_level = Vec::with_capacity(level.len().div_ceil(2));
 
         for chunk in level.chunks(2) {
             let left = &chunk[0];
@@ -132,7 +132,7 @@ pub fn build_merkle_proof(
         }
 
         // Move to next level
-        let mut next_level = Vec::with_capacity((level.len() + 1) / 2);
+        let mut next_level = Vec::with_capacity(level.len().div_ceil(2));
         for chunk in level.chunks(2) {
             let left = &chunk[0];
             let right = chunk.get(1).unwrap_or(left);

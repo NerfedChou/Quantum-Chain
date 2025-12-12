@@ -387,13 +387,13 @@ mod tests {
     fn test_optimal_parameters_calculation() {
         // For n=50, FPR=0.0001 → expect k≈13, m≈959
         let (k, m) = BloomFilter::optimal_params(50, 0.0001);
-        assert!(k >= 10 && k <= 15, "Expected k≈13, got k={}", k);
-        assert!(m >= 800 && m <= 1200, "Expected m≈959, got m={}", m);
+        assert!((10..=15).contains(&k), "Expected k≈13, got k={}", k);
+        assert!((800..=1200).contains(&m), "Expected m≈959, got m={}", m);
 
         // For n=100, FPR=0.01 → expect k≈7, m≈959
         let (k, m) = BloomFilter::optimal_params(100, 0.01);
-        assert!(k >= 5 && k <= 9, "Expected k≈7, got k={}", k);
-        assert!(m >= 800 && m <= 1200, "Expected m≈959, got m={}", m);
+        assert!((5..=9).contains(&k), "Expected k≈7, got k={}", k);
+        assert!((800..=1200).contains(&m), "Expected m≈959, got m={}", m);
     }
 
     #[test]

@@ -87,7 +87,7 @@ impl TxIndexingHandler {
                             "subsystem_id": "qc-03",
                             "event_type": "MerkleComputationStarted",
                             "correlation_id": format!("{:x}", block_hash[0]),
-                            "block_hash": hex::encode(&block_hash),
+                            "block_hash": hex::encode(block_hash),
                             "block_height": block_height,
                             "metadata": {
                                 "target": "qc-02",
@@ -116,7 +116,7 @@ impl TxIndexingHandler {
                                     "subsystem_id": "qc-03",
                                     "event_type": "MerkleRootComputed",
                                     "correlation_id": format!("{:x}", block_hash[0]),
-                                    "block_hash": hex::encode(&block_hash),
+                                    "block_hash": hex::encode(block_hash),
                                     "block_height": block_height,
                                     "processing_time_ms": elapsed,
                                     "metadata": {
@@ -192,7 +192,7 @@ impl StateMgmtHandler {
                             "subsystem_id": "qc-04",
                             "event_type": "StateComputationStarted",
                             "correlation_id": format!("{:x}", block_hash[0]),
-                            "block_hash": hex::encode(&block_hash),
+                            "block_hash": hex::encode(block_hash),
                             "block_height": block_height,
                             "metadata": {
                                 "target": "qc-02",
@@ -220,7 +220,7 @@ impl StateMgmtHandler {
                                     "subsystem_id": "qc-04",
                                     "event_type": "StateRootComputed",
                                     "correlation_id": format!("{:x}", block_hash[0]),
-                                    "block_hash": hex::encode(&block_hash),
+                                    "block_hash": hex::encode(block_hash),
                                     "block_height": block_height,
                                     "processing_time_ms": elapsed,
                                     "metadata": {
@@ -303,7 +303,7 @@ impl BlockStorageHandler {
                                 "subsystem_id": "qc-02",
                                 "event_type": "AssemblyStarted",
                                 "correlation_id": format!("{:x}", block_hash[0]),
-                                "block_hash": hex::encode(&block_hash),
+                                "block_hash": hex::encode(block_hash),
                                 "block_height": block_height,
                                 "metadata": {
                                     "components_waiting": ["BlockValidated", "MerkleRootComputed", "StateRootComputed"],

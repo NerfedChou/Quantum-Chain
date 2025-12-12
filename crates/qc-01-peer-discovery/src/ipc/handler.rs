@@ -309,8 +309,8 @@ impl<K: KeyProvider> IpcHandler<K> {
 mod tests {
     use super::*;
     use crate::domain::{
-        BanReason, IpAddr, KademliaConfig, NodeId, PeerDiscoveryError, PeerInfo, RoutingTable,
-        RoutingTableStats, SocketAddr, Timestamp,
+        BanReason, KademliaConfig, NodeId, PeerDiscoveryError, PeerInfo, RoutingTable,
+        RoutingTableStats, Timestamp,
     };
     use crate::ports::PeerDiscoveryApi;
 

@@ -5,7 +5,7 @@ use shared_bus::{
     events::BlockchainEvent, EventFilter, EventPublisher, EventTopic, InMemoryEventBus,
 };
 use shared_types::envelope::AuthenticatedMessage;
-use shared_types::ipc::{VerifyNodeIdentityPayload, VerifyNodeIdentityResponse};
+use shared_types::ipc::VerifyNodeIdentityPayload;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -43,14 +43,11 @@ impl<S: SignatureVerificationApi + Clone + Send + Sync + 'static> SignatureVerif
 
         // We specifically listen for VerifyNodeIdentity events
         while let Some(event) = rx.recv().await {
-            match event {
-                BlockchainEvent::VerifyNodeIdentity {
+            if let BlockchainEvent::VerifyNodeIdentity {
                     correlation_id,
                     payload,
-                } => {
-                    self.handle_verification(correlation_id, payload).await;
-                }
-                _ => {}
+                } = event {
+                self.handle_verification(correlation_id, payload).await;
             }
         }
     }

@@ -44,7 +44,7 @@ fn compute_merkle_root(hashes: &[Hash]) -> Hash {
     let mut level: Vec<Hash> = hashes.to_vec();
 
     while level.len() > 1 {
-        let mut next_level = Vec::with_capacity((level.len() + 1) / 2);
+        let mut next_level = Vec::with_capacity(level.len().div_ceil(2));
 
         for chunk in level.chunks(2) {
             let left = &chunk[0];

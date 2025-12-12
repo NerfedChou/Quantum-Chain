@@ -22,9 +22,9 @@ use std::sync::Arc;
 ///
 /// ## IPC-MATRIX.md Compliance
 ///
-/// - Validates sender_id before processing
-/// - Uses envelope correlation_id for responses
-/// - NO requester_id fields in payloads
+/// - Validates `sender_id` before processing
+/// - Uses envelope `correlation_id` for responses
+/// - NO `requester_id` fields in payloads
 pub struct SmartContractEventHandler<T: SmartContractApi> {
     /// The smart contract API implementation.
     api: Arc<T>,
@@ -36,11 +36,11 @@ impl<T: SmartContractApi> SmartContractEventHandler<T> {
         Self { api }
     }
 
-    /// Handle an ExecuteTransactionRequest.
+    /// Handle an `ExecuteTransactionRequest`.
     ///
     /// ## Security
     ///
-    /// - Validates sender_id is 8 (Consensus) or 12 (Transaction Ordering)
+    /// - Validates `sender_id` is 8 (Consensus) or 12 (Transaction Ordering)
     /// - Rejects unauthorized senders
     pub async fn handle_execute_transaction(
         &self,
@@ -102,11 +102,11 @@ impl<T: SmartContractApi> SmartContractEventHandler<T> {
         }
     }
 
-    /// Handle an ExecuteHTLCRequest.
+    /// Handle an `ExecuteHTLCRequest`.
     ///
     /// ## Security
     ///
-    /// - Validates sender_id is 15 (Cross-Chain) ONLY
+    /// - Validates `sender_id` is 15 (Cross-Chain) ONLY
     pub async fn handle_execute_htlc(
         &self,
         sender_id: u8,
@@ -170,7 +170,7 @@ pub struct InboundMessage {
 mod tests {
     use super::*;
     use crate::domain::entities::{BlockContext, ExecutionContext, ExecutionResult};
-    use crate::domain::value_objects::{Address, Bytes, Hash, U256};
+    use crate::domain::value_objects::{Address, Bytes, U256};
     use crate::errors::VmError;
     use crate::events::HtlcOperationPayload;
     use crate::ports::inbound::SignedTransaction;

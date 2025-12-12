@@ -135,7 +135,7 @@ mod tests {
         let m = 1000;
         let k = 7;
         let tweak = 0;
-        let mut counts = vec![0usize; 10]; // 10 buckets
+        let mut counts = [0usize; 10]; // 10 buckets
 
         for i in 0..1000 {
             let element = format!("element_{}", i);

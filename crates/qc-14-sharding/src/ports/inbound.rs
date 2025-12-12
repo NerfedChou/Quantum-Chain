@@ -5,7 +5,7 @@
 //! Reference: SPEC-14 Section 3.1 (Lines 181-223)
 
 use crate::domain::{
-    Address, GlobalStateRoot, Hash, ShardConfig, ShardError, ShardId, ValidatorInfo,
+    Address, GlobalStateRoot, ShardConfig, ShardError, ShardId, ValidatorInfo,
 };
 use async_trait::async_trait;
 

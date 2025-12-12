@@ -17,8 +17,10 @@ pub const MAX_INCLUSION_DELAY: u64 = 32;
 
 /// Reward curve type.
 #[derive(Clone, Debug)]
+#[derive(Default)]
 pub enum RewardCurve {
     /// Linear decay: reward = base * (1 - delay/max)
+    #[default]
     Linear,
     /// Exponential decay: reward = base * 0.5^(delay/halflife)
     Exponential { halflife: u64 },
@@ -26,11 +28,6 @@ pub enum RewardCurve {
     Step { threshold: u64 },
 }
 
-impl Default for RewardCurve {
-    fn default() -> Self {
-        Self::Linear
-    }
-}
 
 /// Inclusion delay tracker for attestation rewards.
 #[derive(Clone, Debug)]

@@ -32,21 +32,25 @@ pub struct Pattern {
 
 impl Pattern {
     /// Create new pattern.
+    #[must_use] 
     pub fn new(ops: Vec<PatternOp>, gas_cost: u64) -> Self {
         Self { ops, gas_cost }
     }
 
     /// Get pattern length.
+    #[must_use] 
     pub fn len(&self) -> usize {
         self.ops.len()
     }
 
     /// Check if empty.
+    #[must_use] 
     pub fn is_empty(&self) -> bool {
         self.ops.is_empty()
     }
 
     /// Get gas cost.
+    #[must_use] 
     pub fn gas_cost(&self) -> u64 {
         self.gas_cost
     }
@@ -60,6 +64,7 @@ pub struct PatternMatcher {
 
 impl PatternMatcher {
     /// Create new matcher.
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -70,11 +75,13 @@ impl PatternMatcher {
     }
 
     /// Count rules.
+    #[must_use] 
     pub fn rule_count(&self) -> usize {
         self.patterns.len()
     }
 
     /// Estimate gas savings for a sequence.
+    #[must_use] 
     pub fn estimate_savings(&self, sequence_len: usize) -> u64 {
         // Simple estimate: assume 10% of patterns match
         let potential_matches = sequence_len / 10;

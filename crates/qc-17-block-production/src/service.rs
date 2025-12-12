@@ -11,7 +11,7 @@ use crate::{
     },
     error::{BlockProductionError, Result},
     ports::{
-        BlockProducerService, BlockStorageReader, ChainInfo, HistoricalBlockInfo, MinedBlockInfo,
+        BlockProducerService, BlockStorageReader, MinedBlockInfo,
         ProductionConfig, ProductionStatus,
     },
     security::SecurityValidator,
@@ -467,7 +467,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                                 // Compute difficulty description for logs
                                 let difficulty_for_log = diff_desc.clone();
                                 let correlation_id = uuid::Uuid::new_v4().to_string();
-                                let block_hash_str = hex::encode(&block_hash);
+                                let block_hash_str = hex::encode(block_hash);
                                 let event = serde_json::json!({
                                     "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
                                     "subsystem_id": "qc-17",

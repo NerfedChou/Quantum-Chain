@@ -12,7 +12,7 @@
 //!
 //! ## Security
 //!
-//! - Validates sender_id from envelope per IPC-MATRIX.md
+//! - Validates `sender_id` from envelope per IPC-MATRIX.md
 //! - All identity from `AuthenticatedMessage.sender_id` only
 
 use crate::adapters::{InMemoryAccessList, InMemoryState};
@@ -117,8 +117,8 @@ impl<S: StateAccess, A: AccessList> SmartContractService<S, A> {
     ///
     /// # Security
     ///
-    /// Validates that the sender_id is authorized per IPC-MATRIX.md:
-    /// - ExecuteTransactionRequest: sender_id must be 8 or 12
+    /// Validates that the `sender_id` is authorized per IPC-MATRIX.md:
+    /// - `ExecuteTransactionRequest`: `sender_id` must be 8 or 12
     #[instrument(skip(self, payload), fields(correlation_id = %correlation_id))]
     pub async fn handle_execute_transaction(
         &self,
@@ -239,7 +239,7 @@ impl<S: StateAccess, A: AccessList> SmartContractService<S, A> {
     ///
     /// # Security
     ///
-    /// Validates that the sender_id is 15 (Cross-Chain) per IPC-MATRIX.md.
+    /// Validates that the `sender_id` is 15 (Cross-Chain) per IPC-MATRIX.md.
     #[instrument(skip(self, payload), fields(correlation_id = %correlation_id))]
     pub async fn handle_execute_htlc(
         &self,
@@ -355,6 +355,7 @@ impl<S: StateAccess, A: AccessList> SmartContractService<S, A> {
 }
 
 /// Create a default service with in-memory adapters (for testing).
+#[must_use] 
 pub fn create_test_service() -> SmartContractService<InMemoryState, InMemoryAccessList> {
     SmartContractService::new(
         InMemoryState::new(),
@@ -531,7 +532,7 @@ mod tests {
     // COMPREHENSIVE UNAUTHORIZED SENDER TESTS (IPC-MATRIX.md Compliance)
     // =========================================================================
 
-    /// Test: ExecuteTransactionRequest rejected from Block Storage (2)
+    /// Test: `ExecuteTransactionRequest` rejected from Block Storage (2)
     #[tokio::test]
     async fn test_reject_tx_request_from_block_storage() {
         let service = create_test_service();
@@ -547,7 +548,7 @@ mod tests {
         );
     }
 
-    /// Test: ExecuteTransactionRequest rejected from State Management (4)
+    /// Test: `ExecuteTransactionRequest` rejected from State Management (4)
     #[tokio::test]
     async fn test_reject_tx_request_from_state_management() {
         let service = create_test_service();
@@ -563,7 +564,7 @@ mod tests {
         );
     }
 
-    /// Test: ExecuteTransactionRequest rejected from Finality (9)
+    /// Test: `ExecuteTransactionRequest` rejected from Finality (9)
     #[tokio::test]
     async fn test_reject_tx_request_from_finality() {
         let service = create_test_service();
@@ -579,7 +580,7 @@ mod tests {
         );
     }
 
-    /// Test: ExecuteTransactionRequest rejected from Cross-Chain (15)
+    /// Test: `ExecuteTransactionRequest` rejected from Cross-Chain (15)
     #[tokio::test]
     async fn test_reject_tx_request_from_cross_chain() {
         let service = create_test_service();
@@ -595,7 +596,7 @@ mod tests {
         );
     }
 
-    /// Test: ExecuteTransactionRequest accepted from Consensus (8)
+    /// Test: `ExecuteTransactionRequest` accepted from Consensus (8)
     #[tokio::test]
     async fn test_tx_request_accepted_from_consensus() {
         let service = create_test_service();
@@ -611,7 +612,7 @@ mod tests {
         );
     }
 
-    /// Test: ExecuteTransactionRequest accepted from Transaction Ordering (12)
+    /// Test: `ExecuteTransactionRequest` accepted from Transaction Ordering (12)
     #[tokio::test]
     async fn test_tx_request_accepted_from_tx_ordering() {
         let service = create_test_service();
@@ -627,7 +628,7 @@ mod tests {
         );
     }
 
-    /// Test: ExecuteHTLCRequest rejected from Consensus (8)
+    /// Test: `ExecuteHTLCRequest` rejected from Consensus (8)
     #[tokio::test]
     async fn test_reject_htlc_request_from_consensus() {
         let service = create_test_service();
@@ -643,7 +644,7 @@ mod tests {
         );
     }
 
-    /// Test: ExecuteHTLCRequest rejected from Transaction Ordering (12)
+    /// Test: `ExecuteHTLCRequest` rejected from Transaction Ordering (12)
     #[tokio::test]
     async fn test_reject_htlc_request_from_tx_ordering() {
         let service = create_test_service();
@@ -659,7 +660,7 @@ mod tests {
         );
     }
 
-    /// Test: ExecuteHTLCRequest rejected from Block Storage (2)
+    /// Test: `ExecuteHTLCRequest` rejected from Block Storage (2)
     #[tokio::test]
     async fn test_reject_htlc_request_from_block_storage() {
         let service = create_test_service();
@@ -675,7 +676,7 @@ mod tests {
         );
     }
 
-    /// Test: Verify only Consensus (8) and Transaction Ordering (12) can send ExecuteTransactionRequest
+    /// Test: Verify only Consensus (8) and Transaction Ordering (12) can send `ExecuteTransactionRequest`
     #[test]
     fn test_only_consensus_and_tx_ordering_authorized_for_execute_tx() {
         use crate::events::subsystem_ids;
@@ -688,13 +689,12 @@ mod tests {
         for id in [1u8, 2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 15] {
             assert!(
                 !subsystem_ids::is_authorized_execution_sender(id),
-                "Subsystem {} should NOT be authorized for ExecuteTransactionRequest",
-                id
+                "Subsystem {id} should NOT be authorized for ExecuteTransactionRequest"
             );
         }
     }
 
-    /// Test: Verify only Cross-Chain (15) can send ExecuteHTLCRequest
+    /// Test: Verify only Cross-Chain (15) can send `ExecuteHTLCRequest`
     #[test]
     fn test_only_cross_chain_authorized_for_htlc() {
         use crate::events::subsystem_ids;
@@ -706,8 +706,7 @@ mod tests {
         for id in [1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14] {
             assert!(
                 !subsystem_ids::is_authorized_htlc_sender(id),
-                "Subsystem {} should NOT be authorized for ExecuteHTLCRequest",
-                id
+                "Subsystem {id} should NOT be authorized for ExecuteHTLCRequest"
             );
         }
     }

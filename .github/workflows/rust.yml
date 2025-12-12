@@ -509,7 +509,7 @@ jobs:
   miri:
     name: Miri UB Check
     runs-on: ubuntu-latest
-    if: github.event.inputs.run_miri == 'true'
+    # Always run Miri checks for safety verification
     permissions:
       contents: read
     steps:

@@ -169,7 +169,7 @@ mod tests {
         }
 
         // Expect roughly 20% to move (1/5), allow 10-40%
-        assert!(moved >= 10 && moved <= 40, "Moved {} addresses", moved);
+        assert!((10..=40).contains(&moved), "Moved {} addresses", moved);
     }
 
     #[test]

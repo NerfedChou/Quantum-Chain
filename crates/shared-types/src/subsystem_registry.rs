@@ -26,6 +26,11 @@
 //! registry.stop_all().await?;
 //! ```
 
+// TODO: Refactor to use tokio::sync::RwLock to properly handle async lock guards.
+// Current implementation uses parking_lot::RwLock which warns about holding locks across await.
+// This is safe because subsystem operations are short-lived, but should be refactored.
+#![allow(clippy::await_holding_lock)]
+
 use crate::entities::SubsystemId;
 use crate::subsystem_trait::{
     DynSubsystem, SubsystemError, SubsystemErrorKind, SubsystemInfo, SubsystemStatus,

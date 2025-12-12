@@ -15,7 +15,7 @@
 //!
 //! Reference: SPEC-08-CONSENSUS.md Phase 3
 
-use crate::domain::{BlsPublicKey, ValidatorId, ValidatorInfo, ValidatorSet};
+use crate::domain::{BlsPublicKey, ValidatorId, ValidatorSet};
 use std::collections::HashMap;
 
 /// Committee size for BLS aggregation optimization.
@@ -91,7 +91,7 @@ impl CommitteeCache {
     /// Build committee cache from validator set.
     pub fn build(validator_set: &ValidatorSet) -> Self {
         let num_validators = validator_set.len();
-        let num_committees = ((num_validators + COMMITTEE_SIZE - 1) / COMMITTEE_SIZE) as u64;
+        let num_committees = num_validators.div_ceil(COMMITTEE_SIZE) as u64;
 
         let mut cache = Self {
             committee_keys: HashMap::new(),
@@ -116,7 +116,7 @@ impl CommitteeCache {
             cache
                 .committee_keys
                 .entry(committee_id)
-                .or_insert_with(AggregateKey::new)
+                .or_default()
                 .add(validator.pubkey);
         }
 

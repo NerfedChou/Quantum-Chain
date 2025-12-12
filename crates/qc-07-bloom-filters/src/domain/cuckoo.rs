@@ -62,7 +62,7 @@ impl Bucket {
 
     /// Check if fingerprint exists.
     pub fn contains(&self, fp: Fingerprint) -> bool {
-        self.entries.iter().any(|&e| e == fp)
+        self.entries.contains(&fp)
     }
 
     /// Delete fingerprint if it exists.
@@ -96,7 +96,7 @@ pub struct CuckooFilter {
 impl CuckooFilter {
     /// Create a new cuckoo filter with specified capacity.
     pub fn new(capacity: usize) -> Self {
-        let bucket_count = (capacity + ENTRIES_PER_BUCKET - 1) / ENTRIES_PER_BUCKET;
+        let bucket_count = capacity.div_ceil(ENTRIES_PER_BUCKET);
         let bucket_count = bucket_count.next_power_of_two().max(4);
 
         Self {
