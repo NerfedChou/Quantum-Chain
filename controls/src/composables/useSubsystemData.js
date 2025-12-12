@@ -150,7 +150,7 @@ export function useAllSubsystems() {
  * @returns {object} - Reactive metrics, loading, error, and refresh
  */
 export function useIpcMetrics() {
-    const { rpc, connected } = useApi()
+    const { rpc } = useApi()
 
     const metrics = ref(null)
     const loading = ref(true)
