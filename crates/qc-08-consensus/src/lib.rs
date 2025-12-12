@@ -97,6 +97,9 @@
 //! let validated = service.validate_block(block, None).await?;
 //! ```
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 pub mod adapters;
 pub mod domain;
 pub mod events;

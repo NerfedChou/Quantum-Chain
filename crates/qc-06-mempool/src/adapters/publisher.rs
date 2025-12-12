@@ -104,6 +104,7 @@ impl MempoolEventPublisher for NoOpPublisher {
 
 /// Recording publisher for testing.
 #[cfg(test)]
+#[allow(clippy::type_complexity)]
 pub struct RecordingPublisher {
     pub batches: std::sync::Mutex<Vec<(Uuid, Vec<Hash>, u64, u64)>>,
     pub balance_checks: std::sync::Mutex<Vec<(Uuid, [u8; 32], u128)>>,

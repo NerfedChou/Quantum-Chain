@@ -9,6 +9,9 @@
 use crate::domain::entities::{StoredBlock, Timestamp};
 use crate::domain::errors::{FSError, KVStoreError, SerializationError};
 
+/// Type alias for key-value scan results to simplify complex return types.
+pub type ScanResult = Vec<(Vec<u8>, Vec<u8>)>;
+
 /// Abstract interface for key-value database operations.
 ///
 /// Production: `RocksDbStore` (node-runtime/adapters/storage/rocksdb_adapter.rs)
@@ -36,7 +39,7 @@ pub trait KeyValueStore: Send + Sync {
     fn exists(&self, key: &[u8]) -> Result<bool, KVStoreError>;
 
     /// Iterate over keys with a prefix.
-    fn prefix_scan(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, KVStoreError>;
+    fn prefix_scan(&self, prefix: &[u8]) -> Result<ScanResult, KVStoreError>;
 }
 
 /// Batch operation for atomic writes.
@@ -188,7 +191,7 @@ impl KeyValueStore for InMemoryKVStore {
         Ok(self.data.contains_key(key))
     }
 
-    fn prefix_scan(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, KVStoreError> {
+    fn prefix_scan(&self, prefix: &[u8]) -> Result<ScanResult, KVStoreError> {
         let results: Vec<_> = self
             .data
             .iter()
@@ -354,7 +357,7 @@ impl KeyValueStore for FileBackedKVStore {
         Ok(self.data.contains_key(key))
     }
 
-    fn prefix_scan(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, KVStoreError> {
+    fn prefix_scan(&self, prefix: &[u8]) -> Result<ScanResult, KVStoreError> {
         let results: Vec<_> = self
             .data
             .iter()

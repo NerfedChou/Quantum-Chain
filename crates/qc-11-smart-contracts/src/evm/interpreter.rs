@@ -765,8 +765,7 @@ where
                     .access_list
                     .touch_storage(self.context.address, storage_key)
                     == AccessStatus::Cold;
-                if is_cold
-                    && !self.consume_gas(costs::COLD_SLOAD) {
+                if is_cold && !self.consume_gas(costs::COLD_SLOAD) {
                     return Err(VmError::OutOfGas);
                 }
 

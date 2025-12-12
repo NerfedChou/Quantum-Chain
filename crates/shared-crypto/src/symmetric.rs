@@ -74,6 +74,10 @@ pub enum Cipher {
 /// Encrypt plaintext with XChaCha20-Poly1305.
 ///
 /// Returns (ciphertext, nonce).
+///
+/// # Errors
+///
+/// Returns `CryptoError::EncryptionFailed` if encryption fails.
 pub fn encrypt(key: &SecretKey, plaintext: &[u8]) -> Result<(Vec<u8>, Nonce), CryptoError> {
     let cipher = XChaCha20Poly1305::new(key.as_bytes().into());
     let nonce = Nonce::generate();
@@ -86,6 +90,10 @@ pub fn encrypt(key: &SecretKey, plaintext: &[u8]) -> Result<(Vec<u8>, Nonce), Cr
 }
 
 /// Decrypt ciphertext with XChaCha20-Poly1305.
+///
+/// # Errors
+///
+/// Returns `CryptoError::DecryptionFailed` if decryption fails.
 pub fn decrypt(key: &SecretKey, ciphertext: &[u8], nonce: &Nonce) -> Result<Vec<u8>, CryptoError> {
     let cipher = XChaCha20Poly1305::new(key.as_bytes().into());
 

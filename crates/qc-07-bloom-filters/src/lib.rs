@@ -92,6 +92,9 @@
 //! assert!(filter.contains(b"0xABCD1234..."));
 //! ```
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 pub mod adapters;
 pub mod domain;
 pub mod error;

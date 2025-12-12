@@ -33,6 +33,7 @@ use qc_09_finality::ports::outbound::{
 
 /// Adapter implementing qc-09's BlockStorageGateway trait.
 /// Marks blocks as finalized in block storage.
+#[allow(clippy::type_complexity)]
 pub struct FinalityBlockStorageAdapter<KV, FS, CS, TS, SER>
 where
     KV: KeyValueStore,
@@ -44,6 +45,7 @@ where
     storage: Arc<RwLock<BlockStorageService<KV, FS, CS, TS, SER>>>,
 }
 
+#[allow(clippy::type_complexity)]
 impl<KV, FS, CS, TS, SER> FinalityBlockStorageAdapter<KV, FS, CS, TS, SER>
 where
     KV: KeyValueStore,

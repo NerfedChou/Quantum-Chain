@@ -18,6 +18,7 @@ pub struct IpcResponse {
 /// All possible response payloads
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
+#[allow(clippy::large_enum_variant)]
 pub enum ResponsePayload {
     /// Successful response with data
     Success(SuccessData),

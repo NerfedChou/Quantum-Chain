@@ -16,8 +16,7 @@ use shared_types::Hash;
 pub const MAX_INCLUSION_DELAY: u64 = 32;
 
 /// Reward curve type.
-#[derive(Clone, Debug)]
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub enum RewardCurve {
     /// Linear decay: reward = base * (1 - delay/max)
     #[default]
@@ -27,7 +26,6 @@ pub enum RewardCurve {
     /// Step function: full until threshold, then zero
     Step { threshold: u64 },
 }
-
 
 /// Inclusion delay tracker for attestation rewards.
 #[derive(Clone, Debug)]

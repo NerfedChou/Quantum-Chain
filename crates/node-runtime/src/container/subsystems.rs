@@ -458,6 +458,7 @@ impl SubsystemContainer {
     // =========================================================================
 
     #[cfg(feature = "qc-01")]
+    #[allow(clippy::type_complexity)]
     fn init_peer_discovery(
         event_bus: Arc<InMemoryEventBus>,
         _config: &NodeConfig,
@@ -466,7 +467,8 @@ impl SubsystemContainer {
         Arc<RwLock<BootstrapHandler<SharedPeerDiscovery, RuntimeVerificationPublisher>>>,
     ) {
         use qc_01_peer_discovery::{
-            adapters::network::ProofOfWorkValidator, KademliaConfig, NodeId, SystemTimeSource, TimeSource,
+            adapters::network::ProofOfWorkValidator, KademliaConfig, NodeId, SystemTimeSource,
+            TimeSource,
         };
 
         let local_node_id = NodeId::new(rand::random());
@@ -749,6 +751,7 @@ impl SubsystemContainer {
     }
 
     /// Check if a subsystem is enabled.
+    #[allow(clippy::match_like_matches_macro)] // Using match for clarity with cfg!
     pub fn is_subsystem_enabled(id: u8) -> bool {
         match id {
             1 => cfg!(feature = "qc-01"),

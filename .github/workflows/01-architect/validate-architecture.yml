@@ -1,0 +1,452 @@
+# ==============================================================================
+# MASTER ARCHITECT - Architecture Validation & Compliance
+# ==============================================================================
+# Role: Validates architectural patterns (DDD, EDA, Hexagonal)
+# Ensures: Bounded contexts, event-driven choreography, ports & adapters
+# Reference: Documentation/Architecture.md V2.3, CLAUDE.md
+# ==============================================================================
+
+name: "01 • Master Architect"
+
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Documentation/**'
+  push:
+    branches: [ "main", "develop" ]
+    paths:
+      - 'crates/**'
+      - 'Documentation/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================================================
+  # PR Governance - Size & Convention Checks
+  # ==========================================================================
+  pr-governance:
+    name: "PR: Governance Checks"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check PR Size
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=========================================="
+          echo "PR Size Validation"
+          echo "=========================================="
+          
+          FILES_CHANGED=$(gh pr view ${{ github.event.number }} --json files -q '.files | length')
+          LINES_CHANGED=$(gh pr view ${{ github.event.number }} --json additions,deletions -q '.additions + .deletions')
+          
+          echo "Files changed: $FILES_CHANGED"
+          echo "Lines changed: $LINES_CHANGED"
+          echo ""
+          
+          # Warnings
+          if [ "$FILES_CHANGED" -gt 30 ]; then
+            echo "⚠️ WARNING: Large PR ($FILES_CHANGED files). Consider splitting for easier review."
+          fi
+          
+          if [ "$LINES_CHANGED" -gt 500 ]; then
+            echo "⚠️ WARNING: Large changeset ($LINES_CHANGED lines). Consider splitting."
+          fi
+          
+          # Hard limits
+          if [ "$FILES_CHANGED" -gt 100 ]; then
+            echo "❌ PR too large ($FILES_CHANGED files). Must be < 100 files."
+            echo "   Split into multiple PRs for better review quality."
+            exit 1
+          fi
+          
+          if [ "$LINES_CHANGED" -gt 2000 ]; then
+            echo "❌ PR too large ($LINES_CHANGED lines). Must be < 2000 lines."
+            echo "   Split into multiple PRs for better review quality."
+            exit 1
+          fi
+          
+          echo "✅ PR size is reasonable"
+      
+      - name: Validate Conventional Commits
+        run: |
+          echo "=========================================="
+          echo "Conventional Commit Validation"
+          echo "=========================================="
+          
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          echo "PR Title: $PR_TITLE"
+          echo ""
+          
+          # Check conventional commit format
+          if ! echo "$PR_TITLE" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?: .+"; then
+            echo "❌ PR title must follow Conventional Commits format"
+            echo ""
+            echo "Format: type(scope): description"
+            echo ""
+            echo "Types:"
+            echo "  - feat:     New feature"
+            echo "  - fix:      Bug fix"
+            echo "  - docs:     Documentation only"
+            echo "  - style:    Code style (formatting, etc.)"
+            echo "  - refactor: Code restructuring"
+            echo "  - perf:     Performance improvement"
+            echo "  - test:     Adding/updating tests"
+            echo "  - chore:    Maintenance tasks"
+            echo "  - ci:       CI/CD changes"
+            echo "  - build:    Build system changes"
+            echo ""
+            echo "Examples:"
+            echo "  - feat(qc-08): add BLS signature aggregation"
+            echo "  - fix(consensus): prevent duplicate attestations"
+            echo "  - docs: update architecture diagrams"
+            echo "  - refactor(mempool): extract validation logic"
+            exit 1
+          fi
+          
+          echo "✅ PR title follows Conventional Commits"
+
+  # ==========================================================================
+  # Domain-Driven Design Validation
+  # ==========================================================================
+  validate-ddd:
+    name: "DDD: Bounded Contexts"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Validate Subsystem Isolation
+        run: |
+          echo "=========================================="
+          echo "DDD: Validating Bounded Contexts"
+          echo "=========================================="
+          
+          # Check for cross-subsystem imports (FORBIDDEN)
+          echo "Checking for direct subsystem coupling..."
+          VIOLATIONS=0
+          
+          for subsystem in crates/qc-*/; do
+            if [ -d "$subsystem" ]; then
+              SUBSYSTEM_ID=$(basename "$subsystem" | cut -d'-' -f2)
+              SUBSYSTEM_NAME=$(basename "$subsystem")
+              
+              echo "Analyzing: $SUBSYSTEM_NAME"
+              
+              # Find imports from other subsystems (exclude shared-*)
+              if grep -r "use qc_[0-9][0-9]_" "$subsystem/src" 2>/dev/null | grep -v "shared-" | grep -v "test"; then
+                echo "❌ VIOLATION: $SUBSYSTEM_NAME has direct subsystem dependency!"
+                VIOLATIONS=$((VIOLATIONS + 1))
+              fi
+            fi
+          done
+          
+          if [ $VIOLATIONS -eq 0 ]; then
+            echo "✅ All subsystems properly isolated"
+          else
+            echo "❌ Found $VIOLATIONS subsystem coupling violations"
+            exit 1
+          fi
+      
+      - name: Validate Domain Layer Purity
+        run: |
+          echo "=========================================="
+          echo "DDD: Domain Layer Purity Check"
+          echo "=========================================="
+
+          # Domain layer must NOT contain direct I/O operations
+          # Allowed exceptions:
+          # - std::net::IpAddr, std::net::SocketAddr (data types, not I/O)
+          # - async fn delegating to external compute (qc-compute, documented)
+          # - test code
+          # - comments and documentation
+          VIOLATIONS=0
+
+          for domain_dir in crates/*/src/domain/; do
+            if [ -d "$domain_dir" ]; then
+              SUBSYSTEM=$(dirname "$(dirname "$domain_dir")" | xargs basename)
+              echo "Checking domain purity: $SUBSYSTEM"
+
+              # Check for forbidden I/O patterns
+              # tokio::fs, tokio::net, tokio::io = actual I/O (forbidden)
+              # std::fs, std::io = actual I/O (forbidden)
+              # TcpListener, TcpStream, UdpSocket = network I/O (forbidden)
+              MATCHES=$(grep -rE "(tokio::fs::|tokio::net::|tokio::io::|std::fs::|std::io::|TcpListener|TcpStream|UdpSocket)" "$domain_dir" 2>/dev/null | grep -v "test" | grep -v "^[[:space:]]*//") || true
+
+              if [ -n "$MATCHES" ]; then
+                echo "❌ VIOLATION: Domain layer contains I/O in $SUBSYSTEM"
+                echo "$MATCHES"
+                VIOLATIONS=$((VIOLATIONS + 1))
+              fi
+            fi
+          done
+
+          if [ $VIOLATIONS -eq 0 ]; then
+            echo "✅ All domain layers are pure (no I/O)"
+          else
+            echo "❌ Found $VIOLATIONS domain purity violations"
+            exit 1
+          fi
+
+  # ==========================================================================
+  # Event-Driven Architecture Validation
+  # ==========================================================================
+  validate-eda:
+    name: "EDA: Choreography Pattern"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Validate Event-Only Communication
+        run: |
+          echo "=========================================="
+          echo "EDA: Event-Driven Choreography"
+          echo "=========================================="
+          
+          # Subsystems must use event bus, not direct calls
+          VIOLATIONS=0
+          
+          for subsystem in crates/qc-*/src/service.rs; do
+            if [ -f "$subsystem" ]; then
+              SUBSYSTEM_NAME=$(dirname "$(dirname "$subsystem")" | xargs basename)
+              echo "Checking: $SUBSYSTEM_NAME"
+              
+              # Check for event_bus usage
+              if ! grep -q "event_bus" "$subsystem" 2>/dev/null; then
+                echo "⚠️ WARNING: $SUBSYSTEM_NAME service may not use event bus"
+              fi
+              
+              # Check for forbidden direct calls to other subsystems
+              if grep -rE "self\.[a-z_]+_subsystem\." "$(dirname "$subsystem")" 2>/dev/null | grep -v "test" | grep -v "event_bus"; then
+                echo "❌ VIOLATION: $SUBSYSTEM_NAME has direct subsystem calls"
+                VIOLATIONS=$((VIOLATIONS + 1))
+              fi
+            fi
+          done
+          
+          if [ $VIOLATIONS -eq 0 ]; then
+            echo "✅ All subsystems use event-driven communication"
+          else
+            echo "❌ Found $VIOLATIONS choreography violations"
+            exit 1
+          fi
+      
+      - name: Validate Event Definitions
+        run: |
+          echo "=========================================="
+          echo "EDA: Event Schema Validation"
+          echo "=========================================="
+          
+          # Check that events are properly defined
+          if [ -f "crates/shared-bus/src/events.rs" ]; then
+            echo "Checking event definitions..."
+            
+            # Events must be in BlockchainEvent enum
+            if ! grep -q "pub enum BlockchainEvent" crates/shared-bus/src/events.rs; then
+              echo "❌ BlockchainEvent enum not found"
+              exit 1
+            fi
+            
+            echo "✅ Event definitions validated"
+          else
+            echo "⚠️ shared-bus/events.rs not found"
+          fi
+
+  # ==========================================================================
+  # Hexagonal Architecture Validation
+  # ==========================================================================
+  validate-hexagonal:
+    name: "Hexagonal: Ports & Adapters"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Validate Hexagonal Structure
+        run: |
+          echo "=========================================="
+          echo "Hexagonal: Directory Structure"
+          echo "=========================================="
+          
+          VIOLATIONS=0
+          
+          for subsystem in crates/qc-*/; do
+            if [ -d "$subsystem/src" ]; then
+              SUBSYSTEM_NAME=$(basename "$subsystem")
+              echo "Checking: $SUBSYSTEM_NAME"
+              
+              # Required directories
+              REQUIRED_DIRS=("domain" "ports" "adapters")
+              for dir in "${REQUIRED_DIRS[@]}"; do
+                if [ ! -d "$subsystem/src/$dir" ]; then
+                  echo "⚠️ Missing: $subsystem/src/$dir"
+                fi
+              done
+              
+              # Ports must define traits
+              if [ -d "$subsystem/src/ports" ]; then
+                if ! grep -rq "trait" "$subsystem/src/ports" 2>/dev/null; then
+                  echo "⚠️ No traits found in $SUBSYSTEM_NAME/ports"
+                fi
+              fi
+            fi
+          done
+          
+          echo "✅ Hexagonal structure validated"
+      
+      - name: Validate Dependency Inversion
+        run: |
+          echo "=========================================="
+          echo "Hexagonal: Dependency Inversion"
+          echo "=========================================="
+          
+          # Domain must NOT depend on adapters
+          for domain_dir in crates/*/src/domain/; do
+            if [ -d "$domain_dir" ]; then
+              SUBSYSTEM=$(dirname "$(dirname "$domain_dir")" | xargs basename)
+              
+              # Check domain doesn't import adapters
+              if grep -r "use crate::adapters" "$domain_dir" 2>/dev/null; then
+                echo "❌ VIOLATION: Domain depends on adapters in $SUBSYSTEM"
+                exit 1
+              fi
+            fi
+          done
+          
+          echo "✅ Dependency inversion validated"
+
+  # ==========================================================================
+  # IPC Matrix Compliance
+  # ==========================================================================
+  validate-ipc-matrix:
+    name: "IPC: Security Boundaries"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Validate Envelope-Only Identity
+        run: |
+          echo "=========================================="
+          echo "IPC: Envelope-Only Identity (Zero Trust)"
+          echo "=========================================="
+          
+          # Payloads must NOT contain identity fields
+          VIOLATIONS=0
+          FORBIDDEN_FIELDS=("requester_id" "requester_subsystem" "sender_id" "sender_subsystem")
+          
+          for subsystem in crates/qc-*/src; do
+            if [ -d "$subsystem" ]; then
+              for field in "${FORBIDDEN_FIELDS[@]}"; do
+                if grep -r "pub $field:" "$subsystem" 2>/dev/null | grep -v "AuthenticatedMessage" | grep -v "test"; then
+                  echo "❌ VIOLATION: Found '$field' in payload (violates Envelope-Only Identity)"
+                  VIOLATIONS=$((VIOLATIONS + 1))
+                fi
+              done
+            fi
+          done
+          
+          if [ $VIOLATIONS -eq 0 ]; then
+            echo "✅ All payloads comply with Envelope-Only Identity"
+          else
+            echo "❌ Found $VIOLATIONS envelope violations"
+            exit 1
+          fi
+      
+      - name: Validate Signature Re-Verification
+        run: |
+          echo "=========================================="
+          echo "IPC: Zero-Trust Signature Re-Verification"
+          echo "=========================================="
+          
+          # Consensus must re-verify signatures (not trust QC-10)
+          if [ -f "crates/qc-08-consensus/src/lib.rs" ]; then
+            if grep -q "Zero-Trust Signature Re-Verification" crates/qc-08-consensus/src/lib.rs; then
+              echo "✅ Consensus implements zero-trust re-verification"
+            else
+              echo "⚠️ WARNING: Consensus may trust external validation"
+            fi
+          fi
+
+  # ==========================================================================
+  # Architecture Documentation Sync
+  # ==========================================================================
+  validate-documentation:
+    name: "Docs: Architecture Sync"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Validate Documentation Exists
+        run: |
+          echo "=========================================="
+          echo "Architecture Documentation Validation"
+          echo "=========================================="
+          
+          REQUIRED_DOCS=(
+            "Documentation/Architecture.md"
+            "Documentation/IPC-MATRIX.md"
+            "Documentation/System.md"
+            "CLAUDE.md"
+          )
+          
+          MISSING=0
+          for doc in "${REQUIRED_DOCS[@]}"; do
+            if [ ! -f "$doc" ]; then
+              echo "❌ Missing: $doc"
+              MISSING=$((MISSING + 1))
+            else
+              echo "✅ Found: $doc"
+            fi
+          done
+          
+          if [ $MISSING -gt 0 ]; then
+            echo "❌ $MISSING required documents missing"
+            exit 1
+          fi
+      
+      - name: Validate Architecture Version
+        run: |
+          # All references must be to Architecture.md V2.3
+          if grep -r "Architecture.md V[0-9]" .github/workflows/ | grep -v "V2.3"; then
+            echo "⚠️ WARNING: Found references to old architecture versions"
+          else
+            echo "✅ All references use Architecture V2.3"
+          fi
+
+  # ==========================================================================
+  # Summary Report
+  # ==========================================================================
+  architect-summary:
+    name: "Summary: Architecture Report"
+    runs-on: ubuntu-latest
+    needs: [pr-governance, validate-ddd, validate-eda, validate-hexagonal, validate-ipc-matrix, validate-documentation]
+    if: always()
+    steps:
+      - name: Generate Architecture Report
+        run: |
+          echo "## 🏛️ Master Architect Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Pattern | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| DDD (Bounded Contexts) | ${{ needs.validate-ddd.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| EDA (Choreography) | ${{ needs.validate-eda.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Hexagonal (Ports & Adapters) | ${{ needs.validate-hexagonal.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| IPC Matrix Compliance | ${{ needs.validate-ipc-matrix.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Documentation | ${{ needs.validate-documentation.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Architectural Laws" >> $GITHUB_STEP_SUMMARY
+          echo "- **LAW #1**: Subsystem Isolation (Bounded Contexts)" >> $GITHUB_STEP_SUMMARY
+          echo "- **LAW #2**: Event Bus Only Communication" >> $GITHUB_STEP_SUMMARY
+          echo "- **LAW #3**: Envelope-Only Identity (Zero Trust)" >> $GITHUB_STEP_SUMMARY
+          echo "- **LAW #4**: Test-Driven Development" >> $GITHUB_STEP_SUMMARY
+          echo "- **LAW #5**: Check Recent Commits" >> $GITHUB_STEP_SUMMARY

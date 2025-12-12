@@ -15,7 +15,7 @@
 //!
 //! Reference: SPEC-08-CONSENSUS.md Phase 3
 
-use crate::domain::{BlsPublicKey, ValidatorId, ValidatorSet};
+use crate::domain::{BlsPublicKey, ValidatorId, ValidatorInfo, ValidatorSet};
 use std::collections::HashMap;
 
 /// Committee size for BLS aggregation optimization.

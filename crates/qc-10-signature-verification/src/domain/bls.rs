@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn test_bls_aggregate_public_keys_single() {
         let (_, pk) = generate_keypair();
-        let result = aggregate_bls_public_keys(&[pk.clone()]);
+        let result = aggregate_bls_public_keys(std::slice::from_ref(&pk));
         assert!(result.is_ok());
     }
 }

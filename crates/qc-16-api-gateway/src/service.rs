@@ -2,9 +2,9 @@
 //!
 //! Provides HTTP (JSON-RPC), WebSocket, and Admin API servers.
 
+use crate::adapters::pending::{cleanup_task, PendingRequestStore};
 use crate::domain::config::GatewayConfig;
 use crate::domain::error::GatewayError;
-use crate::domain::pending::PendingRequestStore;
 use crate::ipc::handler::{IpcHandler, IpcSender};
 use crate::middleware::{
     create_cors_layer, GatewayMetrics, RateLimitLayer, TimeoutLayer, TracingLayer, ValidationLayer,
@@ -294,7 +294,7 @@ impl ApiGatewayService {
         // Pending request cleanup
         let pending_store = Arc::clone(&self.pending_store);
         tokio::spawn(async move {
-            crate::domain::pending::cleanup_task(pending_store, Duration::from_secs(10)).await;
+            cleanup_task(pending_store, Duration::from_secs(10)).await;
         });
 
         // Rate limit bucket cleanup would go here

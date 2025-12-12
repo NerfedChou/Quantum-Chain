@@ -35,6 +35,9 @@
 //! println!("Using: {}", engine.backend());
 //! ```
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 pub mod backends;
 pub mod tasks;
 

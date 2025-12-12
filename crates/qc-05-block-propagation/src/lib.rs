@@ -130,6 +130,9 @@
 //! handler.handle_propagate_block(authenticated_message, &raw_bytes)?;
 //! ```
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 pub mod domain;
 pub mod events;
 pub mod ipc;

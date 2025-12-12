@@ -6,7 +6,7 @@
 
 use super::secret::{create_hash_lock, generate_random_secret};
 use crate::domain::{
-    Address, AtomicSwap, ChainId, CrossChainError, Hash, SwapState, HTLC, MIN_TIMELOCK_MARGIN_SECS,
+    Address, AtomicSwap, ChainId, CrossChainError, SwapState, MIN_TIMELOCK_MARGIN_SECS,
 };
 
 /// Create a new atomic swap with generated secret.
@@ -65,7 +65,7 @@ pub fn calculate_timelocks(
     current_time: u64,
 ) -> (u64, u64) {
     // Source chain gets longer timeout
-    let source_finality = source_chain.required_confirmations() * source_chain.block_time_secs();
+    let _source_finality = source_chain.required_confirmations() * source_chain.block_time_secs();
     let target_finality = target_chain.required_confirmations() * target_chain.block_time_secs();
 
     // Target timeout: enough time for finality + some buffer

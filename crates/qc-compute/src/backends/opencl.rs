@@ -388,6 +388,8 @@ impl ComputeEngine for OpenCLEngine {
         while current_nonce < end_nonce {
             let work_size = std::cmp::min(batch_size, end_nonce - current_nonce) as usize;
 
+            // SAFETY: OpenCL kernel calls require unsafe. Arguments are validated,
+            // and work size is bounded by batch_size and nonce_count.
             unsafe {
                 kernel
                     .set_arg(3, current_nonce)

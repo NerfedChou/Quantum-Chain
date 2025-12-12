@@ -68,7 +68,6 @@ impl NetRpc {
 
 #[cfg(test)]
 mod tests {
-    
 
     #[tokio::test]
     async fn test_net_version() {

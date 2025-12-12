@@ -10,6 +10,18 @@
 //! - **Hexagonal Architecture**: Ports define contracts, Adapters implement them
 //! - **Plug-and-Play**: Subsystems can be enabled/disabled via configuration
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+// Additional allows to match CI configuration
+#![allow(clippy::type_complexity)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::match_like_matches_macro)]
+#![allow(clippy::manual_strip)]
+#![allow(clippy::unnecessary_to_owned)]
+#![allow(clippy::expect_fun_call)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::repeat_once)]
+
 pub mod adapters;
 pub mod container;
 pub mod genesis;

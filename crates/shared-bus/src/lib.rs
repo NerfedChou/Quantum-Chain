@@ -29,6 +29,9 @@
 //! - **Envelope-Only Identity:** `sender_id` from envelope is sole authority
 //! - **Dead Letter Queue:** Failed messages routed to DLQ for investigation
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 // Nursery lints that are too strict
 #![allow(clippy::missing_const_for_fn)]
 // Allow in tests

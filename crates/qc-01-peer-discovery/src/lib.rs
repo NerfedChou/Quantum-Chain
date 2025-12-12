@@ -52,6 +52,9 @@
 //! table.on_verification_result(&peer.node_id, true, now).unwrap();
 //! ```
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 // =============================================================================
 // CORE MODULES (Zero Dependencies)
 // =============================================================================

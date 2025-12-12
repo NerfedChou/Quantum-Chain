@@ -11,8 +11,8 @@ use crate::{
     },
     error::{BlockProductionError, Result},
     ports::{
-        BlockProducerService, BlockStorageReader, MinedBlockInfo,
-        ProductionConfig, ProductionStatus,
+        BlockProducerService, BlockStorageReader, MinedBlockInfo, ProductionConfig,
+        ProductionStatus,
     },
     security::SecurityValidator,
 };

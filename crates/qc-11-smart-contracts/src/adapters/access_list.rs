@@ -35,10 +35,7 @@ impl InMemoryAccessList {
         }
 
         for (addr, key) in storage {
-            list.warm_storage
-                .entry(addr)
-                .or_default()
-                .insert(key);
+            list.warm_storage.entry(addr).or_default().insert(key);
         }
 
         list
@@ -81,10 +78,7 @@ impl AccessList for InMemoryAccessList {
         // Account access is implicit
         self.warm_accounts.insert(address);
 
-        let slots = self
-            .warm_storage
-            .entry(address)
-            .or_default();
+        let slots = self.warm_storage.entry(address).or_default();
         if slots.contains(&key) {
             AccessStatus::Warm
         } else {

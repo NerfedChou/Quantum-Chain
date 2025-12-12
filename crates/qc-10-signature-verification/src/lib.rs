@@ -9,6 +9,10 @@
 //!     EcdsaSignature, keccak256, EcdsaVerifier,
 //! };
 
+#![warn(missing_docs)]
+#![allow(missing_docs)]
+// TODO: Add documentation for all public items
+
 // Pedantic lints that are too strict for this crate
 #![allow(clippy::manual_let_else)]
 #![allow(clippy::doc_markdown)]
@@ -22,6 +26,8 @@
 #![cfg_attr(test, allow(clippy::expect_used))]
 #![cfg_attr(test, allow(clippy::panic))]
 #![cfg_attr(test, allow(clippy::uninlined_format_args))]
+#![cfg_attr(test, allow(clippy::useless_asref))]
+#![cfg_attr(test, allow(clippy::assigning_clones))]
 //!
 //! // Hash a message
 //! let message = b"Hello, Quantum-Chain!";

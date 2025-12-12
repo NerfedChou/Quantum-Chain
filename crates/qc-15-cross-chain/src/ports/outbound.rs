@@ -4,7 +4,7 @@
 //!
 //! Reference: SPEC-15 Section 3.2 (Lines 253-291)
 
-use crate::domain::{Address, ChainId, CrossChainError, CrossChainProof, Hash, Secret, HTLC};
+use crate::domain::{Address, ChainId, CrossChainError, CrossChainProof, Hash, Secret};
 use async_trait::async_trait;
 
 /// External chain client - outbound port.
@@ -108,7 +108,7 @@ pub struct MockChainClient {
 impl ExternalChainClient for MockChainClient {
     async fn get_header(
         &self,
-        chain: ChainId,
+        _chain: ChainId,
         height: u64,
     ) -> Result<BlockHeader, CrossChainError> {
         if self.should_fail {

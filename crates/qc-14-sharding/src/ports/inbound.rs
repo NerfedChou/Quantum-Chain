@@ -4,9 +4,7 @@
 //!
 //! Reference: SPEC-14 Section 3.1 (Lines 181-223)
 
-use crate::domain::{
-    Address, GlobalStateRoot, ShardConfig, ShardError, ShardId, ValidatorInfo,
-};
+use crate::domain::{Address, GlobalStateRoot, ShardConfig, ShardError, ShardId, ValidatorInfo};
 use async_trait::async_trait;
 
 /// Routing result for a transaction.

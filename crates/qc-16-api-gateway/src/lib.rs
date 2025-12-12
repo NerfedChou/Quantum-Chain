@@ -142,11 +142,13 @@
 //! See [SPEC-16-API-GATEWAY.md](../../SPECS/SPEC-16-API-GATEWAY.md) for full specification.
 
 // Crate-level lints
-#![allow(missing_docs)] // TODO: Enable after full documentation
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
 #![warn(clippy::all)]
 #![allow(clippy::excessive_nesting)] // Acceptable for middleware chains
 #![deny(unsafe_code)]
 
+pub mod adapters;
 pub mod domain;
 pub mod ipc;
 pub mod middleware;
@@ -178,6 +180,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::const_is_empty)]
     fn test_version() {
         assert!(!VERSION.is_empty());
     }

@@ -106,7 +106,7 @@ impl Memory {
 
     /// Read bytes from memory into a buffer.
     /// Returns zero-padded if reading past end of allocated memory.
-    #[must_use] 
+    #[must_use]
     pub fn read_bytes(&self, offset: usize, size: usize) -> Vec<u8> {
         let mut result = vec![0u8; size];
         let len = self.data.len();

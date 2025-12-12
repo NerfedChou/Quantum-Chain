@@ -4,9 +4,7 @@
 //!
 //! Reference: System.md Line 681, SPEC-14 Lines 626-655
 
-use crate::domain::{
-    AbortReason, CrossShardState, Hash, LockProof, ShardError, ShardId,
-};
+use crate::domain::{AbortReason, CrossShardState, Hash, LockProof, ShardError, ShardId};
 use std::time::Instant;
 
 /// 2PC coordinator state.

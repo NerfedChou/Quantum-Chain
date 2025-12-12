@@ -550,7 +550,6 @@ impl EthRpc {
 
 #[cfg(test)]
 mod tests {
-    
 
     // Tests would require mock IPC handler
 }

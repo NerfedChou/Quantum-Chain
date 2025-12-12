@@ -13,10 +13,10 @@
 //!
 //! ## Services
 //!
-//! - [`TransactionSelector`]: Optimal transaction selection (greedy knapsack)
-//! - [`StatePrefetchCache`]: State simulation and caching
-//! - [`NonceValidator`]: Nonce ordering validation
-//! - [`CircuitBreaker`]: Downstream subsystem resilience
+//! - `TransactionSelector`: Optimal transaction selection (greedy knapsack)
+//! - `StatePrefetchCache`: State simulation and caching
+//! - `NonceValidator`: Nonce ordering validation
+//! - `CircuitBreaker`: Downstream subsystem resilience
 //!
 //! ## Invariants
 //!
