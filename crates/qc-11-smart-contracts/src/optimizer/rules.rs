@@ -32,7 +32,7 @@ impl RuleSet {
     /// Create with default gas optimization rules.
     pub fn with_defaults() -> Self {
         let mut set = Self::new();
-        
+
         // Rule 1: PUSH + POP = nothing (dead code elimination)
         set.add(OptimizationRule {
             name: "push_pop_elimination",
@@ -60,10 +60,7 @@ impl RuleSet {
         // Rule 4: x + 0 = x (identity)
         set.add(OptimizationRule {
             name: "add_zero_elimination",
-            pattern: Pattern::new(vec![
-                PatternOp::Push(Some(vec![0])),
-                PatternOp::Add,
-            ], 6),
+            pattern: Pattern::new(vec![PatternOp::Push(Some(vec![0])), PatternOp::Add], 6),
             replacement: Pattern::new(vec![], 0),
             description: "Remove addition of zero",
         });
@@ -71,10 +68,7 @@ impl RuleSet {
         // Rule 5: x * 1 = x (identity)
         set.add(OptimizationRule {
             name: "mul_one_elimination",
-            pattern: Pattern::new(vec![
-                PatternOp::Push(Some(vec![1])),
-                PatternOp::Mul,
-            ], 8),
+            pattern: Pattern::new(vec![PatternOp::Push(Some(vec![1])), PatternOp::Mul], 8),
             replacement: Pattern::new(vec![], 0),
             description: "Remove multiplication by one",
         });
@@ -104,8 +98,13 @@ impl RuleSet {
 
     /// Estimate total gas savings.
     pub fn estimate_max_savings(&self) -> u64 {
-        self.rules.iter()
-            .map(|r| r.pattern.gas_cost().saturating_sub(r.replacement.gas_cost()))
+        self.rules
+            .iter()
+            .map(|r| {
+                r.pattern
+                    .gas_cost()
+                    .saturating_sub(r.replacement.gas_cost())
+            })
             .sum()
     }
 }

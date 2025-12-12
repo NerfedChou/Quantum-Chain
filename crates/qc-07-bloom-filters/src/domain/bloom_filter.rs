@@ -130,7 +130,7 @@ impl BloomFilter {
     /// Reference: SPEC-07 Appendix B.3 - Privacy Considerations
     pub fn contains_constant_time(&self, element: &[u8]) -> bool {
         let positions = compute_hash_positions(element, self.k, self.m, self.tweak);
-        
+
         // Branchless accumulator - always accesses all positions
         let mut result: u8 = 1;
         for &pos in &positions {
@@ -138,7 +138,7 @@ impl BloomFilter {
             let bit = self.bits[pos] as u8;
             result &= bit;
         }
-        
+
         result == 1
     }
 

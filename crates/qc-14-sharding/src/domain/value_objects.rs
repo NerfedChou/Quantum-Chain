@@ -4,8 +4,8 @@
 //!
 //! Reference: SPEC-14 Section 2.1 (Lines 54-101)
 
+use super::errors::{Address, Hash, ShardId};
 use serde::{Deserialize, Serialize};
-use super::errors::{ShardId, Hash, Address};
 
 /// Cross-shard transaction state machine.
 /// Reference: SPEC-14 Lines 95-101
@@ -26,9 +26,9 @@ impl CrossShardState {
     pub fn can_transition_to(&self, next: CrossShardState) -> bool {
         match (self, next) {
             (Self::Pending, Self::Locked) => true,
-            (Self::Pending, Self::Aborted) => true,   // Lock failed
+            (Self::Pending, Self::Aborted) => true, // Lock failed
             (Self::Locked, Self::Committed) => true,
-            (Self::Locked, Self::Aborted) => true,    // Commit failed or timeout
+            (Self::Locked, Self::Aborted) => true, // Commit failed or timeout
             _ => false,
         }
     }

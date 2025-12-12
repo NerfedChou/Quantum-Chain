@@ -294,13 +294,15 @@ where
             Opcode::Lt => {
                 let a = self.stack.pop()?;
                 let b = self.stack.pop()?;
-                self.stack.push(if a < b { U256::one() } else { U256::zero() })?;
+                self.stack
+                    .push(if a < b { U256::one() } else { U256::zero() })?;
             }
 
             Opcode::Gt => {
                 let a = self.stack.pop()?;
                 let b = self.stack.pop()?;
-                self.stack.push(if a > b { U256::one() } else { U256::zero() })?;
+                self.stack
+                    .push(if a > b { U256::one() } else { U256::zero() })?;
             }
 
             Opcode::SLt => {
@@ -328,12 +330,17 @@ where
             Opcode::Eq => {
                 let a = self.stack.pop()?;
                 let b = self.stack.pop()?;
-                self.stack.push(if a == b { U256::one() } else { U256::zero() })?;
+                self.stack
+                    .push(if a == b { U256::one() } else { U256::zero() })?;
             }
 
             Opcode::IsZero => {
                 let a = self.stack.pop()?;
-                self.stack.push(if a.is_zero() { U256::one() } else { U256::zero() })?;
+                self.stack.push(if a.is_zero() {
+                    U256::one()
+                } else {
+                    U256::zero()
+                })?;
             }
 
             Opcode::And => {
@@ -723,7 +730,9 @@ where
                 let storage_key = StorageKey::from_u256(key);
 
                 // Check warm/cold
-                let is_cold = self.access_list.touch_storage(self.context.address, storage_key)
+                let is_cold = self
+                    .access_list
+                    .touch_storage(self.context.address, storage_key)
                     == AccessStatus::Cold;
                 let gas = if is_cold {
                     costs::COLD_SLOAD
@@ -734,7 +743,10 @@ where
                     return Err(VmError::OutOfGas);
                 }
 
-                let value = self.state.get_storage(self.context.address, storage_key).await?;
+                let value = self
+                    .state
+                    .get_storage(self.context.address, storage_key)
+                    .await?;
                 self.stack.push(value.to_u256())?;
             }
 
@@ -749,7 +761,9 @@ where
                 let storage_value = StorageValue::from_u256(value);
 
                 // Check warm/cold (SSTORE has complex gas rules)
-                let is_cold = self.access_list.touch_storage(self.context.address, storage_key)
+                let is_cold = self
+                    .access_list
+                    .touch_storage(self.context.address, storage_key)
                     == AccessStatus::Cold;
                 if is_cold {
                     if !self.consume_gas(costs::COLD_SLOAD) {
@@ -816,14 +830,38 @@ where
                 self.stack.push(U256::zero())?;
             }
 
-            Opcode::Push1 | Opcode::Push2 | Opcode::Push3 | Opcode::Push4 |
-            Opcode::Push5 | Opcode::Push6 | Opcode::Push7 | Opcode::Push8 |
-            Opcode::Push9 | Opcode::Push10 | Opcode::Push11 | Opcode::Push12 |
-            Opcode::Push13 | Opcode::Push14 | Opcode::Push15 | Opcode::Push16 |
-            Opcode::Push17 | Opcode::Push18 | Opcode::Push19 | Opcode::Push20 |
-            Opcode::Push21 | Opcode::Push22 | Opcode::Push23 | Opcode::Push24 |
-            Opcode::Push25 | Opcode::Push26 | Opcode::Push27 | Opcode::Push28 |
-            Opcode::Push29 | Opcode::Push30 | Opcode::Push31 | Opcode::Push32 => {
+            Opcode::Push1
+            | Opcode::Push2
+            | Opcode::Push3
+            | Opcode::Push4
+            | Opcode::Push5
+            | Opcode::Push6
+            | Opcode::Push7
+            | Opcode::Push8
+            | Opcode::Push9
+            | Opcode::Push10
+            | Opcode::Push11
+            | Opcode::Push12
+            | Opcode::Push13
+            | Opcode::Push14
+            | Opcode::Push15
+            | Opcode::Push16
+            | Opcode::Push17
+            | Opcode::Push18
+            | Opcode::Push19
+            | Opcode::Push20
+            | Opcode::Push21
+            | Opcode::Push22
+            | Opcode::Push23
+            | Opcode::Push24
+            | Opcode::Push25
+            | Opcode::Push26
+            | Opcode::Push27
+            | Opcode::Push28
+            | Opcode::Push29
+            | Opcode::Push30
+            | Opcode::Push31
+            | Opcode::Push32 => {
                 let size = opcode.push_size().unwrap_or(0);
                 let mut bytes = [0u8; 32];
                 let end = (self.pc + size).min(self.code.len());
@@ -1048,8 +1086,16 @@ fn signed_lt(a: U256, b: U256) -> bool {
 fn signed_div(a: U256, b: U256) -> U256 {
     let a_neg = a.bit(255);
     let b_neg = b.bit(255);
-    let a_abs = if a_neg { (!a).overflowing_add(U256::one()).0 } else { a };
-    let b_abs = if b_neg { (!b).overflowing_add(U256::one()).0 } else { b };
+    let a_abs = if a_neg {
+        (!a).overflowing_add(U256::one()).0
+    } else {
+        a
+    };
+    let b_abs = if b_neg {
+        (!b).overflowing_add(U256::one()).0
+    } else {
+        b
+    };
     let result = a_abs / b_abs;
     if a_neg != b_neg {
         (!result).overflowing_add(U256::one()).0
@@ -1061,8 +1107,16 @@ fn signed_div(a: U256, b: U256) -> U256 {
 /// Signed modulo.
 fn signed_mod(a: U256, b: U256) -> U256 {
     let a_neg = a.bit(255);
-    let a_abs = if a_neg { (!a).overflowing_add(U256::one()).0 } else { a };
-    let b_abs = if b.bit(255) { (!b).overflowing_add(U256::one()).0 } else { b };
+    let a_abs = if a_neg {
+        (!a).overflowing_add(U256::one()).0
+    } else {
+        a
+    };
+    let b_abs = if b.bit(255) {
+        (!b).overflowing_add(U256::one()).0
+    } else {
+        b
+    };
     let result = a_abs % b_abs;
     if a_neg {
         (!result).overflowing_add(U256::one()).0
@@ -1156,8 +1210,14 @@ mod tests {
     fn test_exp_by_squaring() {
         assert_eq!(exp_by_squaring(U256::from(2), U256::from(0)), U256::one());
         assert_eq!(exp_by_squaring(U256::from(2), U256::from(1)), U256::from(2));
-        assert_eq!(exp_by_squaring(U256::from(2), U256::from(10)), U256::from(1024));
-        assert_eq!(exp_by_squaring(U256::from(3), U256::from(3)), U256::from(27));
+        assert_eq!(
+            exp_by_squaring(U256::from(2), U256::from(10)),
+            U256::from(1024)
+        );
+        assert_eq!(
+            exp_by_squaring(U256::from(3), U256::from(3)),
+            U256::from(27)
+        );
     }
 
     #[test]

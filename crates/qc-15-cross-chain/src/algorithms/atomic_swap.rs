@@ -4,12 +4,10 @@
 //!
 //! Reference: System.md Line 738
 
+use super::secret::{create_hash_lock, generate_random_secret};
 use crate::domain::{
-    Hash, Address, CrossChainError,
-    ChainId, AtomicSwap, SwapState, HTLC,
-    MIN_TIMELOCK_MARGIN_SECS,
+    Address, AtomicSwap, ChainId, CrossChainError, Hash, SwapState, HTLC, MIN_TIMELOCK_MARGIN_SECS,
 };
-use super::secret::{generate_random_secret, create_hash_lock};
 
 /// Create a new atomic swap with generated secret.
 ///
@@ -131,11 +129,8 @@ mod tests {
     #[test]
     fn test_calculate_timelocks() {
         let current_time = 1000;
-        let (source, target) = calculate_timelocks(
-            ChainId::QuantumChain,
-            ChainId::Ethereum,
-            current_time,
-        );
+        let (source, target) =
+            calculate_timelocks(ChainId::QuantumChain, ChainId::Ethereum, current_time);
 
         // Source should be >= target + margin
         assert!(source >= target + MIN_TIMELOCK_MARGIN_SECS);

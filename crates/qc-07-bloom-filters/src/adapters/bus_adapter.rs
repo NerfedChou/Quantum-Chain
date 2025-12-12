@@ -67,7 +67,7 @@ where
     }
 
     /// Check if a sender is authorized for filter operations
-    /// 
+    ///
     /// Per IPC-MATRIX.md Subsystem 7 security boundaries
     pub fn is_authorized_for_filter(&self, sender_id: u8) -> bool {
         self.handler.is_authorized_for_build_filter(sender_id)

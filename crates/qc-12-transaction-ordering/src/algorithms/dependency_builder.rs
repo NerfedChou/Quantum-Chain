@@ -35,7 +35,11 @@ pub fn build_dependency_graph(transactions: Vec<AnnotatedTransaction>) -> Depend
         for window in sorted.windows(2) {
             let tx1 = window[0];
             let tx2 = window[1];
-            graph.add_edge(Dependency::new(tx1.hash, tx2.hash, DependencyKind::NonceOrder));
+            graph.add_edge(Dependency::new(
+                tx1.hash,
+                tx2.hash,
+                DependencyKind::NonceOrder,
+            ));
         }
     }
 
@@ -62,7 +66,10 @@ pub fn build_dependency_graph(transactions: Vec<AnnotatedTransaction>) -> Depend
 }
 
 /// Detect data dependency between two transactions
-fn detect_data_dependency(tx1: &AnnotatedTransaction, tx2: &AnnotatedTransaction) -> Option<Dependency> {
+fn detect_data_dependency(
+    tx1: &AnnotatedTransaction,
+    tx2: &AnnotatedTransaction,
+) -> Option<Dependency> {
     let p1 = &tx1.access_pattern;
     let p2 = &tx2.access_pattern;
 

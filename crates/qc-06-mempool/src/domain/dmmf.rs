@@ -186,7 +186,7 @@ mod tests {
     #[test]
     fn test_meets_minimum() {
         let dmmf = DynamicMinFee::new(U256::from(1_000_000_000u64));
-        
+
         assert!(dmmf.meets_minimum(U256::from(1_000_000_000u64)));
         assert!(dmmf.meets_minimum(U256::from(2_000_000_000u64)));
         assert!(!dmmf.meets_minimum(U256::from(999_999_999u64)));
@@ -195,9 +195,9 @@ mod tests {
     #[test]
     fn test_raise_floor() {
         let mut dmmf = DynamicMinFee::new(U256::from(1_000_000_000u64));
-        
+
         dmmf.raise_floor(U256::from(5_000_000_000u64));
-        
+
         // Should be evicted + bump
         assert!(dmmf.current_min_fee() > U256::from(5_000_000_000u64));
     }
@@ -205,10 +205,10 @@ mod tests {
     #[test]
     fn test_reset() {
         let mut dmmf = DynamicMinFee::new(U256::from(1_000_000_000u64));
-        
+
         dmmf.raise_floor(U256::from(10_000_000_000u64));
         assert!(dmmf.current_min_fee() > U256::from(1_000_000_000u64));
-        
+
         dmmf.reset();
         assert_eq!(dmmf.current_min_fee(), U256::from(1_000_000_000u64));
     }
@@ -217,7 +217,7 @@ mod tests {
     fn test_stats() {
         let dmmf = DynamicMinFee::new(U256::from(1_000_000_000u64));
         let stats = dmmf.stats();
-        
+
         assert_eq!(stats.base_fee, U256::from(1_000_000_000u64));
         assert!((stats.multiplier - 1.0).abs() < 0.01);
     }

@@ -98,7 +98,7 @@ pub fn minimum_bits(n: usize, target_fpr: f64) -> usize {
 /// - If block is sparse, reduce bits to save bandwidth
 ///
 /// ## Reference
-/// 
+///
 /// SPEC-07 Phase 4 - False Positive Auto-Tuning
 pub struct AdaptiveBloomParams {
     /// Target FPR

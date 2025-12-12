@@ -15,6 +15,7 @@
 //! - Validates sender_id from envelope per IPC-MATRIX.md
 //! - All identity from `AuthenticatedMessage.sender_id` only
 
+use crate::adapters::{InMemoryAccessList, InMemoryState};
 use crate::domain::entities::{BlockContext, ExecutionContext, ExecutionResult, VmConfig};
 use crate::domain::value_objects::Bytes;
 use crate::errors::{IpcError, VmError};
@@ -26,7 +27,6 @@ use crate::evm::transient::TransientStorage;
 use crate::evm::Interpreter;
 use crate::ports::inbound::{SignedTransaction, SmartContractApi};
 use crate::ports::outbound::{AccessList, StateAccess};
-use crate::adapters::{InMemoryAccessList, InMemoryState};
 
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -291,7 +291,10 @@ impl<S: StateAccess, A: AccessList> SmartContractService<S, A> {
         } else {
             // Contract call: get code from state
             let to_addr = tx.to.unwrap();
-            self.state.get_code(to_addr).await.map_err(VmError::StateError)?
+            self.state
+                .get_code(to_addr)
+                .await
+                .map_err(VmError::StateError)?
         };
 
         // Build execution context
@@ -343,12 +346,8 @@ impl<S: StateAccess, A: AccessList> SmartContractService<S, A> {
 
         // Create interpreter and execute
         let mut access_list = self.access_list.write().await;
-        let mut interpreter = Interpreter::new(
-            context.clone(),
-            code,
-            &*self.state,
-            &mut *access_list,
-        );
+        let mut interpreter =
+            Interpreter::new(context.clone(), code, &*self.state, &mut *access_list);
 
         // Execute
         interpreter.execute().await
@@ -388,27 +387,19 @@ impl<S: StateAccess + Send + Sync, A: AccessList + Send + Sync> SmartContractApi
         self.execute_transaction_internal(tx, block).await
     }
 
-    async fn estimate_gas(
-        &self,
-        context: ExecutionContext,
-        code: &[u8],
-    ) -> Result<u64, VmError> {
+    async fn estimate_gas(&self, context: ExecutionContext, code: &[u8]) -> Result<u64, VmError> {
         // Execute with maximum gas to find actual usage
         let mut ctx = context;
         ctx.gas_limit = self.config.vm_config.max_gas_limit();
 
         let result = self.execute_code(&ctx, code).await?;
-        
+
         // Add 10% buffer for safety
         let estimated = result.gas_used + (result.gas_used / 10);
         Ok(estimated)
     }
 
-    async fn call(
-        &self,
-        context: ExecutionContext,
-        code: &[u8],
-    ) -> Result<Bytes, VmError> {
+    async fn call(&self, context: ExecutionContext, code: &[u8]) -> Result<Bytes, VmError> {
         // Static call - no state changes
         let mut ctx = context;
         ctx.is_static = true;
@@ -419,7 +410,9 @@ impl<S: StateAccess + Send + Sync, A: AccessList + Send + Sync> SmartContractApi
             Ok(result.output)
         } else {
             Err(VmError::Revert(
-                result.revert_reason.unwrap_or_else(|| "execution reverted".to_string()),
+                result
+                    .revert_reason
+                    .unwrap_or_else(|| "execution reverted".to_string()),
             ))
         }
     }
@@ -432,8 +425,8 @@ impl<S: StateAccess + Send + Sync, A: AccessList + Send + Sync> SmartContractApi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::value_objects::{Address, Bytes, Hash, U256};
     use crate::domain::entities::BlockContext;
+    use crate::domain::value_objects::{Address, Bytes, Hash, U256};
 
     fn create_test_tx_payload() -> ExecuteTransactionRequestPayload {
         ExecuteTransactionRequestPayload {
@@ -452,9 +445,7 @@ mod tests {
     fn create_test_htlc_payload() -> ExecuteHTLCRequestPayload {
         ExecuteHTLCRequestPayload {
             htlc_contract: Address::ZERO,
-            operation: crate::events::HtlcOperationPayload::Claim {
-                secret: Hash::ZERO,
-            },
+            operation: crate::events::HtlcOperationPayload::Claim { secret: Hash::ZERO },
             block_context: BlockContext::default(),
         }
     }
@@ -477,7 +468,7 @@ mod tests {
             .await;
 
         assert!(matches!(result, Err(IpcError::UnauthorizedSender { .. })));
-        
+
         let stats = service.stats().await;
         assert_eq!(stats.rejected_requests, 1);
     }
@@ -739,8 +730,13 @@ mod tests {
             .await;
 
         let stats = service.stats().await;
-        assert_eq!(stats.rejected_requests, 3, "Should have 3 rejected requests");
-        assert_eq!(stats.transactions_executed, 0, "No transactions should have executed");
+        assert_eq!(
+            stats.rejected_requests, 3,
+            "Should have 3 rejected requests"
+        );
+        assert_eq!(
+            stats.transactions_executed, 0,
+            "No transactions should have executed"
+        );
     }
 }
-

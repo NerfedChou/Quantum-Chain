@@ -4,9 +4,9 @@
 //!
 //! Reference: SPEC-15 Section 2.1 (Lines 67-174)
 
+use super::errors::{Address, CrossChainError, Hash, Secret};
+use super::value_objects::{ChainAddress, ChainId, HTLCState, SwapState};
 use serde::{Deserialize, Serialize};
-use super::errors::{Hash, Address, Secret, CrossChainError};
-use super::value_objects::{ChainId, HTLCState, SwapState, ChainAddress};
 
 /// Hash Time-Locked Contract (HTLC).
 /// Reference: SPEC-15 Lines 67-87
@@ -68,13 +68,20 @@ impl HTLC {
 
     /// Check if refund is allowed.
     pub fn can_refund(&self, current_time: u64) -> bool {
-        (self.state == HTLCState::Locked || self.state == HTLCState::Expired) 
+        (self.state == HTLCState::Locked || self.state == HTLCState::Expired)
             && self.is_expired(current_time)
     }
 
     /// Transition to new state.
-    pub fn transition_to(&mut self, new_state: HTLCState, current_time: u64) -> Result<(), CrossChainError> {
-        if !self.state.can_transition_to(new_state, current_time, self.time_lock) {
+    pub fn transition_to(
+        &mut self,
+        new_state: HTLCState,
+        current_time: u64,
+    ) -> Result<(), CrossChainError> {
+        if !self
+            .state
+            .can_transition_to(new_state, current_time, self.time_lock)
+        {
             return Err(CrossChainError::InvalidHTLCTransition {
                 from: format!("{:?}", self.state),
                 to: format!("{:?}", new_state),
@@ -224,7 +231,7 @@ pub struct CrossChainConfig {
 impl Default for CrossChainConfig {
     fn default() -> Self {
         Self {
-            min_timelock_margin_secs: 6 * 3600, // 6 hours
+            min_timelock_margin_secs: 6 * 3600,     // 6 hours
             default_source_timeout_secs: 24 * 3600, // 24 hours
             default_target_timeout_secs: 18 * 3600, // 18 hours
             supported_chains: vec![

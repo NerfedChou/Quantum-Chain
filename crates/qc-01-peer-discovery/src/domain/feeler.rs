@@ -37,9 +37,9 @@ pub struct FeelerConfig {
 impl Default for FeelerConfig {
     fn default() -> Self {
         Self {
-            probe_interval_secs: 120,     // 2 minutes
-            jitter_max_secs: 30,          // 0-30s jitter
-            connection_timeout_secs: 10,  // 10 second timeout
+            probe_interval_secs: 120,    // 2 minutes
+            jitter_max_secs: 30,         // 0-30s jitter
+            connection_timeout_secs: 10, // 10 second timeout
             max_failures: 3,
             max_concurrent_probes: 2,
         }
@@ -79,7 +79,12 @@ pub struct FeelerProbe {
 
 impl FeelerProbe {
     /// Create a new feeler probe
-    pub fn new(target: SocketAddr, node_id: Option<NodeId>, now: Timestamp, timeout_secs: u64) -> Self {
+    pub fn new(
+        target: SocketAddr,
+        node_id: Option<NodeId>,
+        now: Timestamp,
+        timeout_secs: u64,
+    ) -> Self {
         Self {
             target,
             node_id,
@@ -171,7 +176,8 @@ impl FeelerState {
         // Schedule next probe with jitter
         self.probe_counter += 1;
         let jitter = (self.probe_counter % (self.config.jitter_max_secs + 1)) as u64;
-        self.next_probe_at = Timestamp::new(now.as_secs() + self.config.probe_interval_secs + jitter);
+        self.next_probe_at =
+            Timestamp::new(now.as_secs() + self.config.probe_interval_secs + jitter);
 
         Some(probe)
     }
@@ -244,11 +250,7 @@ impl BucketFreshness {
     /// Select the stalest bucket (longest since last probe)
     ///
     /// If bucket_counts is provided, only considers buckets with entries
-    pub fn select_stalest_bucket(
-        &self,
-        bucket_counts: &[usize],
-        now: Timestamp,
-    ) -> Option<usize> {
+    pub fn select_stalest_bucket(&self, bucket_counts: &[usize], now: Timestamp) -> Option<usize> {
         let mut stalest_idx = None;
         let mut stalest_time = now.as_secs();
 

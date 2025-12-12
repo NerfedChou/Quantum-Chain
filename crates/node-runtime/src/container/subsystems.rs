@@ -42,9 +42,9 @@ use shared_bus::{InMemoryEventBus, TimeBoundedNonceCache};
 use shared_types::SubsystemRegistry;
 
 #[cfg(feature = "qc-01")]
-use qc_01_peer_discovery::adapters::BootstrapHandler;
-#[cfg(feature = "qc-01")]
 use crate::adapters::peer_discovery::{RuntimeVerificationPublisher, SharedPeerDiscovery};
+#[cfg(feature = "qc-01")]
+use qc_01_peer_discovery::adapters::BootstrapHandler;
 
 use crate::container::config::NodeConfig;
 
@@ -173,7 +173,8 @@ pub struct SubsystemContainer {
     #[cfg(feature = "qc-01")]
     pub peer_discovery: Arc<RwLock<PeerDiscoveryService>>,
     #[cfg(feature = "qc-01")]
-    pub bootstrap_handler: Arc<RwLock<BootstrapHandler<SharedPeerDiscovery, RuntimeVerificationPublisher>>>,
+    pub bootstrap_handler:
+        Arc<RwLock<BootstrapHandler<SharedPeerDiscovery, RuntimeVerificationPublisher>>>,
 
     /// Mempool (Subsystem 6) - Optional
     #[cfg(feature = "qc-06")]
@@ -455,7 +456,6 @@ impl SubsystemContainer {
     // =========================================================================
     // SUBSYSTEM INITIALIZATION METHODS
     // =========================================================================
-
 
     #[cfg(feature = "qc-01")]
     fn init_peer_discovery(

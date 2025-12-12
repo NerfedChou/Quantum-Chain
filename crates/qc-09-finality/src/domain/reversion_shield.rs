@@ -72,13 +72,13 @@ impl ReversionShield {
                 if block_hash == finalized {
                     return true;
                 }
-                
+
                 // Block must be at height > finalized to be a descendant
                 if block_height <= self.last_finalized_height {
                     // Could be an ancestor of finalized, which is valid
                     return self.finalized_ancestors.contains(block_hash);
                 }
-                
+
                 // Check if block descends from finalized
                 self.is_descendant(block_hash, finalized)
             }
@@ -90,11 +90,11 @@ impl ReversionShield {
         if block_a == block_b {
             return true;
         }
-        
+
         // Walk up the tree from block_a
         let mut current = block_a;
         let max_depth = 1000; // Prevent infinite loops
-        
+
         for _ in 0..max_depth {
             match self.block_tree.get(current) {
                 Some(parent) => {
@@ -106,7 +106,7 @@ impl ReversionShield {
                 None => return false,
             }
         }
-        
+
         false
     }
 
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn test_no_finality_allows_all() {
         let shield = ReversionShield::new();
-        
+
         assert!(shield.is_valid_block(&block(1), 100));
         assert!(shield.is_valid_block(&block(2), 200));
     }
@@ -154,23 +154,23 @@ mod tests {
     fn test_finalized_block_is_valid() {
         let mut shield = ReversionShield::new();
         shield.set_finalized(block(5), 100);
-        
+
         assert!(shield.is_valid_block(&block(5), 100));
     }
 
     #[test]
     fn test_descendant_is_valid() {
         let mut shield = ReversionShield::new();
-        
+
         // Build chain: 1 <- 2 <- 3 <- 4 <- 5
         shield.record_block(block(2), block(1));
         shield.record_block(block(3), block(2));
         shield.record_block(block(4), block(3));
         shield.record_block(block(5), block(4));
-        
+
         // Finalize block 3
         shield.set_finalized(block(3), 50);
-        
+
         // Block 5 descends from 3
         assert!(shield.is_valid_block(&block(5), 70));
     }
@@ -178,18 +178,18 @@ mod tests {
     #[test]
     fn test_non_descendant_is_invalid() {
         let mut shield = ReversionShield::new();
-        
+
         // Build main chain: 1 <- 2 <- 3
         shield.record_block(block(2), block(1));
         shield.record_block(block(3), block(2));
-        
+
         // Build fork: 1 <- 10 <- 11
         shield.record_block(block(10), block(1));
         shield.record_block(block(11), block(10));
-        
+
         // Finalize block 3
         shield.set_finalized(block(3), 50);
-        
+
         // Block 11 does NOT descend from 3
         assert!(!shield.is_valid_block(&block(11), 60));
     }

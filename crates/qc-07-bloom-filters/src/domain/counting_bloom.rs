@@ -150,23 +150,23 @@ impl CountingBloomFilter {
     pub fn to_rle(&self) -> Vec<u8> {
         let mut result = Vec::new();
         let mut i = 0;
-        
+
         while i < self.counters.len() {
             let value = self.counters[i];
             let mut run_length = 1u8;
-            
+
             while i + (run_length as usize) < self.counters.len()
                 && self.counters[i + run_length as usize] == value
                 && run_length < 255
             {
                 run_length += 1;
             }
-            
+
             result.push(run_length);
             result.push(value);
             i += run_length as usize;
         }
-        
+
         result
     }
 
@@ -174,21 +174,21 @@ impl CountingBloomFilter {
     pub fn from_rle(data: &[u8], m: usize, k: usize, tweak: u32) -> Option<Self> {
         let mut counters = Vec::with_capacity((m + 1) / 2);
         let mut i = 0;
-        
+
         while i + 1 < data.len() {
             let run_length = data[i];
             let value = data[i + 1];
-            
+
             for _ in 0..run_length {
                 counters.push(value);
             }
             i += 2;
         }
-        
+
         if counters.len() != (m + 1) / 2 {
             return None;
         }
-        
+
         Some(Self {
             counters,
             k,
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn test_add_and_contains() {
         let mut filter = CountingBloomFilter::new(1000, 7);
-        
+
         filter.add(b"test_element");
         assert!(filter.contains(b"test_element"));
     }
@@ -220,13 +220,13 @@ mod tests {
     #[test]
     fn test_remove() {
         let mut filter = CountingBloomFilter::new(1000, 7);
-        
+
         filter.add(b"element1");
         filter.add(b"element2");
-        
+
         assert!(filter.contains(b"element1"));
         assert!(filter.contains(b"element2"));
-        
+
         filter.remove(b"element1");
         assert!(!filter.contains(b"element1"));
         assert!(filter.contains(b"element2"));
@@ -235,20 +235,20 @@ mod tests {
     #[test]
     fn test_counter_saturation() {
         let mut filter = CountingBloomFilter::new(1000, 7);
-        
+
         // Add same element many times
         for _ in 0..20 {
             filter.add(b"saturate_me");
         }
-        
+
         // Should still contain
         assert!(filter.contains(b"saturate_me"));
-        
+
         // Remove many times
         for _ in 0..20 {
             filter.remove(b"saturate_me");
         }
-        
+
         // Should be gone (counters saturate, so might still be there)
         // This is expected behavior - can't remove more than MAX_COUNTER
     }
@@ -256,13 +256,13 @@ mod tests {
     #[test]
     fn test_rle_compression() {
         let mut filter = CountingBloomFilter::new(1000, 7);
-        
+
         // Add a few elements
         filter.add(b"element1");
         filter.add(b"element2");
-        
+
         let rle = filter.to_rle();
-        
+
         // RLE should be much smaller than raw counters for sparse filter
         assert!(rle.len() < filter.size_bytes());
     }
@@ -273,10 +273,10 @@ mod tests {
         filter.add(b"element1");
         filter.add(b"element2");
         filter.add(b"element3");
-        
+
         let rle = filter.to_rle();
         let restored = CountingBloomFilter::from_rle(&rle, 100, 5, 0).unwrap();
-        
+
         // Check membership is preserved
         assert!(restored.contains(b"element1"));
         assert!(restored.contains(b"element2"));
@@ -286,7 +286,7 @@ mod tests {
     #[test]
     fn test_4bit_packing() {
         let filter = CountingBloomFilter::new(100, 5);
-        
+
         // 100 counters should use 50 bytes (2 per byte)
         assert_eq!(filter.size_bytes(), 50);
     }

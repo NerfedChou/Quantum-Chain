@@ -72,10 +72,10 @@ pub fn optimize_sequence(instructions: Vec<Instruction>, rules: &RuleSet) -> Opt
 
     while i < instructions.len() {
         // Check for PUSH followed by POP (opcode 0x50)
-        if i + 1 < instructions.len() 
-            && instructions[i].opcode >= 0x60 
-            && instructions[i].opcode <= 0x7F 
-            && instructions[i + 1].opcode == 0x50 
+        if i + 1 < instructions.len()
+            && instructions[i].opcode >= 0x60
+            && instructions[i].opcode <= 0x7F
+            && instructions[i + 1].opcode == 0x50
         {
             // Skip both instructions (dead code)
             i += 2;

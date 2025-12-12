@@ -47,7 +47,10 @@ impl BloomFilterHandler {
 
     /// Update current block height
     pub fn set_current_block(&self, height: u64) {
-        let mut current = self.current_block.write().expect("current_block lock poisoned");
+        let mut current = self
+            .current_block
+            .write()
+            .expect("current_block lock poisoned");
         *current = height;
     }
 
@@ -113,7 +116,10 @@ impl BloomFilterHandler {
         }
 
         // Rule 2: Rate limiting - max 1 update per 10 blocks
-        let current_block = *self.current_block.read().expect("current_block lock poisoned");
+        let current_block = *self
+            .current_block
+            .read()
+            .expect("current_block lock poisoned");
         let mut rate_limits = self.rate_limits.write().expect("rate_limits lock poisoned");
 
         if let Some((last_block, count)) = rate_limits.get_mut(client_id) {
@@ -589,4 +595,3 @@ mod tests {
         }
     }
 }
-

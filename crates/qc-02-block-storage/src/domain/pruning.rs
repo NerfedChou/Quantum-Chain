@@ -71,11 +71,11 @@ impl PruningService {
         if height == 0 {
             return true; // Genesis is always an anchor
         }
-        
+
         if height < self.config.anchor_base {
             return false;
         }
-        
+
         // Check if height is a multiple of anchor_base * 2^k
         let mut interval = self.config.anchor_base;
         while interval <= height {
@@ -87,7 +87,7 @@ impl PruningService {
             }
             interval *= 2;
         }
-        
+
         false
     }
 
@@ -194,8 +194,8 @@ mod tests {
     #[test]
     fn test_is_not_anchor() {
         let svc = PruningService::new(PruningConfig::default());
-        
-        assert!(!svc.is_anchor_block(500));  // Too small
+
+        assert!(!svc.is_anchor_block(500)); // Too small
         assert!(!svc.is_anchor_block(1001)); // Not a multiple
         assert!(!svc.is_anchor_block(1500)); // Not power of 2 multiple
     }
@@ -240,7 +240,7 @@ mod tests {
 
         // At height 1000, blocks 1-100 are old, but some are anchors
         let prunable = svc.get_prunable_heights(1, 50, 1000);
-        
+
         // Should not include anchors (0, 100 would be but 100 is out of range)
         assert!(!prunable.contains(&0));
     }

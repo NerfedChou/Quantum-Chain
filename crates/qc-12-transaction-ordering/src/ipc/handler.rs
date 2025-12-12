@@ -121,7 +121,11 @@ impl TransactionOrderingHandler {
                     .collect();
 
                 let conflicts_detected = schedule.total_transactions
-                    - schedule.parallel_groups.first().map(|g| g.len()).unwrap_or(0);
+                    - schedule
+                        .parallel_groups
+                        .first()
+                        .map(|g| g.len())
+                        .unwrap_or(0);
 
                 info!(
                     "[qc-12] ✓ Ordered {} transactions into {} groups (max parallelism: {})",
@@ -192,7 +196,12 @@ impl TransactionOrderingHandler {
                 }
             }
 
-            transactions.push(AnnotatedTransaction::new(hash, sender, nonce, access_pattern));
+            transactions.push(AnnotatedTransaction::new(
+                hash,
+                sender,
+                nonce,
+                access_pattern,
+            ));
         }
 
         transactions

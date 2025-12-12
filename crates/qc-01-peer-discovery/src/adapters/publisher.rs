@@ -233,7 +233,6 @@ impl PeerDiscoveryEventPublisher for InMemoryEventPublisher {
 // VERIFICATION REQUEST PUBLISHER (Outbound to Subsystem 10)
 // =============================================================================
 
-
 use crate::ipc::VerifyNodeIdentityRequest;
 
 /// Publisher for sending verification requests to Subsystem 10.
@@ -284,8 +283,7 @@ impl NoOpVerificationPublisher {
     /// Get the count of published requests.
     #[must_use]
     pub fn get_request_count(&self) -> usize {
-        self.request_count
-            .load(std::sync::atomic::Ordering::SeqCst)
+        self.request_count.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 

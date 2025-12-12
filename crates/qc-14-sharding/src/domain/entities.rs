@@ -4,9 +4,9 @@
 //!
 //! Reference: SPEC-14 Section 2.1 (Lines 58-117)
 
+use super::errors::{Address, Hash, ShardError, ShardId};
+use super::value_objects::{AbortReason, CrossShardState, LockProof};
 use serde::{Deserialize, Serialize};
-use super::errors::{ShardId, Hash, Address, ShardError};
-use super::value_objects::{CrossShardState, AbortReason, LockProof};
 
 /// Shard configuration.
 /// Reference: SPEC-14 Lines 58-77
@@ -173,7 +173,12 @@ pub struct GlobalStateRoot {
 
 impl GlobalStateRoot {
     /// Create a new global state root.
-    pub fn new(root: Hash, shard_roots: Vec<ShardStateRoot>, block_height: u64, epoch: u64) -> Self {
+    pub fn new(
+        root: Hash,
+        shard_roots: Vec<ShardStateRoot>,
+        block_height: u64,
+        epoch: u64,
+    ) -> Self {
         Self {
             root,
             shard_roots,

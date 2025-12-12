@@ -12,7 +12,9 @@
 //! - Adapters translate between ports and IPC messages
 
 use crate::domain::entities::AccountState;
-use crate::domain::value_objects::{Address, Bytes, EcdsaSignature, Hash, StorageKey, StorageValue, U256};
+use crate::domain::value_objects::{
+    Address, Bytes, EcdsaSignature, Hash, StorageKey, StorageValue, U256,
+};
 use crate::errors::StateError;
 use async_trait::async_trait;
 

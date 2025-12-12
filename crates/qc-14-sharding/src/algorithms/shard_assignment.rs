@@ -4,8 +4,8 @@
 //!
 //! Reference: System.md Lines 676-680, SPEC-14 Lines 120-142
 
+use crate::domain::{Address, Hash, ShardId};
 use sha3::{Digest, Keccak256};
-use crate::domain::{ShardId, Address, Hash};
 
 /// Simple modulo-based shard assignment.
 ///
@@ -28,6 +28,11 @@ pub fn assign_shard(address: &Address, shard_count: u16) -> ShardId {
 ///
 /// When adding shard N, only 1/N addresses move to the new shard.
 /// Also known as "highest random weight" hashing.
+///
+/// # Optimization
+///
+/// Pre-allocates a single buffer for all hash computations to avoid
+/// repeated allocations in the hot path.
 pub fn rendezvous_assign(address: &Address, shards: &[ShardId]) -> ShardId {
     if shards.is_empty() {
         return 0;
@@ -37,20 +42,25 @@ pub fn rendezvous_assign(address: &Address, shards: &[ShardId]) -> ShardId {
         return shards[0];
     }
 
-    shards
-        .iter()
-        .map(|shard| {
-            // Combine address with shard ID
-            let mut input = Vec::with_capacity(address.len() + 2);
-            input.extend_from_slice(address);
-            input.extend_from_slice(&shard.to_be_bytes());
-            let combined = keccak256(&input);
-            (*shard, combined)
-        })
-        // Pick shard with highest hash
-        .max_by_key(|(_, hash)| *hash)
-        .map(|(shard, _)| shard)
-        .unwrap()
+    // OPTIMIZATION: Pre-allocate buffer outside loop
+    let mut input = [0u8; 22]; // 20 bytes address + 2 bytes shard ID
+    input[..20].copy_from_slice(address);
+
+    let mut best_shard = shards[0];
+    let mut best_hash = [0u8; 32];
+
+    for shard in shards {
+        // Copy shard ID into buffer
+        input[20..22].copy_from_slice(&shard.to_be_bytes());
+        let combined = keccak256(&input);
+
+        if combined > best_hash {
+            best_hash = combined;
+            best_shard = *shard;
+        }
+    }
+
+    best_shard
 }
 
 /// Detect if a transaction is cross-shard.
@@ -59,11 +69,17 @@ pub fn rendezvous_assign(address: &Address, shards: &[ShardId]) -> ShardId {
 pub fn is_cross_shard(sender: &Address, recipients: &[Address], shard_count: u16) -> bool {
     let sender_shard = assign_shard(sender, shard_count);
 
-    recipients.iter().any(|r| assign_shard(r, shard_count) != sender_shard)
+    recipients
+        .iter()
+        .any(|r| assign_shard(r, shard_count) != sender_shard)
 }
 
 /// Get all shards involved in a transaction.
-pub fn get_involved_shards(sender: &Address, recipients: &[Address], shard_count: u16) -> Vec<ShardId> {
+pub fn get_involved_shards(
+    sender: &Address,
+    recipients: &[Address],
+    shard_count: u16,
+) -> Vec<ShardId> {
     let mut shards = vec![assign_shard(sender, shard_count)];
 
     for recipient in recipients {

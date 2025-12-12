@@ -264,13 +264,16 @@ impl UnsolicitedBlockFilter {
     pub fn register_request(&mut self, block_hash: Hash) -> u64 {
         let nonce = self.next_nonce;
         self.next_nonce += 1;
-        
-        self.pending.insert(nonce, PendingRequest {
-            block_hash,
-            requested_at: Instant::now(),
+
+        self.pending.insert(
             nonce,
-        });
-        
+            PendingRequest {
+                block_hash,
+                requested_at: Instant::now(),
+                nonce,
+            },
+        );
+
         nonce
     }
 
@@ -302,7 +305,8 @@ impl UnsolicitedBlockFilter {
     /// Clean expired requests.
     fn clean_expired(&mut self) {
         let timeout = self.timeout;
-        self.pending.retain(|_, req| req.requested_at.elapsed() < timeout);
+        self.pending
+            .retain(|_, req| req.requested_at.elapsed() < timeout);
     }
 
     /// Get pending count.
@@ -319,10 +323,10 @@ mod tests {
     fn test_propagation_phase_transitions() {
         let mut download = HeaderFirstDownload::new([0xAB; 32]);
         assert_eq!(download.phase, PropagationPhase::WaitingHeader);
-        
+
         download.on_header_received();
         assert_eq!(download.phase, PropagationPhase::ValidatingHeader);
-        
+
         download.on_header_valid(1_000_000);
         assert_eq!(download.phase, PropagationPhase::RequestingBody);
     }
@@ -340,10 +344,10 @@ mod tests {
         let mut download = HeaderFirstDownload::new([0xAB; 32]);
         download.on_header_received();
         download.on_header_valid(1000);
-        
+
         download.on_bytes_received(500);
         assert_eq!(download.progress(), 0.5);
-        
+
         download.on_bytes_received(500);
         assert_eq!(download.progress(), 1.0);
     }
@@ -351,11 +355,11 @@ mod tests {
     #[test]
     fn test_stalling_tracker_average() {
         let mut tracker = StallingTracker::new();
-        
+
         tracker.record_download(Duration::from_secs(2));
         tracker.record_download(Duration::from_secs(4));
         tracker.record_download(Duration::from_secs(6));
-        
+
         assert_eq!(tracker.average_time(), Duration::from_secs(4));
     }
 
@@ -363,7 +367,7 @@ mod tests {
     fn test_stalling_threshold() {
         let mut tracker = StallingTracker::new();
         tracker.record_download(Duration::from_secs(2));
-        
+
         let threshold = tracker.timeout_threshold(1_000_000);
         // 3 × 2s = 6s for 1MB
         assert!(threshold >= Duration::from_secs(5));
@@ -372,7 +376,7 @@ mod tests {
     #[test]
     fn test_stalling_detection() {
         let tracker = StallingTracker::new();
-        
+
         // Default 10s × 3 = 30s timeout
         assert!(!tracker.is_stalling(1_000_000, Duration::from_secs(20)));
         assert!(tracker.is_stalling(1_000_000, Duration::from_secs(40)));
@@ -382,12 +386,12 @@ mod tests {
     fn test_unsolicited_filter_allowed() {
         let mut filter = UnsolicitedBlockFilter::new(Duration::from_secs(60));
         let hash = [0xAB; 32];
-        
+
         let nonce = filter.register_request(hash);
-        
+
         let result = filter.check_block(&hash, false);
         assert!(matches!(result, BlockFilterResult::Allowed { .. }));
-        
+
         filter.complete_request(nonce);
         assert_eq!(filter.pending_count(), 0);
     }
@@ -396,7 +400,7 @@ mod tests {
     fn test_unsolicited_filter_spam() {
         let mut filter = UnsolicitedBlockFilter::new(Duration::from_secs(60));
         let hash = [0xAB; 32];
-        
+
         // Block not requested and already seen
         let result = filter.check_block(&hash, true);
         assert_eq!(result, BlockFilterResult::Spam);
@@ -406,7 +410,7 @@ mod tests {
     fn test_unsolicited_filter_announcement() {
         let mut filter = UnsolicitedBlockFilter::new(Duration::from_secs(60));
         let hash = [0xAB; 32];
-        
+
         // Block not requested but never seen (new announcement)
         let result = filter.check_block(&hash, false);
         assert_eq!(result, BlockFilterResult::PossibleAnnouncement);

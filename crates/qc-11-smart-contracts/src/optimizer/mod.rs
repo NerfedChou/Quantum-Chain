@@ -19,4 +19,4 @@ pub mod sequence;
 
 pub use patterns::{Pattern, PatternMatcher};
 pub use rules::{OptimizationRule, RuleSet};
-pub use sequence::{optimize_sequence, OptimizedSequence, Instruction};
+pub use sequence::{optimize_sequence, Instruction, OptimizedSequence};

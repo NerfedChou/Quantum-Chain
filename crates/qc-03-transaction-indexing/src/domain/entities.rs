@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 
 use super::errors::IndexingError;
-use super::value_objects::{IndexConfig, SENTINEL_HASH, LEAF_DOMAIN, NODE_DOMAIN};
+use super::value_objects::{IndexConfig, LEAF_DOMAIN, NODE_DOMAIN, SENTINEL_HASH};
 
 /// A binary Merkle tree built from transaction hashes.
 ///
@@ -275,8 +275,8 @@ impl MerkleTree {
     ///
     /// ~3-4x speedup on 8-core CPU for 10K+ transactions.
     pub fn build_parallel(transaction_hashes: Vec<Hash>) -> Self {
-        use rayon::prelude::*;
         use super::value_objects::PARALLEL_THRESHOLD;
+        use rayon::prelude::*;
 
         let transaction_count = transaction_hashes.len();
 
@@ -1026,10 +1026,10 @@ mod tests {
         // SECURITY: hash_leaf and hash_pair must produce different results
         // for the same input data to prevent second-preimage attacks
         let data = [0xAA; 32];
-        
+
         let leaf_hash = MerkleTree::hash_leaf(&data);
         let node_hash = MerkleTree::hash_pair(&data, &data);
-        
+
         // These MUST be different due to domain separation
         assert_ne!(leaf_hash, node_hash);
     }
@@ -1037,7 +1037,7 @@ mod tests {
     #[test]
     fn test_domain_separation_constants() {
         use super::super::value_objects::{LEAF_DOMAIN, NODE_DOMAIN};
-        
+
         // SECURITY: Domain bytes must be different
         assert_ne!(LEAF_DOMAIN, NODE_DOMAIN);
         assert_eq!(LEAF_DOMAIN, 0x00);
@@ -1047,10 +1047,10 @@ mod tests {
     #[test]
     fn test_hash_leaf_deterministic() {
         let data = b"test transaction data";
-        
+
         let hash1 = MerkleTree::hash_leaf(data);
         let hash2 = MerkleTree::hash_leaf(data);
-        
+
         // INVARIANT-3: Same input always produces same output
         assert_eq!(hash1, hash2);
     }
@@ -1059,10 +1059,10 @@ mod tests {
     fn test_hash_leaf_different_inputs() {
         let data1 = b"transaction 1";
         let data2 = b"transaction 2";
-        
+
         let hash1 = MerkleTree::hash_leaf(data1);
         let hash2 = MerkleTree::hash_leaf(data2);
-        
+
         // Different inputs produce different hashes
         assert_ne!(hash1, hash2);
     }
@@ -1070,7 +1070,7 @@ mod tests {
     #[test]
     fn test_max_proof_depth_constant() {
         use super::super::value_objects::MAX_PROOF_DEPTH;
-        
+
         // MAX_PROOF_DEPTH supports 2^32 transactions
         assert_eq!(MAX_PROOF_DEPTH, 32);
     }
@@ -1078,10 +1078,10 @@ mod tests {
     #[test]
     fn test_proof_too_deep_error() {
         use super::super::errors::IndexingError;
-        
+
         let err = IndexingError::ProofTooDeep { depth: 40, max: 32 };
         let msg = err.to_string();
-        
+
         assert!(msg.contains("40"));
         assert!(msg.contains("32"));
         assert!(msg.contains("DoS"));
@@ -1092,15 +1092,11 @@ mod tests {
     #[test]
     fn test_sort_canonically() {
         use super::sort_canonically;
-        
-        let mut hashes = vec![
-            [0xFF; 32],
-            [0x00; 32],
-            [0xAA; 32],
-        ];
-        
+
+        let mut hashes = vec![[0xFF; 32], [0x00; 32], [0xAA; 32]];
+
         sort_canonically(&mut hashes);
-        
+
         // Should be sorted lexicographically
         assert_eq!(hashes[0], [0x00; 32]);
         assert_eq!(hashes[1], [0xAA; 32]);
@@ -1110,7 +1106,7 @@ mod tests {
     #[test]
     fn test_sort_canonically_same_root() {
         use super::sort_canonically;
-        
+
         // Order 1: [A, B, C]
         let mut hashes1 = vec![
             hash_from_byte(0x01),
@@ -1119,7 +1115,7 @@ mod tests {
         ];
         sort_canonically(&mut hashes1);
         let tree1 = MerkleTree::build(hashes1);
-        
+
         // Order 2: [C, A, B] (different arrival order)
         let mut hashes2 = vec![
             hash_from_byte(0x03),
@@ -1128,7 +1124,7 @@ mod tests {
         ];
         sort_canonically(&mut hashes2);
         let tree2 = MerkleTree::build(hashes2);
-        
+
         // INVARIANT: Same root regardless of input order
         assert_eq!(tree1.root(), tree2.root());
     }
@@ -1137,10 +1133,10 @@ mod tests {
     fn test_build_parallel_fallback_to_serial() {
         // Small tree should use serial build (threshold 1024)
         let hashes: Vec<Hash> = (0..10u8).map(hash_from_byte).collect();
-        
+
         let serial = MerkleTree::build(hashes.clone());
         let parallel = MerkleTree::build_parallel(hashes);
-        
+
         // Same result
         assert_eq!(serial.root(), parallel.root());
     }
@@ -1148,7 +1144,7 @@ mod tests {
     #[test]
     fn test_parallel_threshold_constant() {
         use super::super::value_objects::PARALLEL_THRESHOLD;
-        
+
         // Threshold should be reasonable (not too small to waste threads)
         assert!(PARALLEL_THRESHOLD >= 256);
         assert!(PARALLEL_THRESHOLD <= 4096);
@@ -1159,13 +1155,14 @@ mod tests {
     #[test]
     fn test_multi_proof_generation() {
         use super::MultiProof;
-        
+
         let hashes: Vec<Hash> = (0..8u8).map(hash_from_byte).collect();
         let tree = MerkleTree::build(hashes);
-        
-        let proof = tree.generate_multi_proof(&[0, 2, 5], 100, hash_from_byte(0xFF))
+
+        let proof = tree
+            .generate_multi_proof(&[0, 2, 5], 100, hash_from_byte(0xFF))
             .expect("multi-proof");
-        
+
         assert_eq!(proof.leaf_indices.len(), 3);
         assert_eq!(proof.leaf_hashes.len(), 3);
         assert_eq!(proof.root, tree.root());
@@ -1175,11 +1172,12 @@ mod tests {
     fn test_multi_proof_deduplicates_indices() {
         let hashes: Vec<Hash> = (0..4u8).map(hash_from_byte).collect();
         let tree = MerkleTree::build(hashes);
-        
+
         // Duplicate indices should be deduplicated
-        let proof = tree.generate_multi_proof(&[1, 1, 1, 2, 2], 100, hash_from_byte(0xFF))
+        let proof = tree
+            .generate_multi_proof(&[1, 1, 1, 2, 2], 100, hash_from_byte(0xFF))
             .expect("multi-proof");
-        
+
         // Should only have 2 unique indices
         assert_eq!(proof.leaf_indices.len(), 2);
         assert_eq!(proof.leaf_indices[0], 1);
@@ -1190,7 +1188,7 @@ mod tests {
     fn test_multi_proof_rejects_empty() {
         let hashes: Vec<Hash> = (0..4u8).map(hash_from_byte).collect();
         let tree = MerkleTree::build(hashes);
-        
+
         let result = tree.generate_multi_proof(&[], 100, hash_from_byte(0xFF));
         assert!(result.is_err());
     }
@@ -1199,19 +1197,23 @@ mod tests {
     fn test_multi_proof_rejects_invalid_index() {
         let hashes: Vec<Hash> = (0..4u8).map(hash_from_byte).collect();
         let tree = MerkleTree::build(hashes);
-        
+
         let result = tree.generate_multi_proof(&[0, 1, 99], 100, hash_from_byte(0xFF));
-        assert!(matches!(result, Err(super::super::errors::IndexingError::InvalidIndex { .. })));
+        assert!(matches!(
+            result,
+            Err(super::super::errors::IndexingError::InvalidIndex { .. })
+        ));
     }
 
     #[test]
     fn test_multi_proof_verify() {
         let hashes: Vec<Hash> = (0..4u8).map(hash_from_byte).collect();
         let tree = MerkleTree::build(hashes);
-        
-        let proof = tree.generate_multi_proof(&[0, 1], 100, hash_from_byte(0xFF))
+
+        let proof = tree
+            .generate_multi_proof(&[0, 1], 100, hash_from_byte(0xFF))
             .expect("multi-proof");
-        
+
         assert!(proof.verify());
     }
 }

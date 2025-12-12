@@ -4,18 +4,18 @@
 //!
 //! Reference: Architecture.md Section 2.1
 
-use std::sync::Arc;
 use async_trait::async_trait;
 use lru::LruCache;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 
-use crate::domain::{
-    Hash, LightClientError, BlockHeader, HeaderChain, ProvenTransaction,
-    ChainTip, SyncResult, MerkleProof, ProofNode,
-};
-use crate::algorithms::{verify_merkle_proof, check_consensus};
-use crate::ports::{LightClientApi, Address, FullNodeConnection};
+use crate::algorithms::{check_consensus, verify_merkle_proof};
 use crate::config::LightClientConfig;
+use crate::domain::{
+    BlockHeader, ChainTip, Hash, HeaderChain, LightClientError, MerkleProof, ProofNode,
+    ProvenTransaction, SyncResult,
+};
+use crate::ports::{Address, FullNodeConnection, LightClientApi};
 
 /// Light Client Service - orchestrates SPV verification.
 pub struct LightClientService<N: FullNodeConnection> {
@@ -36,7 +36,8 @@ pub struct LightClientService<N: FullNodeConnection> {
 impl<N: FullNodeConnection> LightClientService<N> {
     /// Create a new light client service.
     pub fn new(config: LightClientConfig, genesis: BlockHeader) -> Self {
-        let cache_size = NonZeroUsize::new(config.proof_cache_size).unwrap_or(NonZeroUsize::new(100).unwrap());
+        let cache_size =
+            NonZeroUsize::new(config.proof_cache_size).unwrap_or(NonZeroUsize::new(100).unwrap());
         Self {
             config,
             header_chain: HeaderChain::new(genesis),
@@ -160,9 +161,15 @@ impl<N: FullNodeConnection + 'static> LightClientApi for LightClientService<N> {
         let mut current_height = local_height + 1;
 
         while current_height <= network_height {
-            let batch_size = self.config.header_batch_size.min((network_height - current_height + 1) as usize);
+            let batch_size = self
+                .config
+                .header_batch_size
+                .min((network_height - current_height + 1) as usize);
 
-            match self.fetch_headers_with_consensus(current_height, batch_size).await {
+            match self
+                .fetch_headers_with_consensus(current_height, batch_size)
+                .await
+            {
                 Ok(headers) => {
                     for header in headers {
                         self.header_chain.append(header)?;
@@ -197,7 +204,10 @@ impl<N: FullNodeConnection + 'static> LightClientApi for LightClientService<N> {
     ) -> Result<ProvenTransaction, LightClientError> {
         // Check cache
         if let Some(cached_proof) = self.proof_cache.peek(&tx_hash) {
-            let confirmations = self.header_chain.height().saturating_sub(cached_proof.block_height);
+            let confirmations = self
+                .header_chain
+                .height()
+                .saturating_sub(cached_proof.block_height);
             let mut ptx = ProvenTransaction::new(
                 tx_hash,
                 cached_proof.block_hash,
@@ -219,7 +229,9 @@ impl<N: FullNodeConnection + 'static> LightClientApi for LightClientService<N> {
         block_hash: Hash,
     ) -> Result<bool, LightClientError> {
         // Get header
-        let header = self.header_chain.get_header(&block_hash)
+        let header = self
+            .header_chain
+            .get_header(&block_hash)
             .ok_or(LightClientError::HeaderNotFound(block_hash))?;
 
         // Get proof with multi-node consensus
@@ -316,6 +328,9 @@ mod tests {
         let mut service = create_test_service();
         // No nodes added
         let result = service.sync_headers().await;
-        assert!(matches!(result, Err(LightClientError::InsufficientNodes { .. })));
+        assert!(matches!(
+            result,
+            Err(LightClientError::InsufficientNodes { .. })
+        ));
     }
 }

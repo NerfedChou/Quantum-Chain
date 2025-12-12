@@ -97,7 +97,6 @@
 //! let tx: TypeStateTx<Pending> = tx.rollback();
 //! ```
 
-
 pub mod adapters;
 pub mod domain;
 pub mod ipc;

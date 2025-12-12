@@ -81,7 +81,10 @@ impl AccessList for InMemoryAccessList {
         // Account access is implicit
         self.warm_accounts.insert(address);
 
-        let slots = self.warm_storage.entry(address).or_insert_with(HashSet::new);
+        let slots = self
+            .warm_storage
+            .entry(address)
+            .or_insert_with(HashSet::new);
         if slots.contains(&key) {
             AccessStatus::Warm
         } else {
@@ -165,10 +168,7 @@ mod tests {
         let addr2 = Address::new([2u8; 20]);
         let key = StorageKey::new([0u8; 32]);
 
-        let list = InMemoryAccessList::with_prewarmed(
-            vec![addr1],
-            vec![(addr2, key)],
-        );
+        let list = InMemoryAccessList::with_prewarmed(vec![addr1], vec![(addr2, key)]);
 
         assert!(list.is_account_warm(addr1));
         assert!(list.is_storage_warm(addr2, key));

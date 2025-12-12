@@ -4,8 +4,8 @@
 //!
 //! Reference: SPEC-15 Section 2.2 (Lines 177-211)
 
-use super::errors::{Hash, CrossChainError};
 use super::entities::HTLC;
+use super::errors::{CrossChainError, Hash};
 
 /// Minimum timelock margin (6 hours).
 /// Reference: System.md Line 752
@@ -35,10 +35,7 @@ pub fn invariant_timelock_ordering(
 /// Reference: SPEC-15 Lines 200-204
 ///
 /// Both HTLCs must use the same hashlock.
-pub fn invariant_hashlock_match(
-    source_hashlock: &Hash,
-    target_hashlock: &Hash,
-) -> bool {
+pub fn invariant_hashlock_match(source_hashlock: &Hash, target_hashlock: &Hash) -> bool {
     source_hashlock == target_hashlock
 }
 
@@ -47,7 +44,7 @@ pub fn invariant_hashlock_match(
 ///
 /// SHA-256(secret) must equal hashlock for valid claim.
 pub fn invariant_secret_matches(secret: &[u8; 32], hashlock: &Hash) -> bool {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(secret);
     let result = hasher.finalize();
@@ -58,10 +55,7 @@ pub fn invariant_secret_matches(secret: &[u8; 32], hashlock: &Hash) -> bool {
 /// Reference: SPEC-15 Lines 578-610
 ///
 /// Only the designated recipient can claim.
-pub fn invariant_authorized_claimer(
-    htlc: &HTLC,
-    claimer: &[u8; 20],
-) -> bool {
+pub fn invariant_authorized_claimer(htlc: &HTLC, claimer: &[u8; 20]) -> bool {
     htlc.recipient.address == *claimer
 }
 
@@ -121,7 +115,7 @@ mod tests {
     #[test]
     fn test_secret_matches() {
         // Compute expected hash
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let secret = [0xABu8; 32];
         let mut hasher = Sha256::new();
         hasher.update(&secret);

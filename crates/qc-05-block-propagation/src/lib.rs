@@ -130,7 +130,6 @@
 //! handler.handle_propagate_block(authenticated_message, &raw_bytes)?;
 //! ```
 
-
 pub mod domain;
 pub mod events;
 pub mod ipc;

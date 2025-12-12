@@ -4,10 +4,10 @@
 //!
 //! Reference: SPEC-13 Section 2.1 (Lines 58-97)
 
-use std::collections::{BTreeMap, HashMap};
-use serde::{Deserialize, Serialize};
 use super::errors::{Hash, LightClientError};
-use super::value_objects::{Checkpoint, ChainTip, MerkleProof};
+use super::value_objects::{ChainTip, Checkpoint, MerkleProof};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 
 /// Block header structure (minimal for SPV).
 /// Reference: System.md Line 624 (~80 bytes/block)
@@ -151,7 +151,9 @@ impl HeaderChain {
 
     /// Get header by height.
     pub fn get_header_by_height(&self, height: u64) -> Option<&BlockHeader> {
-        self.by_height.get(&height).and_then(|h| self.headers.get(h))
+        self.by_height
+            .get(&height)
+            .and_then(|h| self.headers.get(h))
     }
 
     /// Get current tip.
@@ -277,7 +279,10 @@ mod tests {
         let bad_header = create_header(1, [99u8; 32], 2000);
         let result = chain.append(bad_header);
         assert!(result.is_err());
-        assert!(matches!(result, Err(LightClientError::InvalidHeaderChain(_))));
+        assert!(matches!(
+            result,
+            Err(LightClientError::InvalidHeaderChain(_))
+        ));
     }
 
     #[test]

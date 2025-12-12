@@ -232,9 +232,9 @@ mod tests {
         let hash = [0xAB; 32];
 
         assert!(!cache.is_rejected(&hash));
-        
+
         cache.mark_rejected(hash);
-        
+
         assert!(cache.is_rejected(&hash));
     }
 
@@ -273,10 +273,10 @@ mod tests {
     #[test]
     fn test_dust_filter_threshold() {
         let filter = DustFilter::new();
-        
+
         // For P2PKH output (~34 bytes)
         let threshold = filter.dust_threshold(34);
-        
+
         // 148 + 34 = 182 bytes × 1 sat = 182 satoshi
         assert_eq!(threshold, 182);
     }
@@ -284,9 +284,9 @@ mod tests {
     #[test]
     fn test_dust_filter_is_dust() {
         let filter = DustFilter::new();
-        
+
         // 182 satoshi threshold for 34-byte output
-        assert!(filter.is_dust(100, 34));  // Below threshold
+        assert!(filter.is_dust(100, 34)); // Below threshold
         assert!(!filter.is_dust(200, 34)); // Above threshold
         assert!(!filter.is_dust(182, 34)); // Exactly at threshold
     }
@@ -294,12 +294,12 @@ mod tests {
     #[test]
     fn test_find_dust_outputs() {
         let filter = DustFilter::new();
-        
+
         let outputs = vec![
-            (1000, 34),  // OK
-            (50, 34),    // Dust
-            (2000, 34),  // OK
-            (10, 34),    // Dust
+            (1000, 34), // OK
+            (50, 34),   // Dust
+            (2000, 34), // OK
+            (10, 34),   // Dust
         ];
 
         let dust = filter.find_dust_outputs(&outputs);

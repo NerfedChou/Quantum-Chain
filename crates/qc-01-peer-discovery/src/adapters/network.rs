@@ -19,7 +19,6 @@
 use crate::domain::{SocketAddr, Timestamp};
 use crate::ports::{NetworkError, NetworkSocket, TimeSource};
 
-
 // ============================================================================
 // SystemTimeSource - Production Time Source
 // ============================================================================
@@ -325,19 +324,13 @@ mod udp_socket {
         fn send_to(&self, data: &[u8], target: SocketAddr) -> Result<(), NetworkError> {
             let std_addr = Self::to_std_addr(target);
             match self.socket.send_to(data, std_addr) {
-                Ok(_n) => {
-                    Ok(())
-                }
-                Err(e) => {
-                    match e.kind() {
-                        std::io::ErrorKind::WouldBlock => Err(NetworkError::Timeout),
-                        std::io::ErrorKind::ConnectionRefused => {
-                            Err(NetworkError::ConnectionRefused)
-                        }
-                        std::io::ErrorKind::InvalidInput => Err(NetworkError::InvalidAddress),
-                        _ => Err(NetworkError::Timeout),
-                    }
-                }
+                Ok(_n) => Ok(()),
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::WouldBlock => Err(NetworkError::Timeout),
+                    std::io::ErrorKind::ConnectionRefused => Err(NetworkError::ConnectionRefused),
+                    std::io::ErrorKind::InvalidInput => Err(NetworkError::InvalidAddress),
+                    _ => Err(NetworkError::Timeout),
+                },
             }
         }
     }
@@ -383,14 +376,16 @@ mod udp_socket {
         }
     }
 
-
     /// Parse a raw Bootstrap message.
     ///
     /// # Protocol
     /// [Type(1)][NodeId(32)][PoW(32)][PubKey(33)][Sig(64)][Port(2)][IP(4/16)]
     #[cfg(feature = "ipc")]
-    pub fn parse_bootstrap_request(data: &[u8]) -> Result<crate::ipc::BootstrapRequest, NetworkError> {
-        if data.len() < 167 { // Min size (IPv4)
+    pub fn parse_bootstrap_request(
+        data: &[u8],
+    ) -> Result<crate::ipc::BootstrapRequest, NetworkError> {
+        if data.len() < 167 {
+            // Min size (IPv4)
             return Err(NetworkError::MessageTooLarge); // Actually TooSmall, but using available error
         }
 
@@ -424,15 +419,15 @@ mod udp_socket {
         // IP Address (remaining bytes)
         let ip_bytes = &data[164..];
         let ip_address = if ip_bytes.len() == 4 {
-             let mut b = [0u8; 4];
-             b.copy_from_slice(ip_bytes);
-             crate::domain::IpAddr::V4(b)
+            let mut b = [0u8; 4];
+            b.copy_from_slice(ip_bytes);
+            crate::domain::IpAddr::V4(b)
         } else if ip_bytes.len() == 16 {
-             let mut b = [0u8; 16];
-             b.copy_from_slice(ip_bytes);
-             crate::domain::IpAddr::V6(b)
+            let mut b = [0u8; 16];
+            b.copy_from_slice(ip_bytes);
+            crate::domain::IpAddr::V6(b)
         } else {
-             return Err(NetworkError::InvalidAddress);
+            return Err(NetworkError::InvalidAddress);
         };
 
         Ok(crate::ipc::BootstrapRequest::new(
@@ -641,9 +636,7 @@ mod tests {
 
         assert!(socket.send_ping(addr).is_ok());
         assert!(socket.send_pong(addr).is_ok());
-        assert!(socket
-            .send_find_node(addr, NodeId::new([1u8; 32]))
-            .is_ok());
+        assert!(socket.send_find_node(addr, NodeId::new([1u8; 32])).is_ok());
     }
 
     #[test]

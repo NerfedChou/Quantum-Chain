@@ -41,7 +41,10 @@ pub fn invariant_proof_verified(
 /// Reference: SPEC-13 Lines 140-147
 ///
 /// Critical data must come from multiple independent nodes.
-pub fn invariant_multi_node(node_count: usize, min_required: usize) -> Result<(), LightClientError> {
+pub fn invariant_multi_node(
+    node_count: usize,
+    min_required: usize,
+) -> Result<(), LightClientError> {
     if node_count < min_required {
         return Err(LightClientError::InsufficientNodes {
             got: node_count,
@@ -55,7 +58,9 @@ pub fn invariant_multi_node(node_count: usize, min_required: usize) -> Result<()
 /// Reference: SPEC-13 Line 606 - 2/3 agreement
 pub fn invariant_consensus<T: PartialEq>(responses: &[T]) -> Result<(), LightClientError> {
     if responses.is_empty() {
-        return Err(LightClientError::ConsensusFailed("No responses".to_string()));
+        return Err(LightClientError::ConsensusFailed(
+            "No responses".to_string(),
+        ));
     }
 
     // Count matching responses
@@ -85,9 +90,7 @@ pub fn invariant_checkpoint_chain(
         let chain_hash = chain_hashes.iter().find(|(h, _)| h == cp_height);
         match chain_hash {
             Some((_, hash)) if hash != cp_hash => {
-                return Err(LightClientError::CheckpointMismatch {
-                    height: *cp_height,
-                });
+                return Err(LightClientError::CheckpointMismatch { height: *cp_height });
             }
             _ => {} // Either matches or height not yet reached
         }
@@ -134,7 +137,10 @@ mod tests {
     fn test_invariant_multi_node_fail() {
         let result = invariant_multi_node(2, 3);
         assert!(result.is_err());
-        assert!(matches!(result, Err(LightClientError::InsufficientNodes { .. })));
+        assert!(matches!(
+            result,
+            Err(LightClientError::InsufficientNodes { .. })
+        ));
     }
 
     #[test]

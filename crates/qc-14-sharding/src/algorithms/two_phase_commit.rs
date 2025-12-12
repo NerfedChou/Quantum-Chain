@@ -4,11 +4,10 @@
 //!
 //! Reference: System.md Line 681, SPEC-14 Lines 626-655
 
-use std::time::Instant;
 use crate::domain::{
-    ShardId, Hash, ShardError, CrossShardState,
-    CrossShardTransaction, LockProof, AbortReason,
+    AbortReason, CrossShardState, CrossShardTransaction, Hash, LockProof, ShardError, ShardId,
 };
+use std::time::Instant;
 
 /// 2PC coordinator state.
 #[derive(Clone, Debug)]
@@ -146,9 +145,7 @@ pub fn decide_outcome(
         Ok(successes)
     } else {
         // Find first error
-        let first_error = lock_responses
-            .iter()
-            .find_map(|r| r.as_ref().err());
+        let first_error = lock_responses.iter().find_map(|r| r.as_ref().err());
 
         match first_error {
             Some(ShardError::Timeout(_)) => Err(AbortReason::Timeout),
@@ -272,10 +269,8 @@ mod tests {
 
     #[test]
     fn test_decide_outcome_failure() {
-        let responses: Vec<Result<LockProof, ShardError>> = vec![
-            Ok(create_lock_proof(0)),
-            Err(ShardError::Timeout(30)),
-        ];
+        let responses: Vec<Result<LockProof, ShardError>> =
+            vec![Ok(create_lock_proof(0)), Err(ShardError::Timeout(30))];
 
         let result = decide_outcome(&responses, 3);
         assert!(result.is_err());

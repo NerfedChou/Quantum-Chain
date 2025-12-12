@@ -825,7 +825,7 @@ mod tests {
         // Write a genesis block through the choreography pipeline
         let block = make_test_block(0, [0; 32]);
         let block_hash = {
-            use sha2::{Sha256, Digest};
+            use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
             hasher.update(block.header.version.to_le_bytes());
             hasher.update(block.header.height.to_le_bytes());

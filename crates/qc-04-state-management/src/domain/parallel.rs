@@ -66,19 +66,19 @@ fn compute_single_storage_root(
     get_current_root: &impl Fn(&Address) -> Hash,
 ) -> StorageRootResult {
     let current_root = get_current_root(&update.address);
-    
+
     // Simplified: hash all changes together
     // Full implementation would update actual storage trie
     let mut hasher = Keccak256::new();
     hasher.update(&current_root);
-    
+
     for (key, value) in &update.changes {
         hasher.update(key);
         if let Some(v) = value {
             hasher.update(v);
         }
     }
-    
+
     StorageRootResult {
         address: update.address,
         new_storage_root: hasher.finalize().into(),
@@ -95,7 +95,10 @@ pub struct ParallelStateTransition {
 
 impl ParallelStateTransition {
     /// Execute parallel storage root computation.
-    pub fn execute(&self, get_current_root: impl Fn(&Address) -> Hash + Sync) -> Vec<StorageRootResult> {
+    pub fn execute(
+        &self,
+        get_current_root: impl Fn(&Address) -> Hash + Sync,
+    ) -> Vec<StorageRootResult> {
         compute_storage_roots_parallel(self.storage_updates.clone(), get_current_root)
     }
 }
@@ -120,7 +123,7 @@ mod tests {
             address: [0x01; 20],
             changes: vec![([0xAA; 32], Some([0xBB; 32]))],
         };
-        
+
         let result = compute_single_storage_root(update, &dummy_root_getter);
         assert_eq!(result.address, [0x01; 20]);
         assert_ne!(result.new_storage_root, [0x00; 32]);
@@ -134,7 +137,7 @@ mod tests {
                 changes: vec![([i; 32], Some([i; 32]))],
             })
             .collect();
-        
+
         let results = compute_storage_roots_parallel(updates, dummy_root_getter);
         assert_eq!(results.len(), 10);
     }
@@ -147,7 +150,7 @@ mod tests {
                 changes: vec![([i; 32], Some([i; 32]))],
             })
             .collect();
-        
+
         // Should use sequential path (< PARALLEL_THRESHOLD)
         let results = compute_storage_roots_parallel(updates, dummy_root_getter);
         assert_eq!(results.len(), 2);
@@ -159,10 +162,10 @@ mod tests {
             address: [0x01; 20],
             changes: vec![([0xAA; 32], Some([0xBB; 32]))],
         };
-        
+
         let result1 = compute_single_storage_root(update.clone(), &dummy_root_getter);
         let result2 = compute_single_storage_root(update, &dummy_root_getter);
-        
+
         assert_eq!(result1.new_storage_root, result2.new_storage_root);
     }
 }

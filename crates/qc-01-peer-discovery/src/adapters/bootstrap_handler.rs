@@ -242,15 +242,17 @@ mod tests {
     fn test_has_sufficient_zeros() {
         // Valid - 2 zero bytes
         let valid_pow = [0u8; 32];
-        assert!(BootstrapHandler::<PeerDiscoveryService, InMemoryVerificationPublisher>::has_sufficient_zeros(
-            &valid_pow
-        ));
+        assert!(BootstrapHandler::<
+            PeerDiscoveryService,
+            InMemoryVerificationPublisher,
+        >::has_sufficient_zeros(&valid_pow));
 
         // Invalid - only 1 zero byte
         let mut invalid_pow = [0u8; 32];
         invalid_pow[1] = 1;
-        assert!(!BootstrapHandler::<PeerDiscoveryService, InMemoryVerificationPublisher>::has_sufficient_zeros(
-            &invalid_pow
-        ));
+        assert!(!BootstrapHandler::<
+            PeerDiscoveryService,
+            InMemoryVerificationPublisher,
+        >::has_sufficient_zeros(&invalid_pow));
     }
 }

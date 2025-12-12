@@ -210,7 +210,6 @@ impl<S: VerificationHandler> PeerDiscoveryEventSubscriber for EventHandler<S> {
     }
 }
 
-
 /// Filter for subscription to specific event types.
 #[derive(Debug, Clone, Default)]
 pub struct SubscriptionFilter {

@@ -37,7 +37,9 @@ impl InMemoryState {
     /// Set balance for an address.
     pub fn set_balance(&self, address: Address, balance: U256) {
         let mut accounts = self.accounts.write().unwrap();
-        let account = accounts.entry(address).or_insert_with(|| AccountState::new_eoa(U256::zero(), 0));
+        let account = accounts
+            .entry(address)
+            .or_insert_with(|| AccountState::new_eoa(U256::zero(), 0));
         account.balance = balance;
     }
 
@@ -52,7 +54,9 @@ impl InMemoryState {
 
         // Update account
         let mut accounts = self.accounts.write().unwrap();
-        let account = accounts.entry(address).or_insert_with(|| AccountState::new_eoa(U256::zero(), 0));
+        let account = accounts
+            .entry(address)
+            .or_insert_with(|| AccountState::new_eoa(U256::zero(), 0));
         account.code_hash = code_hash;
 
         // Store code

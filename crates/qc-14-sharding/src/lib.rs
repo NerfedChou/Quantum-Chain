@@ -41,23 +41,19 @@ pub mod ports;
 
 // Re-exports
 pub use algorithms::{
-    assign_shard, rendezvous_assign, is_cross_shard, get_involved_shards,
-    compute_global_state_root, verify_shard_inclusion,
-    TwoPhaseCoordinator, decide_outcome,
+    assign_shard, compute_global_state_root, decide_outcome, get_involved_shards, is_cross_shard,
+    rendezvous_assign, verify_shard_inclusion, TwoPhaseCoordinator,
 };
 pub use domain::{
-    ShardId, Hash, Address, ShardError,
-    ShardConfig, CrossShardTransaction, ShardStateRoot, GlobalStateRoot,
-    CrossShardState, AbortReason, ShardAssignment, ValidatorInfo,
-    LockData, LockProof, Signature,
-    MIN_SHARD_COUNT, MAX_SHARD_COUNT, MIN_VALIDATORS_PER_SHARD, SIGNATURE_THRESHOLD,
-    invariant_deterministic_assignment, invariant_cross_shard_atomic,
-    invariant_global_consistency, invariant_min_validators, invariant_signature_threshold,
+    invariant_cross_shard_atomic, invariant_deterministic_assignment, invariant_global_consistency,
+    invariant_min_validators, invariant_signature_threshold, AbortReason, Address, CrossShardState,
+    CrossShardTransaction, GlobalStateRoot, Hash, LockData, LockProof, ShardAssignment,
+    ShardConfig, ShardError, ShardId, ShardStateRoot, Signature, ValidatorInfo, MAX_SHARD_COUNT,
+    MIN_SHARD_COUNT, MIN_VALIDATORS_PER_SHARD, SIGNATURE_THRESHOLD,
 };
 pub use ports::{
-    ShardingApi, RoutingResult,
-    ShardConsensus, PartitionedState, BeaconChainProvider,
-    MockBeaconChain,
+    BeaconChainProvider, MockBeaconChain, PartitionedState, RoutingResult, ShardConsensus,
+    ShardingApi,
 };
 
 /// Crate version

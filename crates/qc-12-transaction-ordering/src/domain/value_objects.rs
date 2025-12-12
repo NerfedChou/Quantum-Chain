@@ -107,13 +107,22 @@ mod tests {
     use super::*;
 
     fn loc(addr: u8, key: u8) -> StorageLocation {
-        StorageLocation::new(H160::from_low_u64_be(addr as u64), H256::from_low_u64_be(key as u64))
+        StorageLocation::new(
+            H160::from_low_u64_be(addr as u64),
+            H256::from_low_u64_be(key as u64),
+        )
     }
 
     #[test]
     fn test_dependency_kind_equality() {
-        assert_eq!(DependencyKind::ReadAfterWrite, DependencyKind::ReadAfterWrite);
-        assert_ne!(DependencyKind::ReadAfterWrite, DependencyKind::WriteAfterWrite);
+        assert_eq!(
+            DependencyKind::ReadAfterWrite,
+            DependencyKind::ReadAfterWrite
+        );
+        assert_ne!(
+            DependencyKind::ReadAfterWrite,
+            DependencyKind::WriteAfterWrite
+        );
     }
 
     #[test]
@@ -129,7 +138,10 @@ mod tests {
         let p1 = AccessPattern::new().with_writes(vec![loc(1, 1)]);
         let p2 = AccessPattern::new().with_writes(vec![loc(1, 1)]);
 
-        assert_eq!(p1.conflicts_with(&p2), Some(DependencyKind::WriteAfterWrite));
+        assert_eq!(
+            p1.conflicts_with(&p2),
+            Some(DependencyKind::WriteAfterWrite)
+        );
     }
 
     #[test]

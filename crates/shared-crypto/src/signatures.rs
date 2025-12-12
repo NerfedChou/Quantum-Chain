@@ -20,8 +20,7 @@ impl Ed25519PublicKey {
     /// Create from bytes.
     pub fn from_bytes(bytes: [u8; 32]) -> Result<Self, CryptoError> {
         // Validate it's a valid point
-        VerifyingKey::from_bytes(&bytes)
-            .map_err(|_| CryptoError::InvalidPublicKey)?;
+        VerifyingKey::from_bytes(&bytes).map_err(|_| CryptoError::InvalidPublicKey)?;
         Ok(Self(bytes))
     }
 
@@ -32,8 +31,8 @@ impl Ed25519PublicKey {
 
     /// Verify a signature.
     pub fn verify(&self, message: &[u8], signature: &Ed25519Signature) -> Result<(), CryptoError> {
-        let verifying_key = VerifyingKey::from_bytes(&self.0)
-            .map_err(|_| CryptoError::InvalidPublicKey)?;
+        let verifying_key =
+            VerifyingKey::from_bytes(&self.0).map_err(|_| CryptoError::InvalidPublicKey)?;
 
         let sig = ed25519_dalek::Signature::from_bytes(&signature.0);
 

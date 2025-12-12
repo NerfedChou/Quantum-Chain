@@ -102,10 +102,10 @@ impl std::error::Error for CompressionError {}
 pub trait BlockCompressor: Send + Sync {
     /// Compress data
     fn compress(&self, data: &[u8]) -> Result<Vec<u8>, CompressionError>;
-    
+
     /// Decompress data
     fn decompress(&self, data: &[u8]) -> Result<Vec<u8>, CompressionError>;
-    
+
     /// Check if compression is enabled
     fn is_enabled(&self) -> bool;
 }
@@ -141,9 +141,12 @@ impl BlockCompressor for ZstdCompressor {
         if let Some(ref dict) = self.config.dictionary {
             let encoder = zstd::dict::EncoderDictionary::copy(dict, self.config.level);
             let mut output = Vec::new();
-            let mut encoder = zstd::stream::Encoder::with_prepared_dictionary(&mut output, &encoder)
+            let mut encoder =
+                zstd::stream::Encoder::with_prepared_dictionary(&mut output, &encoder)
+                    .map_err(CompressionError::CompressFailed)?;
+            encoder
+                .write_all(data)
                 .map_err(CompressionError::CompressFailed)?;
-            encoder.write_all(data).map_err(CompressionError::CompressFailed)?;
             encoder.finish().map_err(CompressionError::CompressFailed)?;
             Ok(output)
         } else {
@@ -163,7 +166,9 @@ impl BlockCompressor for ZstdCompressor {
             let mut output = Vec::new();
             let mut decoder = zstd::stream::Decoder::with_prepared_dictionary(data, &decoder)
                 .map_err(CompressionError::DecompressFailed)?;
-            decoder.read_to_end(&mut output).map_err(CompressionError::DecompressFailed)?;
+            decoder
+                .read_to_end(&mut output)
+                .map_err(CompressionError::DecompressFailed)?;
             Ok(output)
         } else {
             // Standard decompression
@@ -208,22 +213,22 @@ mod tests {
     #[test]
     fn test_zstd_compress_decompress_roundtrip() {
         let compressor = ZstdCompressor::new(CompressionConfig::for_testing());
-        
+
         let original = b"Hello, blockchain! This is block data that should compress.";
         let compressed = compressor.compress(original).expect("compress");
         let decompressed = compressor.decompress(&compressed).expect("decompress");
-        
+
         assert_eq!(decompressed, original);
     }
 
     #[test]
     fn test_compression_reduces_size() {
         let compressor = ZstdCompressor::new(CompressionConfig::for_testing());
-        
+
         // Create repetitive data (compresses well)
         let original: Vec<u8> = (0..1000).map(|i| (i % 256) as u8).collect();
         let compressed = compressor.compress(&original).expect("compress");
-        
+
         // Repetitive data should compress significantly
         assert!(compressed.len() < original.len());
     }
@@ -236,10 +241,10 @@ mod tests {
             enabled: false,
         };
         let compressor = ZstdCompressor::new(config);
-        
+
         let original = b"Test data";
         let result = compressor.compress(original).expect("compress");
-        
+
         // Should be unchanged when disabled
         assert_eq!(result, original);
     }
@@ -247,11 +252,11 @@ mod tests {
     #[test]
     fn test_noop_compressor_passthrough() {
         let compressor = NoOpCompressor;
-        
+
         let original = b"Test data that should not change";
         let compressed = compressor.compress(original).expect("compress");
         let decompressed = compressor.decompress(&compressed).expect("decompress");
-        
+
         assert_eq!(compressed, original);
         assert_eq!(decompressed, original);
     }
@@ -264,33 +269,35 @@ mod tests {
             b"block_header: { height: 2, parent: 0x... }",
             b"block_header: { height: 3, parent: 0x... }",
         ];
-        
+
         // Train dictionary (in production, use zstd::dict::from_continuous)
         // For this test, we'll use a simple approach
         let dict: Vec<u8> = sample_data.concat();
-        
+
         let config = CompressionConfig {
             dictionary: Some(dict.clone()),
             level: 3,
             enabled: true,
         };
         let compressor = ZstdCompressor::new(config);
-        
+
         let original = b"block_header: { height: 100, parent: 0x... }";
         let compressed = compressor.compress(original).expect("compress");
         let decompressed = compressor.decompress(&compressed).expect("decompress");
-        
+
         assert_eq!(decompressed, original);
     }
 
     #[test]
     fn test_empty_data() {
         let compressor = ZstdCompressor::new(CompressionConfig::for_testing());
-        
+
         let original: &[u8] = b"";
         let compressed = compressor.compress(original).expect("compress empty");
-        let decompressed = compressor.decompress(&compressed).expect("decompress empty");
-        
+        let decompressed = compressor
+            .decompress(&compressed)
+            .expect("decompress empty");
+
         assert_eq!(decompressed, original);
     }
 }

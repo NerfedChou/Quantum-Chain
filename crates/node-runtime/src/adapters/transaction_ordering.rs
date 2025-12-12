@@ -13,8 +13,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info};
 
 use qc_12_transaction_ordering::{
-    OrderingConfig, TransactionOrderingHandler,
-    OrderTransactionsRequest, OrderTransactionsResponse,
+    OrderTransactionsRequest, OrderTransactionsResponse, OrderingConfig, TransactionOrderingHandler,
 };
 use shared_types::SubsystemId;
 

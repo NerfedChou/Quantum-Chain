@@ -54,13 +54,13 @@ impl RepairReport {
     pub fn add_block(&mut self, height: u64, tx_count: u64) {
         self.blocks_recovered += 1;
         self.transactions_indexed += tx_count;
-        
+
         match self.lowest_height {
             None => self.lowest_height = Some(height),
             Some(h) if height < h => self.lowest_height = Some(height),
             _ => {}
         }
-        
+
         match self.highest_height {
             None => self.highest_height = Some(height),
             Some(h) if height > h => self.highest_height = Some(height),
@@ -120,10 +120,13 @@ impl RepairContext {
 
     /// Record a transaction location
     pub fn record_transaction(&mut self, tx_hash: Hash, block_hash: Hash, index: u32) {
-        self.tx_index.insert(tx_hash, TransactionLocationRepair {
-            block_hash,
-            tx_index: index,
-        });
+        self.tx_index.insert(
+            tx_hash,
+            TransactionLocationRepair {
+                block_hash,
+                tx_index: index,
+            },
+        );
     }
 }
 
@@ -194,19 +197,19 @@ mod tests {
     #[test]
     fn test_repair_report_add_block() {
         let mut report = RepairReport::new();
-        
+
         report.add_block(100, 5);
         assert_eq!(report.blocks_recovered, 1);
         assert_eq!(report.transactions_indexed, 5);
         assert_eq!(report.lowest_height, Some(100));
         assert_eq!(report.highest_height, Some(100));
-        
+
         report.add_block(50, 3);
         assert_eq!(report.blocks_recovered, 2);
         assert_eq!(report.transactions_indexed, 8);
         assert_eq!(report.lowest_height, Some(50));
         assert_eq!(report.highest_height, Some(100));
-        
+
         report.add_block(200, 10);
         assert_eq!(report.blocks_recovered, 3);
         assert_eq!(report.lowest_height, Some(50));
@@ -217,10 +220,10 @@ mod tests {
     fn test_repair_report_is_successful() {
         let mut report = RepairReport::new();
         assert!(report.is_successful()); // Empty is OK
-        
+
         report.add_block(1, 0);
         assert!(report.is_successful());
-        
+
         report.add_error(RepairError::new(vec![1, 2, 3], "test error"));
         assert!(report.is_successful()); // Has blocks, so still successful
     }
@@ -228,10 +231,10 @@ mod tests {
     #[test]
     fn test_repair_context_record_block() {
         let mut ctx = RepairContext::new();
-        
+
         ctx.record_block(1, [0xAA; 32], 5);
         ctx.record_block(2, [0xBB; 32], 3);
-        
+
         assert_eq!(ctx.block_index.len(), 2);
         assert_eq!(ctx.block_index.get(&1), Some(&[0xAA; 32]));
         assert_eq!(ctx.block_index.get(&2), Some(&[0xBB; 32]));
@@ -243,9 +246,9 @@ mod tests {
         let mut ctx = RepairContext::new();
         let tx_hash = [0x11; 32];
         let block_hash = [0xAA; 32];
-        
+
         ctx.record_transaction(tx_hash, block_hash, 0);
-        
+
         assert!(ctx.tx_index.contains_key(&tx_hash));
         let loc = ctx.tx_index.get(&tx_hash).unwrap();
         assert_eq!(loc.block_hash, block_hash);
@@ -256,7 +259,7 @@ mod tests {
     fn test_repair_error_display() {
         let err = RepairFatalError::StorageInaccessible("disk full".to_string());
         assert!(err.to_string().contains("disk full"));
-        
+
         let err = RepairFatalError::EmptyStorage;
         assert!(err.to_string().contains("empty"));
     }

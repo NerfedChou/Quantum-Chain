@@ -120,8 +120,8 @@ pub struct ChainInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::inbound::HistoricalBlockInfo;
+    use super::*;
 
     #[test]
     fn test_chain_info_default() {
@@ -139,9 +139,8 @@ mod tests {
             difficulty: U256::from(2).pow(U256::from(235)),
             hash: H256::zero(),
         });
-        
+
         assert_eq!(info.recent_blocks.len(), 1);
         assert_eq!(info.recent_blocks[0].height, 100);
     }
 }
-

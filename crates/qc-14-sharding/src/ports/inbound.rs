@@ -4,11 +4,10 @@
 //!
 //! Reference: SPEC-14 Section 3.1 (Lines 181-223)
 
-use async_trait::async_trait;
 use crate::domain::{
-    ShardId, Hash, Address, ShardError,
-    ShardConfig, GlobalStateRoot, ValidatorInfo,
+    Address, GlobalStateRoot, Hash, ShardConfig, ShardError, ShardId, ValidatorInfo,
 };
+use async_trait::async_trait;
 
 /// Routing result for a transaction.
 #[derive(Clone, Debug)]
@@ -30,17 +29,16 @@ pub trait ShardingApi: Send + Sync {
     fn get_shard(&self, address: &Address) -> ShardId;
 
     /// Route a transaction to appropriate shard(s).
-    fn route_transaction(
-        &self,
-        sender: &Address,
-        recipients: &[Address],
-    ) -> RoutingResult;
+    fn route_transaction(&self, sender: &Address, recipients: &[Address]) -> RoutingResult;
 
     /// Get global state root.
     async fn get_global_state_root(&self) -> Result<GlobalStateRoot, ShardError>;
 
     /// Get validators for a shard.
-    async fn get_shard_validators(&self, shard_id: ShardId) -> Result<Vec<ValidatorInfo>, ShardError>;
+    async fn get_shard_validators(
+        &self,
+        shard_id: ShardId,
+    ) -> Result<Vec<ValidatorInfo>, ShardError>;
 
     /// Get current shard configuration.
     fn get_config(&self) -> &ShardConfig;

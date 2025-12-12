@@ -16,8 +16,8 @@
 //! - IP blacklists (dynamic add/remove)
 //! - Transaction deduplication
 
-use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 /// Default number of buckets.
 pub const DEFAULT_BUCKET_COUNT: usize = 1024;

@@ -4,8 +4,8 @@
 //!
 //! Reference: SPEC-13 Section 2.1 (Lines 74-124)
 
-use serde::{Deserialize, Serialize};
 use super::errors::Hash;
+use serde::{Deserialize, Serialize};
 
 /// Checkpoint source type.
 /// Reference: SPEC-13 Lines 82-87
@@ -54,6 +54,27 @@ impl Checkpoint {
             hash,
             source: CheckpointSource::MultiNodeConsensus { node_count },
         }
+    }
+
+    /// Validate checkpoint is not too old.
+    ///
+    /// # Security
+    ///
+    /// Rejects checkpoints that are too far behind current chain tip.
+    /// This prevents eclipse attacks where an attacker provides stale
+    /// checkpoints to trick the light client into following a fork.
+    ///
+    /// # Parameters
+    ///
+    /// - `current_height`: Current known chain height
+    /// - `max_age_blocks`: Maximum allowed age in blocks
+    pub fn validate_age(&self, current_height: u64, max_age_blocks: u64) -> bool {
+        if current_height < self.height {
+            // Checkpoint is ahead of current height - invalid
+            return false;
+        }
+        let age = current_height - self.height;
+        age <= max_age_blocks
     }
 }
 
@@ -236,5 +257,27 @@ mod tests {
         let right = ProofNode::right([8u8; 32]);
         assert_eq!(left.position, Position::Left);
         assert_eq!(right.position, Position::Right);
+    }
+
+    #[test]
+    fn test_checkpoint_validate_age_valid() {
+        let cp = Checkpoint::hardcoded(100000, [1u8; 32]);
+        // Checkpoint at 100000, current at 110000, max age 20000 blocks
+        assert!(cp.validate_age(110000, 20000));
+    }
+
+    #[test]
+    fn test_checkpoint_validate_age_too_old() {
+        let cp = Checkpoint::hardcoded(100000, [1u8; 32]);
+        // Checkpoint at 100000, current at 200000, max age 50000 blocks
+        // Age = 100000, which is > 50000
+        assert!(!cp.validate_age(200000, 50000));
+    }
+
+    #[test]
+    fn test_checkpoint_validate_age_ahead_fails() {
+        let cp = Checkpoint::hardcoded(100000, [1u8; 32]);
+        // Checkpoint ahead of current tip - invalid
+        assert!(!cp.validate_age(50000, 20000));
     }
 }

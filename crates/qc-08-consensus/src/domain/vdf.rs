@@ -76,14 +76,14 @@ impl VdfService {
     pub fn compute(&self, seed: &Hash) -> VdfOutput {
         // Simplified VDF - in production use proper RSA group
         let mut state = *seed;
-        
+
         // Sequential squaring simulation
         for _ in 0..self.iterations_for_test() {
             state = hash_square(&state);
         }
-        
+
         let proof = self.generate_proof(seed, &state);
-        
+
         VdfOutput {
             result: state,
             proof,
@@ -98,18 +98,18 @@ impl VdfService {
     pub fn verify(&self, seed: &Hash, output: &VdfOutput) -> bool {
         // Verify the proof matches the claimed computation
         let expected_challenge = compute_challenge(seed, &output.result);
-        
+
         if output.proof.challenge != expected_challenge {
             return false;
         }
-        
+
         // Verify π * π^challenge = y (simplified check)
         // In production: use proper Wesolowski verification
         let verification_hash = hash_combine(&output.proof.pi, &output.proof.challenge);
-        
+
         // Simplified: check that verification produces consistent result
         let recomputed = hash_combine(&verification_hash, seed);
-        
+
         // For test: just verify the seed was used
         recomputed[0] == seed[0] ^ output.result[0]
     }
@@ -117,11 +117,7 @@ impl VdfService {
     /// Generate randomness for leader selection.
     ///
     /// Uses VDF to produce unpredictable, verifiable randomness.
-    pub fn generate_randomness(
-        &self,
-        prev_randomness: &Hash,
-        block_hash: &Hash,
-    ) -> VdfOutput {
+    pub fn generate_randomness(&self, prev_randomness: &Hash, block_hash: &Hash) -> VdfOutput {
         let seed = xor_hashes(prev_randomness, block_hash);
         self.compute(&seed)
     }
@@ -132,29 +128,25 @@ impl VdfService {
     /// 1. block_hash is only known after block is built
     /// 2. VDF takes T time to compute
     /// 3. By the time attacker knows result, slot has passed
-    pub fn select_leader(
-        &self,
-        randomness: &VdfOutput,
-        validator_count: usize,
-    ) -> usize {
+    pub fn select_leader(&self, randomness: &VdfOutput, validator_count: usize) -> usize {
         if validator_count == 0 {
             return 0;
         }
-        
+
         // Use result bytes to select leader
         let leader_bytes = &randomness.result[0..8];
         let leader_value = u64::from_le_bytes(leader_bytes.try_into().unwrap());
-        
+
         (leader_value % validator_count as u64) as usize
     }
 
     /// Generate proof for VDF output.
     fn generate_proof(&self, seed: &Hash, result: &Hash) -> VdfProof {
         let challenge = compute_challenge(seed, result);
-        
+
         // Simplified proof generation
         let pi = hash_combine(seed, result);
-        
+
         VdfProof { pi, challenge }
     }
 
@@ -223,10 +215,10 @@ mod tests {
             iterations: 100,
             modulus_bits: 2048,
         });
-        
+
         let seed = test_seed();
         let output = service.compute(&seed);
-        
+
         // Result should be different from seed
         assert_ne!(output.result, seed);
         assert_eq!(output.iterations, 100);
@@ -238,11 +230,11 @@ mod tests {
             iterations: 50,
             modulus_bits: 2048,
         });
-        
+
         let seed = test_seed();
         let output1 = service.compute(&seed);
         let output2 = service.compute(&seed);
-        
+
         // Same seed should produce same result
         assert_eq!(output1.result, output2.result);
     }
@@ -253,10 +245,10 @@ mod tests {
             iterations: 50,
             modulus_bits: 2048,
         });
-        
+
         let output1 = service.compute(&[0xAA; 32]);
         let output2 = service.compute(&[0xBB; 32]);
-        
+
         // Different seeds should produce different results
         assert_ne!(output1.result, output2.result);
     }
@@ -267,12 +259,12 @@ mod tests {
             iterations: 50,
             modulus_bits: 2048,
         });
-        
+
         let output = service.compute(&test_seed());
-        
+
         let leader = service.select_leader(&output, 100);
         assert!(leader < 100);
-        
+
         // Same randomness should select same leader
         let leader2 = service.select_leader(&output, 100);
         assert_eq!(leader, leader2);
@@ -284,12 +276,12 @@ mod tests {
             iterations: 50,
             modulus_bits: 2048,
         });
-        
+
         let prev_rand = [0x11; 32];
         let block_hash = [0x22; 32];
-        
+
         let output = service.generate_randomness(&prev_rand, &block_hash);
-        
+
         // Should produce valid output
         assert_ne!(output.result, prev_rand);
         assert_ne!(output.result, block_hash);

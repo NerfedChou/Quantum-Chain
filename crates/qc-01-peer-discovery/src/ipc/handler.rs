@@ -331,7 +331,6 @@ mod tests {
         }
     }
 
-
     impl PeerDiscoveryApi for TestPeerDiscoveryService {
         fn find_closest_peers(&self, target_id: NodeId, count: usize) -> Vec<PeerInfo> {
             self.routing_table.find_closest_peers(&target_id, count)

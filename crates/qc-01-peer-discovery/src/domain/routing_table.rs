@@ -248,11 +248,14 @@ impl BannedPeers {
 
     /// Add a ban entry
     pub fn ban(&mut self, node_id: NodeId, until: Timestamp, reason: BanReason) {
-        self.entries.insert(node_id, BannedEntry {
+        self.entries.insert(
             node_id,
-            banned_until: until,
-            reason,
-        });
+            BannedEntry {
+                node_id,
+                banned_until: until,
+                reason,
+            },
+        );
     }
 
     /// Check if a peer is currently banned
@@ -273,7 +276,10 @@ impl BannedPeers {
 
     /// Get count of active bans
     pub fn count(&self, now: Timestamp) -> usize {
-        self.entries.values().filter(|e| e.banned_until > now).count()
+        self.entries
+            .values()
+            .filter(|e| e.banned_until > now)
+            .count()
     }
 }
 

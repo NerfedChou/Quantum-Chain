@@ -23,7 +23,7 @@ pub trait BlockProducerService: Send + Sync {
 
     /// Get current mining/proposing status
     async fn get_status(&self) -> ProductionStatus;
-    
+
     /// Drain pending mined blocks from the queue
     /// Returns blocks that were mined since last drain, each with their own difficulty/nonce
     /// CRITICAL: This prevents data loss when multiple blocks mine between bridge polls
@@ -139,7 +139,7 @@ pub struct ProductionStatus {
 
     /// Last mined nonce (PoW only)
     pub last_nonce: Option<u64>,
-    
+
     /// Queue of mined blocks waiting for bridge to process
     /// Each block has its own difficulty/nonce - prevents data loss when multiple blocks mine between polls
     pub pending_blocks: Vec<MinedBlockInfo>,

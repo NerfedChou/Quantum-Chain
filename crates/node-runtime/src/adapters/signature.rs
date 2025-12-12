@@ -1,12 +1,12 @@
 use crate::adapters::EventBusAdapter;
 use crate::wiring::EventRouter;
+use qc_10_signature_verification::domain::entities::VerifiedTransaction;
+use qc_10_signature_verification::ports::outbound::{MempoolError, MempoolGateway};
+use sha3::{Digest, Keccak256};
+use shared_bus::{events::BlockchainEvent, EventPublisher, InMemoryEventBus};
+use shared_types::entities::ValidatedTransaction;
 use shared_types::SubsystemId;
 use std::sync::Arc;
-use shared_bus::{InMemoryEventBus, events::BlockchainEvent, EventPublisher};
-use qc_10_signature_verification::ports::outbound::{MempoolGateway, MempoolError};
-use qc_10_signature_verification::domain::entities::VerifiedTransaction;
-use shared_types::entities::ValidatedTransaction;
-use sha3::{Digest, Keccak256};
 
 /// Signature verification adapter - ECDSA operations.
 ///

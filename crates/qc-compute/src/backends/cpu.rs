@@ -102,7 +102,7 @@ impl ComputeEngine for CpuEngine {
 
                 // Double SHA256 (Bitcoin-style)
                 let hash1 = Sha256::digest(&full_header);
-                let hash2 = Sha256::digest(&hash1);
+                let hash2 = Sha256::digest(hash1);
 
                 // Convert to U256 for comparison
                 let hash_value = U256::from_big_endian(&hash2);

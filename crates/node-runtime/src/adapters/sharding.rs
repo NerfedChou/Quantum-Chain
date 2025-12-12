@@ -11,9 +11,8 @@
 
 #[cfg(feature = "qc-14")]
 use qc_14_sharding::{
-    ShardConfig, ShardId, Address, Hash,
-    assign_shard, rendezvous_assign, is_cross_shard, get_involved_shards,
-    compute_global_state_root, ShardStateRoot, GlobalStateRoot,
+    assign_shard, compute_global_state_root, get_involved_shards, is_cross_shard,
+    rendezvous_assign, Address, GlobalStateRoot, Hash, ShardConfig, ShardId, ShardStateRoot,
 };
 
 #[cfg(feature = "qc-14")]

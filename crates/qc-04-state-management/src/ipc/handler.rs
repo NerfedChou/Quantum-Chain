@@ -546,7 +546,7 @@ mod tests {
             "BalanceCheck should reject sender 11 (Smart Contracts)"
         );
 
-        // Create message from Tx Ordering (12) - should be rejected  
+        // Create message from Tx Ordering (12) - should be rejected
         let msg = create_test_message(TX_ORDERING, payload);
         let msg_bytes = bincode::serialize(&msg).unwrap_or_default();
 
@@ -600,4 +600,3 @@ mod tests {
         );
     }
 }
-

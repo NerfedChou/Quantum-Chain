@@ -81,7 +81,7 @@ impl InactivityLeakTracker {
     /// Update finality lag and check if leak should activate.
     pub fn update_finality_lag(&mut self, epochs_since_finality: u64, current_epoch: u64) {
         self.finality_lag = epochs_since_finality;
-        
+
         if epochs_since_finality > self.config.leak_threshold_epochs {
             if !self.leak_active {
                 self.leak_active = true;
@@ -110,7 +110,7 @@ impl InactivityLeakTracker {
         }
 
         let score = self.scores.entry(validator).or_default();
-        
+
         if participated {
             // Reset inactivity count on participation
             score.epochs_inactive = 0;
@@ -139,22 +139,27 @@ impl InactivityLeakTracker {
 
         // Base penalty (percentage of stake)
         let base = stake * self.config.base_penalty_bps as u128 / 10_000;
-        
+
         // Quadratic component
-        let quadratic = score.epochs_inactive.saturating_mul(score.epochs_inactive)
+        let quadratic = score
+            .epochs_inactive
+            .saturating_mul(score.epochs_inactive)
             .saturating_mul(self.config.quadratic_factor) as u128;
-        
+
         base.saturating_add(quadratic)
     }
 
     /// Apply penalties and return total penalty per validator.
-    pub fn apply_penalties(&mut self, stakes: &HashMap<ValidatorId, u128>) -> Vec<(ValidatorId, u128)> {
+    pub fn apply_penalties(
+        &mut self,
+        stakes: &HashMap<ValidatorId, u128>,
+    ) -> Vec<(ValidatorId, u128)> {
         if !self.leak_active {
             return Vec::new();
         }
 
         let mut penalties = Vec::new();
-        
+
         for (validator, stake) in stakes {
             let penalty = self.calculate_penalty(validator, *stake);
             if penalty > 0 {
@@ -164,7 +169,7 @@ impl InactivityLeakTracker {
                 penalties.push((*validator, penalty));
             }
         }
-        
+
         penalties
     }
 
@@ -190,10 +195,10 @@ mod tests {
     #[test]
     fn test_leak_activates_after_threshold() {
         let mut tracker = InactivityLeakTracker::new(InactivityLeakConfig::default());
-        
+
         tracker.update_finality_lag(3, 10);
         assert!(!tracker.is_leak_active());
-        
+
         tracker.update_finality_lag(5, 12);
         assert!(tracker.is_leak_active());
     }
@@ -201,10 +206,10 @@ mod tests {
     #[test]
     fn test_leak_stops_when_finality_resumes() {
         let mut tracker = InactivityLeakTracker::new(InactivityLeakConfig::default());
-        
+
         tracker.update_finality_lag(5, 10);
         assert!(tracker.is_leak_active());
-        
+
         tracker.update_finality_lag(2, 15);
         assert!(!tracker.is_leak_active());
     }
@@ -212,17 +217,17 @@ mod tests {
     #[test]
     fn test_quadratic_penalty() {
         let mut tracker = InactivityLeakTracker::new(InactivityLeakConfig::default());
-        
+
         tracker.update_finality_lag(5, 10);
-        
+
         // Record 3 epochs of inactivity
         tracker.record_participation(validator(1), false);
         tracker.record_participation(validator(1), false);
         tracker.record_participation(validator(1), false);
-        
+
         let stake = 1_000_000u128;
         let penalty = tracker.calculate_penalty(&validator(1), stake);
-        
+
         // Base: 1% of 1M = 10,000
         // Quadratic: 3^2 * 1 = 9
         // Total: 10,009
@@ -232,16 +237,16 @@ mod tests {
     #[test]
     fn test_participation_resets_score() {
         let mut tracker = InactivityLeakTracker::new(InactivityLeakConfig::default());
-        
+
         tracker.update_finality_lag(5, 10);
-        
+
         tracker.record_participation(validator(1), false);
         tracker.record_participation(validator(1), false);
-        
+
         assert_eq!(tracker.get_score(&validator(1)).unwrap().epochs_inactive, 2);
-        
+
         tracker.record_participation(validator(1), true);
-        
+
         assert_eq!(tracker.get_score(&validator(1)).unwrap().epochs_inactive, 0);
     }
 }

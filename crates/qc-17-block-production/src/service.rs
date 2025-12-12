@@ -11,8 +11,8 @@ use crate::{
     },
     error::{BlockProductionError, Result},
     ports::{
-        BlockProducerService, BlockStorageReader, ChainInfo, HistoricalBlockInfo,
-        MinedBlockInfo, ProductionConfig, ProductionStatus,
+        BlockProducerService, BlockStorageReader, ChainInfo, HistoricalBlockInfo, MinedBlockInfo,
+        ProductionConfig, ProductionStatus,
     },
     security::SecurityValidator,
 };
@@ -138,13 +138,20 @@ impl ConcreteBlockProducer {
     /// difficulty adjustment. Returns a ProductionConfig populated
     /// with chain state, or an error if unavailable.
     pub async fn query_chain_state(&self) -> Result<ProductionConfig> {
-        let dgw_window = self.config.read().unwrap()
-            .pow.as_ref()
+        let dgw_window = self
+            .config
+            .read()
+            .unwrap()
+            .pow
+            .as_ref()
             .and_then(|p| p.dgw_window)
             .unwrap_or(24) as u32;
 
         if let Some(ref reader) = self.block_storage_reader {
-            debug!("[qc-17] Querying Block Storage for chain state (DGW window: {})", dgw_window);
+            debug!(
+                "[qc-17] Querying Block Storage for chain state (DGW window: {})",
+                dgw_window
+            );
 
             match reader.get_chain_info(dgw_window).await {
                 Ok(chain_info) => {
@@ -155,9 +162,7 @@ impl ConcreteBlockProducer {
                     );
 
                     // Get last difficulty from most recent block
-                    let last_difficulty = chain_info.recent_blocks
-                        .first()
-                        .map(|b| b.difficulty);
+                    let last_difficulty = chain_info.recent_blocks.first().map(|b| b.difficulty);
 
                     if let Some(diff) = last_difficulty {
                         info!(
@@ -174,7 +179,10 @@ impl ConcreteBlockProducer {
                     })
                 }
                 Err(e) => {
-                    warn!("[qc-17] Failed to query chain state: {}. Starting from genesis.", e);
+                    warn!(
+                        "[qc-17] Failed to query chain state: {}. Starting from genesis.",
+                        e
+                    );
                     Ok(ProductionConfig::default())
                 }
             }
@@ -220,13 +228,14 @@ impl BlockProducerService for ConcreteBlockProducer {
 
         self.is_active
             .store(true, std::sync::atomic::Ordering::SeqCst);
-        
+
         // Get starting height from config (resuming from persisted chain)
         let starting_height = config.starting_height;
         // V2.4: Use proper initial difficulty from DifficultyConfig, not hardcoded value
-        let initial_difficulty = config.last_difficulty
+        let initial_difficulty = config
+            .last_difficulty
             .unwrap_or_else(|| DifficultyConfig::default().initial_difficulty);
-        
+
         {
             let mut status = self.status.write().unwrap();
             status.active = true;
@@ -314,9 +323,11 @@ impl BlockProducerService for ConcreteBlockProducer {
                     // Track the last mined block hash for proper chaining
                     let mut last_block_hash = H256::zero(); // Genesis parent
                     let mut last_block_timestamp = 0u64;
-                    
+
                     // Get target block time for minimum interval enforcement
-                    let target_block_time = block_config.pow.as_ref()
+                    let target_block_time = block_config
+                        .pow
+                        .as_ref()
                         .and_then(|p| p.target_block_time)
                         .unwrap_or(10);
 
@@ -332,7 +343,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap()
                             .as_secs();
-                        
+
                         // Enforce timestamp monotonicity (must be >= parent timestamp)
                         let timestamp = timestamp.max(last_block_timestamp + 1);
 
@@ -375,7 +386,11 @@ impl BlockProducerService for ConcreteBlockProducer {
                             let desc = DifficultyAdjuster::describe_difficulty(calculated);
                             // Log difficulty on first block or every 10 blocks
                             if block_number == starting_height + 1 || block_number % 10 == 1 {
-                                info!("[qc-17] 📊 Difficulty: {} (window: {} blocks)", desc, recent_blocks.len());
+                                info!(
+                                    "[qc-17] 📊 Difficulty: {} (window: {} blocks)",
+                                    desc,
+                                    recent_blocks.len()
+                                );
                             }
                             calculated
                         } else {
@@ -404,13 +419,21 @@ impl BlockProducerService for ConcreteBlockProducer {
                             created_at: timestamp,
                         };
 
-                        // Step 7: Mine with calculated difficulty
+                        // Step 7: Mine with calculated difficulty using GPU/CPU compute engine
                         // Log includes difficulty description for debugging
                         let diff_desc = DifficultyAdjuster::describe_difficulty(difficulty);
-                        info!("[qc-17] ⛏️  Mining block #{}...", block_number);
+                        info!(
+                            "[qc-17] ⛏️  Mining block #{} (using {})...",
+                            block_number,
+                            pow_miner.backend_name()
+                        );
 
-                        match pow_miner.mine_block(template.clone(), difficulty) {
-                            Some(nonce) => {
+                        // Use async GPU-accelerated mining (falls back to CPU if unavailable)
+                        match pow_miner
+                            .mine_block_async(template.clone(), difficulty)
+                            .await
+                        {
+                            Some((nonce, block_hash)) => {
                                 blocks_mined += 1;
                                 let elapsed = start_time.elapsed().as_secs();
                                 let hashrate = if elapsed > 0 {
@@ -421,8 +444,10 @@ impl BlockProducerService for ConcreteBlockProducer {
                                 };
 
                                 info!(
-                                    "[qc-17] Block #{} mined! | nonce: {}",
-                                    block_number, nonce
+                                    "[qc-17] Block #{} mined! | nonce: {} | hash: {}",
+                                    block_number,
+                                    nonce,
+                                    hex::encode(&block_hash[..8])
                                 );
 
                                 // Track this block for difficulty adjustment
@@ -442,7 +467,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                                 // Compute difficulty description for logs
                                 let difficulty_for_log = diff_desc.clone();
                                 let correlation_id = uuid::Uuid::new_v4().to_string();
-                                let block_hash_str = format!("{:016x}", nonce);
+                                let block_hash_str = hex::encode(&block_hash);
                                 let event = serde_json::json!({
                                     "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
                                     "subsystem_id": "qc-17",
@@ -456,6 +481,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                                         "difficulty_target": difficulty_for_log,
                                         "total_blocks": blocks_mined,
                                         "hashrate": hashrate,
+                                        "backend": pow_miner.backend_name(),
                                         "next_step": "qc-08 (Consensus Validation)"
                                     }
                                 });
@@ -470,7 +496,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                                     status_guard.last_block_at = Some(timestamp);
                                     status_guard.current_difficulty = Some(difficulty);
                                     status_guard.last_nonce = Some(nonce);
-                                    
+
                                     // Push this block's info to pending queue for bridge
                                     status_guard.pending_blocks.push(MinedBlockInfo {
                                         height: block_number,
@@ -479,7 +505,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                                         nonce,
                                         parent_hash: parent_hash.0,
                                     });
-                                    
+
                                     info!(
                                         "[qc-17] 📊 Status updated: blocks_produced={}, pending_queue={}",
                                         status_guard.blocks_produced, status_guard.pending_blocks.len()
@@ -488,33 +514,27 @@ impl BlockProducerService for ConcreteBlockProducer {
 
                                 // Block validation is triggered by the choreography bridge in node-runtime
                                 // which polls status and publishes BlockValidated events
-                                
+
                                 // Update last block hash for proper chain linking
-                                // In real implementation, this should be the actual block hash
-                                last_block_hash = H256::from_slice(&crate::utils::hashing::sha256d(
-                                    &crate::utils::hashing::serialize_block_header(
-                                        &parent_hash,
-                                        block_number,
-                                        timestamp,
-                                        &template.header.beneficiary,
-                                        template.header.gas_used,
-                                        Some(nonce),
-                                    )
-                                ));
+                                // Use the hash from mining directly
+                                last_block_hash = H256::from_slice(&block_hash);
                                 last_block_timestamp = timestamp;
 
                                 // CRITICAL: Enforce minimum block interval
                                 // Even if mining is fast, don't start next block immediately
                                 // This prevents runaway block production when difficulty is too easy
-                                let min_block_interval = std::time::Duration::from_secs(target_block_time / 2);
-                                let mining_duration = std::time::Instant::now().duration_since(start_time);
+                                let min_block_interval =
+                                    std::time::Duration::from_secs(target_block_time / 2);
+                                let mining_duration =
+                                    std::time::Instant::now().duration_since(start_time);
                                 if mining_duration < min_block_interval {
                                     let wait_time = min_block_interval - mining_duration;
                                     info!("[qc-17] ⏱️  Waiting {:?} to enforce minimum block interval", wait_time);
                                     tokio::time::sleep(wait_time).await;
                                 } else {
                                     // Small yield to allow other tasks to run
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(100))
+                                        .await;
                                 }
                             }
                             None => {
@@ -574,7 +594,7 @@ impl BlockProducerService for ConcreteBlockProducer {
     async fn get_status(&self) -> ProductionStatus {
         self.status.read().unwrap().clone()
     }
-    
+
     async fn drain_pending_blocks(&self) -> Vec<MinedBlockInfo> {
         let mut status = self.status.write().unwrap();
         std::mem::take(&mut status.pending_blocks)
@@ -649,11 +669,11 @@ mod tests {
         let config = BlockProductionConfig::default();
 
         let service = ConcreteBlockProducer::new(event_bus, config);
-        
+
         // Without a reader configured, should return default config
         let result = service.query_chain_state().await;
         assert!(result.is_ok());
-        
+
         let production_config = result.unwrap();
         assert_eq!(production_config.starting_height, 0);
         assert!(production_config.last_difficulty.is_none());
@@ -663,19 +683,18 @@ mod tests {
     #[tokio::test]
     async fn test_query_chain_state_with_mock_reader() {
         use crate::adapters::ipc::IpcBlockStorageReader;
-        
+
         let event_bus = Arc::new(InMemoryEventBus::new());
         let config = BlockProductionConfig::default();
 
         // Create service with mock storage reader
         let reader: Arc<dyn BlockStorageReader> = Arc::new(IpcBlockStorageReader::new());
-        let service = ConcreteBlockProducer::new(event_bus, config)
-            .with_storage_reader(reader);
-        
+        let service = ConcreteBlockProducer::new(event_bus, config).with_storage_reader(reader);
+
         // Mock reader returns empty chain info
         let result = service.query_chain_state().await;
         assert!(result.is_ok());
-        
+
         let production_config = result.unwrap();
         // Mock returns empty chain (height 0, no blocks)
         assert_eq!(production_config.starting_height, 0);
@@ -687,10 +706,13 @@ mod tests {
         // which should be 2^220 for proper block times
         let expected = DifficultyConfig::default().initial_difficulty;
         let old_hardcoded = U256::from(2).pow(U256::from(252));
-        
+
         // Expected should be 2^220 (harder than 2^252)
-        assert!(expected < old_hardcoded, "Initial difficulty should be 2^220 (lower target = harder) not 2^252");
-        
+        assert!(
+            expected < old_hardcoded,
+            "Initial difficulty should be 2^220 (lower target = harder) not 2^252"
+        );
+
         // Verify it's exactly 2^220
         let expected_value = U256::from(2).pow(U256::from(220));
         assert_eq!(expected, expected_value);

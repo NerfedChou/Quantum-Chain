@@ -173,9 +173,7 @@ impl SlotAuction {
 
     /// Check if builder failed to reveal (slashable).
     pub fn is_builder_slashable(&self, current_time: u64) -> bool {
-        self.commitment.is_some()
-            && self.revealed_payload.is_none()
-            && current_time > self.deadline
+        self.commitment.is_some() && self.revealed_payload.is_none() && current_time > self.deadline
     }
 }
 
@@ -183,13 +181,13 @@ impl SlotAuction {
 fn compute_payload_hash(payload: &ExecutionPayload) -> Hash {
     use sha3::{Digest, Keccak256};
     let mut hasher = Keccak256::new();
-    
+
     for tx in &payload.transactions {
         hasher.update(tx);
     }
     hasher.update(payload.header.gas_limit.to_le_bytes());
     hasher.update(payload.header.gas_used.to_le_bytes());
-    
+
     let result = hasher.finalize();
     let mut hash = [0u8; 32];
     hash.copy_from_slice(&result);
@@ -267,7 +265,7 @@ mod tests {
     #[test]
     fn test_submit_bid() {
         let mut auction = SlotAuction::new(100, 2000);
-        
+
         let header = make_header(100, 1000);
         assert!(auction.submit_bid(header).is_ok());
         assert_eq!(auction.bids.len(), 1);
@@ -276,11 +274,11 @@ mod tests {
     #[test]
     fn test_highest_bid() {
         let mut auction = SlotAuction::new(100, 2000);
-        
+
         auction.submit_bid(make_header(100, 500)).unwrap();
         auction.submit_bid(make_header(100, 1500)).unwrap();
         auction.submit_bid(make_header(100, 1000)).unwrap();
-        
+
         let highest = auction.highest_bid().unwrap();
         assert_eq!(highest.bid_value, U256::from(1500u64));
     }
@@ -289,9 +287,11 @@ mod tests {
     fn test_commit() {
         let mut auction = SlotAuction::new(100, 2000);
         let header = make_header(100, 1000);
-        
-        auction.commit([0; 32], header.clone(), vec![1, 2, 3], 1500).unwrap();
-        
+
+        auction
+            .commit([0; 32], header.clone(), vec![1, 2, 3], 1500)
+            .unwrap();
+
         assert!(auction.commitment.is_some());
         assert!(auction.winning_bid.is_some());
     }
@@ -300,10 +300,12 @@ mod tests {
     fn test_double_commit_fails() {
         let mut auction = SlotAuction::new(100, 2000);
         let header = make_header(100, 1000);
-        
-        auction.commit([0; 32], header.clone(), vec![], 1500).unwrap();
+
+        auction
+            .commit([0; 32], header.clone(), vec![], 1500)
+            .unwrap();
         let result = auction.commit([0; 32], header, vec![], 1600);
-        
+
         assert_eq!(result, Err(PbsError::AlreadyCommitted));
     }
 
@@ -311,12 +313,12 @@ mod tests {
     fn test_builder_slashable() {
         let mut auction = SlotAuction::new(100, 2000);
         let header = make_header(100, 1000);
-        
+
         auction.commit([0; 32], header, vec![], 1500).unwrap();
-        
+
         // Before deadline - not slashable
         assert!(!auction.is_builder_slashable(1999));
-        
+
         // After deadline - slashable
         assert!(auction.is_builder_slashable(2001));
     }
@@ -324,13 +326,13 @@ mod tests {
     #[test]
     fn test_pbs_service() {
         let mut service = PbsService::new(1000);
-        
+
         service.start_auction(100, 5000);
         service.start_auction(101, 6000);
-        
+
         assert!(service.get_auction(100).is_some());
         assert!(service.get_auction(101).is_some());
-        
+
         service.cleanup_before(101);
         assert!(service.get_auction(100).is_none());
         assert!(service.get_auction(101).is_some());

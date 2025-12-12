@@ -78,7 +78,8 @@ impl PatternMatcher {
     pub fn estimate_savings(&self, sequence_len: usize) -> u64 {
         // Simple estimate: assume 10% of patterns match
         let potential_matches = sequence_len / 10;
-        self.patterns.iter()
+        self.patterns
+            .iter()
             .map(|(m, r)| {
                 if m.gas_cost() > r.gas_cost() {
                     m.gas_cost() - r.gas_cost()
@@ -86,7 +87,8 @@ impl PatternMatcher {
                     0
                 }
             })
-            .sum::<u64>() * potential_matches as u64
+            .sum::<u64>()
+            * potential_matches as u64
     }
 }
 
@@ -104,10 +106,10 @@ mod tests {
     #[test]
     fn test_matcher() {
         let mut matcher = PatternMatcher::new();
-        
+
         let match_pat = Pattern::new(vec![PatternOp::Push(None), PatternOp::Pop], 5);
         let replace_pat = Pattern::new(vec![], 0);
-        
+
         matcher.add_rule(match_pat, replace_pat);
         assert_eq!(matcher.rule_count(), 1);
     }

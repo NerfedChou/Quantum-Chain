@@ -357,10 +357,10 @@ mod tests {
     fn test_reputation_decay() {
         let peer_id = PeerId::new([1u8; 32]);
         let mut state = PeerPropagationState::new(peer_id);
-        
+
         let initial = state.reputation;
         state.apply_decay(1); // 1 minute
-        
+
         // Should decay by 5%
         assert!((state.reputation - initial * REPUTATION_DECAY_RATE).abs() < 0.001);
     }
@@ -369,11 +369,11 @@ mod tests {
     fn test_rate_violation_threshold() {
         let peer_id = PeerId::new([1u8; 32]);
         let mut state = PeerPropagationState::new(peer_id);
-        
+
         assert!(!state.record_rate_violation());
         assert!(!state.record_rate_violation());
         assert!(state.record_rate_violation()); // 3rd violation resets
-        
+
         assert_eq!(state.reputation, 0.0);
         assert!(!state.is_eligible());
     }
@@ -382,10 +382,10 @@ mod tests {
     fn test_valid_block_reputation_increase() {
         let peer_id = PeerId::new([1u8; 32]);
         let mut state = PeerPropagationState::new(peer_id);
-        
+
         let initial = state.reputation;
         state.record_valid_block();
-        
+
         assert!(state.reputation > initial);
         assert_eq!(state.blocks_received, 1);
     }
@@ -394,10 +394,10 @@ mod tests {
     fn test_invalid_block_reputation_penalty() {
         let peer_id = PeerId::new([1u8; 32]);
         let mut state = PeerPropagationState::new(peer_id);
-        
+
         let initial = state.reputation;
         state.record_invalid_block();
-        
+
         assert!(state.reputation < initial);
         assert_eq!(state.invalid_blocks, 1);
     }

@@ -4,12 +4,21 @@
 //!
 //! Reference: System.md Line 628, SPEC-13 Lines 130-138
 
+use crate::domain::{Hash, LightClientError, Position, ProofNode};
 use sha2::{Digest, Sha256};
-use crate::domain::{Hash, LightClientError, ProofNode, Position};
+
+/// Maximum allowed proof depth to prevent DoS.
+/// 32 levels supports 2^32 = 4 billion transactions.
+pub const MAX_PROOF_DEPTH: usize = 32;
 
 /// Verify a Merkle proof for transaction inclusion.
 ///
 /// Reference: System.md Line 628 - "Verify via Merkle proofs"
+///
+/// # Security
+///
+/// - Limits proof depth to MAX_PROOF_DEPTH to prevent DoS attacks
+/// - Returns false for invalid proofs (no panic)
 ///
 /// # Algorithm
 ///
@@ -21,11 +30,12 @@ use crate::domain::{Hash, LightClientError, ProofNode, Position};
 ///
 /// # Time Complexity: O(log n)
 /// # Space Complexity: O(1)
-pub fn verify_merkle_proof(
-    tx_hash: &Hash,
-    proof_path: &[ProofNode],
-    expected_root: &Hash,
-) -> bool {
+pub fn verify_merkle_proof(tx_hash: &Hash, proof_path: &[ProofNode], expected_root: &Hash) -> bool {
+    // SECURITY: Limit proof depth to prevent DoS
+    if proof_path.len() > MAX_PROOF_DEPTH {
+        return false;
+    }
+
     // Edge case: empty proof is valid only if tx_hash == root
     if proof_path.is_empty() {
         return tx_hash == expected_root;
@@ -84,7 +94,10 @@ pub fn compute_merkle_root(tx_hashes: &[Hash]) -> Hash {
 }
 
 /// Build a Merkle proof for a specific transaction.
-pub fn build_merkle_proof(tx_hashes: &[Hash], tx_index: usize) -> Result<Vec<ProofNode>, LightClientError> {
+pub fn build_merkle_proof(
+    tx_hashes: &[Hash],
+    tx_index: usize,
+) -> Result<Vec<ProofNode>, LightClientError> {
     if tx_index >= tx_hashes.len() {
         return Err(LightClientError::TransactionNotFound([0u8; 32]));
     }
@@ -239,5 +252,18 @@ mod tests {
         let txs: Vec<Hash> = (1..=4).map(make_hash).collect();
         let result = build_merkle_proof(&txs, 10);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_rejects_excessive_proof_depth() {
+        let tx_hash = make_hash(1);
+        let root = make_hash(2);
+
+        // Create a proof with 33 nodes (exceeds MAX_PROOF_DEPTH of 32)
+        let excessive_proof: Vec<ProofNode> =
+            (0..33).map(|n| ProofNode::right(make_hash(n))).collect();
+
+        // Should reject due to depth limit
+        assert!(!verify_merkle_proof(&tx_hash, &excessive_proof, &root));
     }
 }

@@ -81,8 +81,8 @@ use crate::adapters::{BlockStorageAdapter, RuntimeMempoolGateway};
 use crate::container::{NodeConfig, SubsystemContainer};
 use crate::genesis::{GenesisBuilder, GenesisConfig};
 use crate::handlers::{
-    ApiQueryHandler, BlockStorageHandler, FinalityHandler, SignatureVerificationHandler, StateMgmtHandler,
-    TxIndexingHandler,
+    ApiQueryHandler, BlockStorageHandler, FinalityHandler, SignatureVerificationHandler,
+    StateMgmtHandler, TxIndexingHandler,
 };
 use crate::wiring::ChoreographyCoordinator;
 use qc_02_block_storage::BlockStorageApi;
@@ -422,11 +422,11 @@ impl NodeRuntime {
             info!("[qc-12] Transaction Ordering handler started");
         }
 
-
         // Start Signature Verification handler (qc-10) - CRITICAL for peer discovery and secure IPC
         // Handles VerifyNodeIdentity events from qc-01, verifying signatures and responding
         let mempool_gateway = RuntimeMempoolGateway::new(Arc::clone(&container.event_bus));
-        let sv_service = qc_10_signature_verification::SignatureVerificationService::new(mempool_gateway);
+        let sv_service =
+            qc_10_signature_verification::SignatureVerificationService::new(mempool_gateway);
         let sv_handler = SignatureVerificationHandler::new(
             Arc::clone(&container.event_bus),
             sv_service,
@@ -435,7 +435,7 @@ impl NodeRuntime {
         let sv_handler_task = tokio::spawn(async move {
             sv_handler.run().await;
         });
-        
+
         // Start API Query handler (bridges qc-16 to subsystems)
         let api_query_handler = ApiQueryHandler::new(Arc::clone(&container));
         let mut api_shutdown = self.shutdown_rx.clone();
@@ -497,9 +497,10 @@ impl NodeRuntime {
             let storage = container.block_storage.read();
             let window_size = 24.min(chain_height as usize); // DGW window size
             let mut blocks = Vec::with_capacity(window_size);
-            
+
             // Track the last known good difficulty (start with initial, update as we find valid ones)
-            let mut last_known_difficulty = primitive_types::U256::from(2).pow(primitive_types::U256::from(252));
+            let mut last_known_difficulty =
+                primitive_types::U256::from(2).pow(primitive_types::U256::from(252));
 
             // Load blocks from OLDEST to NEWEST first, to find the progression of difficulty
             let start_height = chain_height.saturating_sub(window_size as u64);
@@ -521,7 +522,7 @@ impl NodeRuntime {
                     });
                 }
             }
-            
+
             // Reverse to get newest-first order (required by DGW algorithm)
             blocks.reverse();
 
@@ -536,11 +537,15 @@ impl NodeRuntime {
 
             blocks
         };
-        
+
         // Extract last known difficulty from loaded blocks for production config
-        let last_known_difficulty = recent_blocks.first()
-            .map(|b| b.difficulty)
-            .unwrap_or_else(|| primitive_types::U256::from(2).pow(primitive_types::U256::from(252)));
+        let last_known_difficulty =
+            recent_blocks
+                .first()
+                .map(|b| b.difficulty)
+                .unwrap_or_else(|| {
+                    primitive_types::U256::from(2).pow(primitive_types::U256::from(252))
+                });
 
         // Start production in PoW mode with the correct starting height
         let miner_clone = Arc::clone(&miner_service);
@@ -594,8 +599,9 @@ impl NodeRuntime {
                 hasher.update(block.header.timestamp.to_le_bytes());
                 hasher.finalize().into()
             }
-            
-            let initial_difficulty = primitive_types::U256::from(2).pow(primitive_types::U256::from(252));
+
+            let initial_difficulty =
+                primitive_types::U256::from(2).pow(primitive_types::U256::from(252));
 
             // Load the last block's hash and difficulty from storage if we have blocks
             if chain_height > 0 {
@@ -652,13 +658,16 @@ impl NodeRuntime {
                 // This ensures each block gets its own correct difficulty/nonce even when
                 // multiple blocks are mined between bridge polls
                 let pending_blocks = miner_status_checker.drain_pending_blocks().await;
-                
+
                 // Debug: Log every 10th iteration or when we have blocks
                 if iteration % 10 == 0 || !pending_blocks.is_empty() {
                     let status = miner_status_checker.get_status().await;
                     info!(
                         "[Bridge] 🔄 Poll #{}: total_mined={}, pending={}, last_height={}",
-                        iteration, status.blocks_produced, pending_blocks.len(), last_block_height
+                        iteration,
+                        status.blocks_produced,
+                        pending_blocks.len(),
+                        last_block_height
                     );
                 }
 
@@ -692,7 +701,9 @@ impl NodeRuntime {
 
                     info!(
                         "[Bridge] 🌉 Storing block #{} (nonce: {}, diff: {}) to storage",
-                        block_height, nonce, crate::difficulty_desc(&difficulty)
+                        block_height,
+                        nonce,
+                        crate::difficulty_desc(&difficulty)
                     );
 
                     // Store block directly to qc-02
@@ -738,7 +749,7 @@ impl NodeRuntime {
                                 error!("[Bridge] ❌ Failed to publish BlockValidated: {}", e);
                             }
                         }
-                        
+
                         last_block_height = block_height;
                     }
                 }

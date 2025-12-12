@@ -98,10 +98,10 @@ impl BatchVerifier {
             // Batch verification using randomized linear combination
             // In production, this would use actual BLS math
             // For now, verify each but with the batch optimization pattern
-            
+
             // First, try aggregate verification (fast path)
             let aggregate_valid = self.try_aggregate_verify(validator_set);
-            
+
             if !aggregate_valid {
                 // If aggregate fails, find individual failures
                 for (i, pending) in self.pending.iter().enumerate() {
@@ -132,7 +132,7 @@ impl BatchVerifier {
                 return false;
             }
         }
-        
+
         // In production: use actual BLS batch verification
         // For now, assume valid if all validators exist
         true
@@ -179,10 +179,10 @@ mod tests {
     #[test]
     fn test_batch_add() {
         let mut verifier = BatchVerifier::new(8);
-        
+
         verifier.add(make_attestation([1; 32]), [0; 32]);
         assert_eq!(verifier.pending_count(), 1);
-        
+
         verifier.add(make_attestation([2; 32]), [0; 32]);
         assert_eq!(verifier.pending_count(), 2);
     }
@@ -190,12 +190,12 @@ mod tests {
     #[test]
     fn test_batch_threshold() {
         let mut verifier = BatchVerifier::new(2);
-        
+
         assert!(!verifier.is_ready());
-        
+
         verifier.add(make_attestation([1; 32]), [0; 32]);
         assert!(!verifier.is_ready());
-        
+
         verifier.add(make_attestation([2; 32]), [0; 32]);
         assert!(verifier.is_ready());
     }
@@ -204,12 +204,12 @@ mod tests {
     fn test_verify_small_batch() {
         let mut verifier = BatchVerifier::new(8);
         let vs = make_validator_set();
-        
+
         verifier.add(make_attestation([1; 32]), [0; 32]);
-        
+
         let always_valid = |_: &Attestation, _: &[u8; 32], _: &ValidatorSet| true;
         let result = verifier.verify_batch(&vs, &always_valid);
-        
+
         assert!(result.all_valid());
         assert_eq!(result.total, 1);
         assert_eq!(result.valid, 1);
@@ -219,17 +219,16 @@ mod tests {
     fn test_verify_with_invalid() {
         let mut verifier = BatchVerifier::new(8);
         let vs = make_validator_set();
-        
+
         verifier.add(make_attestation([1; 32]), [0; 32]);
         verifier.add(make_attestation([99; 32]), [0; 32]); // Invalid validator
-        
+
         // Simulate: first valid, second invalid
-        let validator_in_set = |a: &Attestation, _: &[u8; 32], vs: &ValidatorSet| {
-            vs.contains(&a.validator_id)
-        };
-        
+        let validator_in_set =
+            |a: &Attestation, _: &[u8; 32], vs: &ValidatorSet| vs.contains(&a.validator_id);
+
         let result = verifier.verify_batch(&vs, &validator_in_set);
-        
+
         assert!(!result.all_valid());
         assert_eq!(result.total, 2);
         assert_eq!(result.valid, 1);
