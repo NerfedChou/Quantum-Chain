@@ -441,7 +441,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                                     template.header.gas_used,
                                     None,
                                 );
-                                
+
                                 // Get batch size from config, with fallback to default
                                 let batch_size = block_config
                                     .pow
@@ -450,9 +450,17 @@ impl BlockProducerService for ConcreteBlockProducer {
                                     .unwrap_or(10_000_000);
                                 let mut nonce_start = 0u64;
                                 let mut result = None;
-                                
+
                                 loop {
-                                    match engine.pow_mine(&header_bytes, difficulty, nonce_start, batch_size).await {
+                                    match engine
+                                        .pow_mine(
+                                            &header_bytes,
+                                            difficulty,
+                                            nonce_start,
+                                            batch_size,
+                                        )
+                                        .await
+                                    {
                                         Ok(Some((nonce, hash))) => {
                                             result = Some((nonce, hash));
                                             break;
@@ -471,7 +479,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                                 None
                             }
                         };
-                        
+
                         // Fallback to CPU mining if compute engine unavailable or failed
                         let mining_result = mining_result.or_else(|| {
                             let template_for_hash = template.clone();

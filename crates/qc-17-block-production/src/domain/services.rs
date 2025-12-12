@@ -404,12 +404,12 @@ impl PoWMiner {
     }
 
     /// Get the compute engine for service layer to use in async mining
-    /// 
+    ///
     /// Note: Async mining logic lives in service layer to maintain domain purity.
     /// This getter allows the service layer to access the compute engine.
     ///
     /// # Returns
-    /// 
+    ///
     /// - `Some(Arc)` if a compute engine was successfully initialized.
     /// - `None` if no compute engine is available.
     pub fn get_compute_engine(&self) -> Option<std::sync::Arc<dyn qc_compute::ComputeEngine>> {
