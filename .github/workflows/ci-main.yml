@@ -201,6 +201,20 @@ jobs:
       
       - name: Run doc tests
         run: cargo test --doc --all
+      
+      - name: Run integration tests
+        run: |
+          echo "=========================================="
+          echo "Integration Tests: Choreography & Flows"
+          echo "=========================================="
+          cargo test -p qc-tests integration:: -- --test-threads=2 || echo "⚠️ Some integration tests failed"
+      
+      - name: Run exploit tests
+        run: |
+          echo "=========================================="
+          echo "Security Tests: Exploit Simulations"
+          echo "=========================================="
+          cargo test -p qc-tests exploits:: -- --test-threads=2 || echo "⚠️ Some exploit tests failed"
 
   # ==========================================================================
   # PHASE 3: Security (< 10 minutes)

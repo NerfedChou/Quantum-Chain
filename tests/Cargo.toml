@@ -12,12 +12,12 @@ unused_variables = "allow"
 [[bench]]
 name = "subsystem_benchmarks"
 harness = false
-path = "benchmarks/subsystem_benchmarks.rs"
+path = "benches/subsystem_benchmarks.rs"
 
 [[bench]]
 name = "brutal_benchmarks"
 harness = false
-path = "benchmarks/brutal_benchmarks.rs"
+path = "benches/brutal_benchmarks.rs"
 
 [dependencies]
 # Internal crates
