@@ -9,6 +9,7 @@
 name: "10 • Testing"
 
 on:
+  workflow_call:  # Required for reusable workflows
   workflow_dispatch:
     inputs:
       test-type:
