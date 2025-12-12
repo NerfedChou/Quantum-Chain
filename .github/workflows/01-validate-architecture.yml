@@ -146,7 +146,9 @@ jobs:
               echo "Analyzing: $SUBSYSTEM_NAME"
               
               # Find imports from other subsystems (exclude shared-*, tests, and doc comments)
-              if grep -r "use qc_[0-9][0-9]_" "$subsystem/src" 2>/dev/null | grep -v "shared-" | grep -v "test" | grep -vE "^\s*//[/!]"; then
+              # grep output format is "filename:line_content" so we match doc comments after colon
+              # Pattern: colon, optional whitespace, then //! or ///
+              if grep -r "use qc_[0-9][0-9]_" "$subsystem/src" 2>/dev/null | grep -v "shared-" | grep -v "test" | grep -vE ":[[:space:]]*//[/!]"; then
                 echo "❌ VIOLATION: $SUBSYSTEM_NAME has direct subsystem dependency!"
                 VIOLATIONS=$((VIOLATIONS + 1))
               fi
