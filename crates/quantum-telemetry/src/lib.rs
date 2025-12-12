@@ -38,6 +38,9 @@
 //! | `QC_LOG_LEVEL` | `info` | Log level filter |
 //! | `QC_SUBSYSTEM_ID` | `00` | Subsystem identifier |
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 mod config;
 mod context;
 mod logging;

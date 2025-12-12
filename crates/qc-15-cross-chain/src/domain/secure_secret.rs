@@ -73,7 +73,7 @@ impl Serialize for SecureSecret {
         S: serde::Serializer,
     {
         // Serialize as base64 or hex, not raw bytes
-        serializer.serialize_str(&hex::encode(&self.inner))
+        serializer.serialize_str(&hex::encode(self.inner))
     }
 }
 

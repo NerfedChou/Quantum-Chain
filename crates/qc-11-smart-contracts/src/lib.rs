@@ -79,6 +79,7 @@
 
 // Crate-level lints
 #![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]

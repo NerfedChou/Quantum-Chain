@@ -4,7 +4,7 @@
 //!
 //! Reference: SPEC-15 Section 2.1 (Lines 56-126)
 
-use super::errors::{Address, Hash};
+use super::errors::Address;
 use serde::{Deserialize, Serialize};
 
 /// Supported blockchain identifiers.
@@ -50,9 +50,10 @@ impl ChainId {
 
 /// HTLC state machine.
 /// Reference: SPEC-15 Lines 96-103
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HTLCState {
     /// Created but not yet locked on chain.
+    #[default]
     Pending,
     /// Funds locked, awaiting claim or expiry.
     Locked,
@@ -82,17 +83,12 @@ impl HTLCState {
     }
 }
 
-impl Default for HTLCState {
-    fn default() -> Self {
-        Self::Pending
-    }
-}
-
 /// Atomic swap state machine.
 /// Reference: SPEC-15 Lines 119-126
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SwapState {
     /// Swap created, not yet started.
+    #[default]
     Initiated,
     /// Source HTLC locked.
     SourceLocked,
@@ -121,12 +117,6 @@ impl SwapState {
     /// Check if terminal state.
     pub fn is_terminal(&self) -> bool {
         matches!(self, Self::Completed | Self::Refunded)
-    }
-}
-
-impl Default for SwapState {
-    fn default() -> Self {
-        Self::Initiated
     }
 }
 

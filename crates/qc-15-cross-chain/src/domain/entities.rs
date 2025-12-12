@@ -141,8 +141,96 @@ pub struct AtomicSwap {
     pub created_at: u64,
 }
 
+/// Builder for creating AtomicSwap instances.
+/// Avoids too many arguments in constructor.
+#[derive(Clone, Debug)]
+pub struct AtomicSwapBuilder {
+    id: Hash,
+    source_chain: ChainId,
+    target_chain: ChainId,
+    initiator: Address,
+    counterparty: Address,
+    hash_lock: Hash,
+    source_amount: u64,
+    target_amount: u64,
+    created_at: u64,
+}
+
+impl AtomicSwapBuilder {
+    /// Create a new builder with required fields.
+    pub fn new(id: Hash, hash_lock: Hash, created_at: u64) -> Self {
+        Self {
+            id,
+            source_chain: ChainId::QuantumChain,
+            target_chain: ChainId::Ethereum,
+            initiator: [0u8; 20],
+            counterparty: [0u8; 20],
+            hash_lock,
+            source_amount: 0,
+            target_amount: 0,
+            created_at,
+        }
+    }
+
+    /// Set source chain.
+    pub fn source_chain(mut self, chain: ChainId) -> Self {
+        self.source_chain = chain;
+        self
+    }
+
+    /// Set target chain.
+    pub fn target_chain(mut self, chain: ChainId) -> Self {
+        self.target_chain = chain;
+        self
+    }
+
+    /// Set initiator address.
+    pub fn initiator(mut self, addr: Address) -> Self {
+        self.initiator = addr;
+        self
+    }
+
+    /// Set counterparty address.
+    pub fn counterparty(mut self, addr: Address) -> Self {
+        self.counterparty = addr;
+        self
+    }
+
+    /// Set source amount.
+    pub fn source_amount(mut self, amount: u64) -> Self {
+        self.source_amount = amount;
+        self
+    }
+
+    /// Set target amount.
+    pub fn target_amount(mut self, amount: u64) -> Self {
+        self.target_amount = amount;
+        self
+    }
+
+    /// Build the AtomicSwap.
+    pub fn build(self) -> AtomicSwap {
+        AtomicSwap {
+            id: self.id,
+            source_chain: self.source_chain,
+            target_chain: self.target_chain,
+            initiator: self.initiator,
+            counterparty: self.counterparty,
+            source_htlc_id: None,
+            target_htlc_id: None,
+            state: SwapState::Initiated,
+            hash_lock: self.hash_lock,
+            source_amount: self.source_amount,
+            target_amount: self.target_amount,
+            created_at: self.created_at,
+        }
+    }
+}
+
 impl AtomicSwap {
-    /// Create a new atomic swap.
+    /// Create a new atomic swap using the builder pattern.
+    /// For direct construction, use `AtomicSwapBuilder`.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: Hash,
         source_chain: ChainId,

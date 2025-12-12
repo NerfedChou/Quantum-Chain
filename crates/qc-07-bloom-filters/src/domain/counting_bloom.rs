@@ -146,7 +146,7 @@ impl CountingBloomFilter {
 
     /// Compress to RLE-encoded bytes for wire transfer.
     ///
-    /// Format: [run_length][value][run_length][value]...
+    /// Format: `[run_length][value][run_length][value]...`
     pub fn to_rle(&self) -> Vec<u8> {
         let mut result = Vec::new();
         let mut i = 0;

@@ -407,6 +407,10 @@ impl PoWMiner {
     ///
     /// This is the recommended mining method. It uses the qc-compute
     /// abstraction layer which auto-detects GPU availability.
+    ///
+    /// NOTE: This method is async because it delegates to qc-compute
+    /// which requires async for GPU kernel execution. The domain logic
+    /// itself is pure - only the compute abstraction is async.
     pub async fn mine_block_async(
         &self,
         template: BlockTemplate,

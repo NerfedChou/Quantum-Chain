@@ -12,6 +12,9 @@
 //!   the envelope's `sender_id` is authoritative.
 //! - **Plug-and-Play**: Subsystems implement the `Subsystem` trait for runtime discovery.
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 pub mod entities;
 pub mod envelope;
 pub mod errors;

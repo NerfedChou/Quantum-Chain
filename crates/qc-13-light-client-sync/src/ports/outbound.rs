@@ -199,6 +199,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::field_reassign_with_default)]
     async fn test_mock_full_node_get_headers() {
         let mut node = MockFullNode::default();
         node.headers = vec![BlockHeader::genesis([0u8; 32], 1000, [1u8; 32])];

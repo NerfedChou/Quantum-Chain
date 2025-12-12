@@ -82,6 +82,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn test_disabled_cors() {
         let mut config = CorsConfig::default();
         config.enabled = false;

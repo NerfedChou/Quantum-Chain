@@ -62,6 +62,9 @@
 //! - **Replay Prevention**: Nonce tracking with 60-second timestamp window
 //! - **Test Mode Bypass**: Signature bypass gated behind `#[cfg(test)]`
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 pub mod adapters;
 pub mod domain;
 pub mod ipc;

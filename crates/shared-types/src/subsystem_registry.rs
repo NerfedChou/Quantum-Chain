@@ -193,6 +193,7 @@ impl SubsystemRegistry {
     }
 
     /// Stop all subsystems in reverse dependency order.
+    #[allow(clippy::excessive_nesting)]
     pub async fn stop_all(&self) -> Result<(), SubsystemError> {
         info!("[Registry] Stopping all subsystems");
 

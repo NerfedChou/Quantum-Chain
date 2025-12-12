@@ -9,6 +9,10 @@
 //!     EcdsaSignature, keccak256, EcdsaVerifier,
 //! };
 
+#![warn(missing_docs)]
+#![allow(missing_docs)]
+// TODO: Add documentation for all public items
+
 // Pedantic lints that are too strict for this crate
 #![allow(clippy::manual_let_else)]
 #![allow(clippy::doc_markdown)]

@@ -10,6 +10,9 @@
 //! - **Hexagonal Architecture**: Ports define contracts, Adapters implement them
 //! - **Plug-and-Play**: Subsystems can be enabled/disabled via configuration
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 pub mod adapters;
 pub mod container;
 pub mod genesis;

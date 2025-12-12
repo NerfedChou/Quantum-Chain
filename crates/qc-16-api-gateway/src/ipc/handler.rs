@@ -1,6 +1,6 @@
 //! IPC handler for event bus communication.
 
-use crate::domain::pending::{PendingRequestStore, ResponseError};
+use crate::adapters::pending::{PendingRequestStore, ResponseError};
 use crate::ipc::requests::{IpcRequest, RequestPayload};
 use crate::ipc::responses::{IpcResponse, ResponsePayload, SuccessData};
 use async_trait::async_trait;

@@ -103,6 +103,9 @@
 //! for event in result.slashing_events { /* ... */ }
 //! ```
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 pub mod domain;
 pub mod error;
 pub mod events;

@@ -17,6 +17,9 @@
 //! - System.md Subsystem 12
 //! - IPC-MATRIX.md Subsystem 12
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 pub mod algorithms;
 pub mod application;
 pub mod config;

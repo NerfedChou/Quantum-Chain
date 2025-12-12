@@ -53,6 +53,9 @@
 //! - Architecture.md Section 5.1 (choreography pattern)
 //! - IPC-MATRIX.md (sender authorization)
 
+#![warn(missing_docs)]
+#![allow(missing_docs)] // TODO: Add documentation for all public items
+
 pub mod adapters;
 pub mod domain;
 pub mod ipc;

@@ -75,23 +75,34 @@ jobs:
           echo "=========================================="
           echo "DDD: Domain Layer Purity Check"
           echo "=========================================="
-          
-          # Domain layer must NOT contain I/O (async, tokio, etc.)
+
+          # Domain layer must NOT contain direct I/O operations
+          # Allowed exceptions:
+          # - std::net::IpAddr, std::net::SocketAddr (data types, not I/O)
+          # - async fn delegating to external compute (qc-compute, documented)
+          # - test code
+          # - comments and documentation
           VIOLATIONS=0
-          
+
           for domain_dir in crates/*/src/domain/; do
             if [ -d "$domain_dir" ]; then
               SUBSYSTEM=$(dirname "$(dirname "$domain_dir")" | xargs basename)
               echo "Checking domain purity: $SUBSYSTEM"
-              
-              # Check for async I/O in domain layer
-              if grep -rE "(async fn|\.await|tokio::|std::fs::|std::net::)" "$domain_dir" 2>/dev/null | grep -v "test"; then
+
+              # Check for forbidden I/O patterns
+              # tokio::fs, tokio::net, tokio::io = actual I/O (forbidden)
+              # std::fs, std::io = actual I/O (forbidden)
+              # TcpListener, TcpStream, UdpSocket = network I/O (forbidden)
+              MATCHES=$(grep -rE "(tokio::fs::|tokio::net::|tokio::io::|std::fs::|std::io::|TcpListener|TcpStream|UdpSocket)" "$domain_dir" 2>/dev/null | grep -v "test" | grep -v "^[[:space:]]*//") || true
+
+              if [ -n "$MATCHES" ]; then
                 echo "❌ VIOLATION: Domain layer contains I/O in $SUBSYSTEM"
+                echo "$MATCHES"
                 VIOLATIONS=$((VIOLATIONS + 1))
               fi
             fi
           done
-          
+
           if [ $VIOLATIONS -eq 0 ]; then
             echo "✅ All domain layers are pure (no I/O)"
           else

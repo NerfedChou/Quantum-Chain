@@ -118,7 +118,7 @@ mod tests {
         use sha2::{Digest, Sha256};
         let secret = [0xABu8; 32];
         let mut hasher = Sha256::new();
-        hasher.update(&secret);
+        hasher.update(secret);
         let hash: [u8; 32] = hasher.finalize().into();
 
         assert!(invariant_secret_matches(&secret, &hash));
