@@ -62,7 +62,7 @@ pub struct MethodInfo {
 }
 
 /// Method behavior configuration.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MethodBehavior {
     /// Recommended timeout
     pub timeout: Duration,

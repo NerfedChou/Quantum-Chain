@@ -33,7 +33,7 @@ pub struct HTLC {
 }
 
 /// Parameters for creating an HTLC.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HTLCParams {
     /// Unique identifier.
     pub id: Hash,

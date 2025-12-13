@@ -140,6 +140,7 @@ fn load_block_info(
 }
 
 /// Parameters for creating a validated block from mined data
+#[derive(Debug, Clone, Copy)]
 struct MinedBlockParams {
     height: u64,
     difficulty: U256,

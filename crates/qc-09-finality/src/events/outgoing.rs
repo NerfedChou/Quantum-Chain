@@ -109,7 +109,7 @@ pub struct SlashableOffenseDetectedEvent {
 }
 
 /// Evidence of conflicting attestations for a slashable offense.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SlashingEvidence {
     /// First attestation source checkpoint
     pub att1_source: CheckpointId,

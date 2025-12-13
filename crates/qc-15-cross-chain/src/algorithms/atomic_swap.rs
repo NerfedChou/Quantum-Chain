@@ -10,7 +10,7 @@ use crate::domain::{
 };
 
 /// Parameters for creating an atomic swap.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AtomicSwapParams {
     /// Source chain identifier.
     pub source_chain: ChainId,
