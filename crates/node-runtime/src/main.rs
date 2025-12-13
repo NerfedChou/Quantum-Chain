@@ -87,7 +87,7 @@ use crate::handlers::{
 use crate::wiring::ChoreographyCoordinator;
 use qc_02_block_storage::BlockStorageApi;
 use qc_16_api_gateway::{ApiGatewayService, GatewayConfig};
-use qc_17_block_production::BlockProducerService;
+use qc_17_block_production::{BlockProducerService, DifficultyConfig};
 use quantum_telemetry::{init_telemetry, TelemetryConfig};
 
 /// Helper to describe difficulty for logging
@@ -633,8 +633,20 @@ impl NodeRuntime {
 
         // Track the last block hash for parent linking
         let (mut last_block_hash, _last_stored_difficulty): ([u8; 32], primitive_types::U256) = {
-            let initial_difficulty =
-                primitive_types::U256::from(2).pow(primitive_types::U256::from(252));
+            // Helper to compute block hash (must match qc-02 logic)
+            fn compute_block_hash(block: &shared_types::ValidatedBlock) -> [u8; 32] {
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(block.header.parent_hash);
+                hasher.update(block.header.height.to_le_bytes());
+                hasher.update(block.header.merkle_root);
+                hasher.update(block.header.state_root);
+                hasher.update(block.header.timestamp.to_le_bytes());
+                hasher.finalize().into()
+            }
+
+            // Use initial difficulty from DifficultyConfig for consistency
+            let initial_difficulty = DifficultyConfig::default().initial_difficulty;
             let target_height = if chain_height > 0 { chain_height } else { 0 };
             let storage = block_storage_for_bridge.read();
 

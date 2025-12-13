@@ -26,6 +26,7 @@ use qc_08_consensus::domain::{
     SignedTransaction, ValidatedBlock, ValidationProof, ValidatorInfo, ValidatorSet,
 };
 use qc_08_consensus::ports::{EventBus, MempoolGateway, SignatureVerifier, ValidatorSetProvider};
+use qc_17_block_production::DifficultyConfig;
 
 // =============================================================================
 // EventBus Adapter
@@ -63,8 +64,8 @@ impl EventBus for ConsensusEventBusAdapter {
                 state_root: block.header.state_root.unwrap_or([0u8; 32]),
                 timestamp: block.header.timestamp,
                 proposer: block.header.proposer,
-                // Use initial difficulty for consensus-validated blocks
-                difficulty: primitive_types::U256::from(2).pow(primitive_types::U256::from(252)),
+                // Use initial difficulty from DifficultyConfig for consistency
+                difficulty: DifficultyConfig::default().initial_difficulty,
                 nonce: 0,
             },
             transactions: vec![],

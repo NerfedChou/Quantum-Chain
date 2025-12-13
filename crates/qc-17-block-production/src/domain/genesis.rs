@@ -9,6 +9,8 @@ use shared_types::entities::{
     ValidatedBlock, ValidatedTransaction, U256,
 };
 
+use crate::domain::difficulty::DifficultyConfig;
+
 /// Creates the genesis block from configuration
 pub fn create_genesis_block(config: &GenesisConfig) -> Result<ValidatedBlock, GenesisError> {
     // Create genesis transactions for initial allocations
@@ -34,8 +36,9 @@ pub fn create_genesis_block(config: &GenesisConfig) -> Result<ValidatedBlock, Ge
         state_root: [0u8; 32], // Initial state root
         timestamp: config.timestamp,
         proposer: [0u8; 32], // System genesis
-        // Genesis uses initial (easy) difficulty - 2^252
-        difficulty: U256::from(2).pow(U256::from(252)),
+        // Genesis uses same initial difficulty as DifficultyConfig - 2^220
+        // This ensures proper difficulty adjustment from the start
+        difficulty: DifficultyConfig::default().initial_difficulty,
         nonce: 0, // Genesis doesn't require mining
     };
 
@@ -283,5 +286,27 @@ mod tests {
 
         let root = calculate_merkle_root(&[tx]);
         assert_eq!(root, [3u8; 32]);
+    }
+
+    #[test]
+    fn test_genesis_difficulty_matches_config() {
+        // This test verifies the fix for the "blocks too hard to mine" issue.
+        // Genesis difficulty must match DifficultyConfig::default().initial_difficulty
+        // to prevent runaway difficulty adjustment.
+        let config = GenesisConfig::default_dev();
+        let genesis = create_genesis_block(&config).expect("Should create genesis block");
+        let expected_difficulty = DifficultyConfig::default().initial_difficulty;
+
+        assert_eq!(
+            genesis.header.difficulty, expected_difficulty,
+            "Genesis difficulty must match DifficultyConfig::default().initial_difficulty to prevent difficulty adjustment issues"
+        );
+
+        // Also verify it's NOT the old incorrect value of 2^252
+        let old_incorrect_value = U256::from(2).pow(U256::from(252));
+        assert_ne!(
+            genesis.header.difficulty, old_incorrect_value,
+            "Genesis should not use the old incorrect difficulty of 2^252"
+        );
     }
 }
