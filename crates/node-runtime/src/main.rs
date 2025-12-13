@@ -87,7 +87,7 @@ use crate::handlers::{
 use crate::wiring::ChoreographyCoordinator;
 use qc_02_block_storage::BlockStorageApi;
 use qc_16_api_gateway::{ApiGatewayService, GatewayConfig};
-use qc_17_block_production::{BlockProducerService, DifficultyConfig};
+use qc_17_block_production::BlockProducerService;
 use quantum_telemetry::{init_telemetry, TelemetryConfig};
 
 /// Helper to describe difficulty for logging
@@ -166,6 +166,37 @@ fn create_validated_block(params: MinedBlockParams) -> shared_types::ValidatedBl
         },
         transactions: vec![],
         consensus_proof: ConsensusProof::default(),
+    }
+}
+
+/// Load last block hash and difficulty for bridge initialization
+///
+/// If `chain_height > 0`, attempts to load the last block at that height.
+/// If `chain_height == 0`, loads the genesis block (height 0).
+/// Returns a tuple of (block_hash, difficulty), using zeros and `fallback_difficulty` on error.
+fn load_last_block_for_bridge(
+    storage: &impl qc_02_block_storage::BlockStorageApi,
+    chain_height: u64,
+    fallback_difficulty: U256,
+) -> ([u8; 32], U256) {
+    let target_height = if chain_height > 0 { chain_height } else { 0 };
+
+    match storage.read_block_by_height(target_height) {
+        Err(_) => {
+            let label = if chain_height > 0 { "last block" } else { "genesis" };
+            info!("[Bridge] ⚠️ Could not load {}, using zeros", label);
+            ([0u8; 32], fallback_difficulty)
+        }
+        Ok(stored) => {
+            let hash = compute_block_hash(&stored.block);
+            let diff = resolve_difficulty(&stored, fallback_difficulty);
+            let label = if target_height == 0 { "genesis" } else { "last" };
+            info!(
+                "[Bridge] 📖 Loaded {} block hash ({:02x}{:02x}..., diff: {})",
+                label, hash[0], hash[1], crate::difficulty_desc(&diff)
+            );
+            (hash, diff)
+        }
     }
 }
 
@@ -655,36 +686,8 @@ impl NodeRuntime {
 
         // Track the last block hash for parent linking
         let (mut last_block_hash, _last_stored_difficulty): ([u8; 32], primitive_types::U256) = {
-            let initial_difficulty = DifficultyConfig::default().initial_difficulty;
-            let target_height = if chain_height > 0 { chain_height } else { 0 };
             let storage = block_storage_for_bridge.read();
-
-            match storage.read_block_by_height(target_height) {
-                Err(_) => {
-                    let label = match chain_height > 0 {
-                        true => "last block",
-                        false => "genesis",
-                    };
-                    info!("[Bridge] ⚠️ Could not load {}, using zeros", label);
-                    ([0u8; 32], initial_difficulty)
-                }
-                Ok(stored) => {
-                    let hash = compute_block_hash(&stored.block);
-                    let diff = resolve_difficulty(&stored, last_known_difficulty);
-                    let label = match target_height == 0 {
-                        true => "genesis",
-                        false => "last",
-                    };
-                    info!(
-                        "[Bridge] 📖 Loaded {} block hash ({:02x}{:02x}..., diff: {})",
-                        label,
-                        hash[0],
-                        hash[1],
-                        crate::difficulty_desc(&diff)
-                    );
-                    (hash, diff)
-                }
-            }
+            load_last_block_for_bridge(&*storage, chain_height, last_known_difficulty)
         };
 
         info!("[Bridge] Starting choreography bridge task...");
