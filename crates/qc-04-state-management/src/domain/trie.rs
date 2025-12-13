@@ -719,40 +719,35 @@ impl PatriciaMerkleTrie {
                 TrieNode::Empty => break,
 
                 TrieNode::Leaf { path, .. } => {
-                    // Verify path matches
-                    let remaining = key.slice(depth);
-                    if remaining.0 != path.0 {
-                        // Key not found - this is an exclusion proof
-                    }
+                    // Verify path matches (or exclusion proof if mismatch)
+                    let _remaining = key.slice(depth);
+                    let _expected = &path.0;
+                    // Key found or exclusion proof completed
                     break;
                 }
 
                 TrieNode::Extension { path, child } => {
                     let remaining = key.slice(depth);
-                    if remaining.0.starts_with(&path.0) {
-                        depth += path.len();
-                        current_hash = *child;
-                    } else {
-                        // Path diverges - exclusion proof
+                    // Path diverges - exclusion proof
+                    if !remaining.0.starts_with(&path.0) {
                         break;
                     }
+                    depth += path.len();
+                    current_hash = *child;
                 }
 
                 TrieNode::Branch { children, .. } => {
+                    // Boundary check - stop traversal
                     if depth >= key.len() {
                         break;
                     }
                     let nibble = key.at(depth) as usize;
-                    match children[nibble] {
-                        Some(child_hash) => {
-                            depth += 1;
-                            current_hash = child_hash;
-                        }
-                        None => {
-                            // Path doesn't exist - exclusion proof
-                            break;
-                        }
-                    }
+                    // Path doesn't exist - exclusion proof
+                    let Some(child_hash) = children[nibble] else {
+                        break;
+                    };
+                    depth += 1;
+                    current_hash = child_hash;
                 }
             }
         }

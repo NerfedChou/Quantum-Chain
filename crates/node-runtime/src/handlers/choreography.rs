@@ -57,90 +57,88 @@ impl TxIndexingHandler {
         Self { receiver, adapter }
     }
 
+    /// Handle a BlockValidated event.
+    fn handle_block_validated(&self, block_hash: [u8; 32], block_height: u64) {
+        info!(
+            "[qc-03] 🌳 Computing merkle tree for block #{}",
+            block_height
+        );
+
+        // JSON EVENT LOG
+        let start_time = chrono::Utc::now();
+        info!(
+            "EVENT_FLOW_JSON {}",
+            serde_json::json!({
+                "timestamp": start_time.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                "subsystem_id": "qc-03",
+                "event_type": "MerkleComputationStarted",
+                "correlation_id": format!("{:x}", block_hash[0]),
+                "block_hash": hex::encode(block_hash),
+                "block_height": block_height,
+                "metadata": {
+                    "target": "qc-02",
+                    "assembly_component": "1/3"
+                }
+            })
+        );
+
+        let transaction_hashes: Vec<[u8; 32]> = vec![];
+        let computation_start = std::time::Instant::now();
+
+        if let Err(e) = self.adapter.process_block_validated(block_hash, block_height, transaction_hashes) {
+            error!("[qc-03] ❌ Failed to compute merkle: {}", e);
+            return;
+        }
+
+        let elapsed = computation_start.elapsed().as_millis();
+        info!("[qc-03] ✓ Merkle root computed for block #{}", block_height);
+
+        info!(
+            "{}",
+            serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                "subsystem_id": "qc-03",
+                "event_type": "MerkleRootComputed",
+                "correlation_id": format!("{:x}", block_hash[0]),
+                "block_hash": hex::encode(block_hash),
+                "block_height": block_height,
+                "processing_time_ms": elapsed,
+                "metadata": {
+                    "target": "qc-02",
+                    "assembly_component": "1/3",
+                    "status": "sent_to_assembler"
+                }
+            })
+        );
+    }
+
     /// Run the handler loop.
     pub async fn run(mut self, _publisher: Arc<crate::wiring::EventRouter>) {
         info!("[qc-03] Transaction Indexing handler started");
 
         loop {
-            match self.receiver.recv().await {
-                Ok(ChoreographyEvent::BlockValidated {
-                    block_hash,
-                    block_height,
-                    sender_id,
-                }) => {
-                    if sender_id != SubsystemId::Consensus {
-                        warn!("[qc-03] Ignoring BlockValidated from {:?}", sender_id);
-                        continue;
-                    }
-
-                    info!(
-                        "[qc-03] 🌳 Computing merkle tree for block #{}",
-                        block_height
-                    );
-
-                    // JSON EVENT LOG
-                    let start_time = chrono::Utc::now();
-                    info!(
-                        "EVENT_FLOW_JSON {}",
-                        serde_json::json!({
-                            "timestamp": start_time.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
-                            "subsystem_id": "qc-03",
-                            "event_type": "MerkleComputationStarted",
-                            "correlation_id": format!("{:x}", block_hash[0]),
-                            "block_hash": hex::encode(block_hash),
-                            "block_height": block_height,
-                            "metadata": {
-                                "target": "qc-02",
-                                "assembly_component": "1/3"
-                            }
-                        })
-                    );
-
-                    // Use the adapter to compute Merkle root with actual domain logic
-                    let transaction_hashes: Vec<[u8; 32]> = vec![];
-
-                    let computation_start = std::time::Instant::now();
-                    match self.adapter.process_block_validated(
-                        block_hash,
-                        block_height,
-                        transaction_hashes,
-                    ) {
-                        Ok(_) => {
-                            let elapsed = computation_start.elapsed().as_millis();
-                            info!("[qc-03] ✓ Merkle root computed for block #{}", block_height);
-
-                            info!(
-                                "{}",
-                                serde_json::json!({
-                                    "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
-                                    "subsystem_id": "qc-03",
-                                    "event_type": "MerkleRootComputed",
-                                    "correlation_id": format!("{:x}", block_hash[0]),
-                                    "block_hash": hex::encode(block_hash),
-                                    "block_height": block_height,
-                                    "processing_time_ms": elapsed,
-                                    "metadata": {
-                                        "target": "qc-02",
-                                        "assembly_component": "1/3",
-                                        "status": "sent_to_assembler"
-                                    }
-                                })
-                            );
-                        }
-                        Err(e) => {
-                            error!("[qc-03] ❌ Failed to compute merkle: {}", e);
-                        }
-                    }
-                }
-                Ok(_) => {}
+            let event = match self.receiver.recv().await {
+                Ok(e) => e,
                 Err(broadcast::error::RecvError::Lagged(n)) => {
                     warn!("[qc-03] Lagged by {} messages", n);
+                    continue;
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     info!("[qc-03] Channel closed, exiting");
                     break;
                 }
+            };
+
+            let ChoreographyEvent::BlockValidated { block_hash, block_height, sender_id } = event else {
+                continue;
+            };
+
+            if sender_id != SubsystemId::Consensus {
+                warn!("[qc-03] Ignoring BlockValidated from {:?}", sender_id);
+                continue;
             }
+
+            self.handle_block_validated(block_hash, block_height);
         }
     }
 }
@@ -164,87 +162,86 @@ impl StateMgmtHandler {
         Self { receiver, adapter }
     }
 
+    /// Handle a BlockValidated event.
+    fn handle_block_validated(&self, block_hash: [u8; 32], block_height: u64) {
+        info!(
+            "[qc-04] 💾 Computing state root for block #{}",
+            block_height
+        );
+
+        info!(
+            "{}",
+            serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                "subsystem_id": "qc-04",
+                "event_type": "StateComputationStarted",
+                "correlation_id": format!("{:x}", block_hash[0]),
+                "block_hash": hex::encode(block_hash),
+                "block_height": block_height,
+                "metadata": {
+                    "target": "qc-02",
+                    "assembly_component": "2/3"
+                }
+            })
+        );
+
+        let transactions = vec![];
+        let computation_start = std::time::Instant::now();
+
+        if let Err(e) = self.adapter.process_block_validated(block_hash, block_height, transactions) {
+            error!("[qc-04] ❌ Failed to compute state: {}", e);
+            return;
+        }
+
+        let elapsed = computation_start.elapsed().as_millis();
+        info!("[qc-04] ✓ State root computed for block #{}", block_height);
+
+        info!(
+            "{}",
+            serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                "subsystem_id": "qc-04",
+                "event_type": "StateRootComputed",
+                "correlation_id": format!("{:x}", block_hash[0]),
+                "block_hash": hex::encode(block_hash),
+                "block_height": block_height,
+                "processing_time_ms": elapsed,
+                "metadata": {
+                    "target": "qc-02",
+                    "assembly_component": "2/3",
+                    "status": "sent_to_assembler"
+                }
+            })
+        );
+    }
+
     /// Run the handler loop.
     pub async fn run(mut self, _publisher: Arc<crate::wiring::EventRouter>) {
         info!("[qc-04] State Management handler started");
 
         loop {
-            match self.receiver.recv().await {
-                Ok(ChoreographyEvent::BlockValidated {
-                    block_hash,
-                    block_height,
-                    sender_id,
-                }) => {
-                    if sender_id != SubsystemId::Consensus {
-                        warn!("[qc-04] Ignoring BlockValidated from {:?}", sender_id);
-                        continue;
-                    }
-
-                    info!(
-                        "[qc-04] 💾 Computing state root for block #{}",
-                        block_height
-                    );
-
-                    info!(
-                        "{}",
-                        serde_json::json!({
-                            "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
-                            "subsystem_id": "qc-04",
-                            "event_type": "StateComputationStarted",
-                            "correlation_id": format!("{:x}", block_hash[0]),
-                            "block_hash": hex::encode(block_hash),
-                            "block_height": block_height,
-                            "metadata": {
-                                "target": "qc-02",
-                                "assembly_component": "2/3"
-                            }
-                        })
-                    );
-
-                    let transactions = vec![];
-                    let computation_start = std::time::Instant::now();
-
-                    match self.adapter.process_block_validated(
-                        block_hash,
-                        block_height,
-                        transactions,
-                    ) {
-                        Ok(_) => {
-                            let elapsed = computation_start.elapsed().as_millis();
-                            info!("[qc-04] ✓ State root computed for block #{}", block_height);
-
-                            info!(
-                                "{}",
-                                serde_json::json!({
-                                    "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
-                                    "subsystem_id": "qc-04",
-                                    "event_type": "StateRootComputed",
-                                    "correlation_id": format!("{:x}", block_hash[0]),
-                                    "block_hash": hex::encode(block_hash),
-                                    "block_height": block_height,
-                                    "processing_time_ms": elapsed,
-                                    "metadata": {
-                                        "target": "qc-02",
-                                        "assembly_component": "2/3",
-                                        "status": "sent_to_assembler"
-                                    }
-                                })
-                            );
-                        }
-                        Err(e) => {
-                            error!("[qc-04] ❌ Failed to compute state: {}", e);
-                        }
-                    }
-                }
-                Ok(_) => {}
+            let event = match self.receiver.recv().await {
+                Ok(e) => e,
                 Err(broadcast::error::RecvError::Lagged(n)) => {
                     warn!("[qc-04] Lagged by {} messages", n);
+                    continue;
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     info!("[qc-04] Channel closed, exiting");
                     break;
                 }
+            };
+
+            let ChoreographyEvent::BlockValidated { block_hash, block_height, sender_id } = event else {
+                continue;
+            };
+
+            if sender_id != SubsystemId::Consensus {
+                warn!("[qc-04] Ignoring BlockValidated from {:?}", sender_id);
+                continue;
             }
+
+            self.handle_block_validated(block_hash, block_height);
         }
     }
 }
@@ -268,6 +265,48 @@ impl BlockStorageHandler {
         Self { adapter, receiver }
     }
 
+    /// Handle BlockValidated event.
+    async fn handle_block_validated(&self, block_hash: [u8; 32], block_height: u64) {
+        info!("[qc-02] 📦 Starting assembly for block #{}", block_height);
+
+        info!(
+            "{}",
+            serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                "subsystem_id": "qc-02",
+                "event_type": "AssemblyStarted",
+                "correlation_id": format!("{:x}", block_hash[0]),
+                "block_hash": hex::encode(block_hash),
+                "block_height": block_height,
+                "metadata": {
+                    "components_waiting": ["BlockValidated", "MerkleRootComputed", "StateRootComputed"],
+                    "components_received": ["BlockValidated"],
+                    "assembly_state": "1/3"
+                }
+            })
+        );
+
+        if let Err(e) = self.adapter.on_block_validated(block_hash, block_height).await {
+            error!("[qc-02] ❌ Assembly failed: {}", e);
+            return;
+        }
+        info!("[qc-02] ✓ Block #{} assembly initiated", block_height);
+    }
+
+    /// Handle MerkleRootComputed event.
+    async fn handle_merkle_root(&self, block_hash: [u8; 32], merkle_root: [u8; 32]) {
+        if let Err(e) = self.adapter.on_merkle_root(block_hash, merkle_root).await {
+            error!("[qc-02] Failed to process MerkleRootComputed: {}", e);
+        }
+    }
+
+    /// Handle StateRootComputed event.
+    async fn handle_state_root(&self, block_hash: [u8; 32], state_root: [u8; 32]) {
+        if let Err(e) = self.adapter.on_state_root(block_hash, state_root).await {
+            error!("[qc-02] Failed to process StateRootComputed: {}", e);
+        }
+    }
+
     /// Run the handler loop.
     pub async fn run(mut self) {
         info!("[qc-02] Block Storage handler started (Stateful Assembler)");
@@ -283,84 +322,44 @@ impl BlockStorageHandler {
         });
 
         loop {
-            match self.receiver.recv().await {
-                Ok(event) => match event {
-                    ChoreographyEvent::BlockValidated {
-                        block_hash,
-                        block_height,
-                        sender_id,
-                    } => {
-                        if sender_id != SubsystemId::Consensus {
-                            warn!("[qc-02] Ignoring BlockValidated from {:?}", sender_id);
-                            continue;
-                        }
-                        info!("[qc-02] 📦 Starting assembly for block #{}", block_height);
-
-                        info!(
-                            "{}",
-                            serde_json::json!({
-                                "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
-                                "subsystem_id": "qc-02",
-                                "event_type": "AssemblyStarted",
-                                "correlation_id": format!("{:x}", block_hash[0]),
-                                "block_hash": hex::encode(block_hash),
-                                "block_height": block_height,
-                                "metadata": {
-                                    "components_waiting": ["BlockValidated", "MerkleRootComputed", "StateRootComputed"],
-                                    "components_received": ["BlockValidated"],
-                                    "assembly_state": "1/3"
-                                }
-                            })
-                        );
-
-                        match self
-                            .adapter
-                            .on_block_validated(block_hash, block_height)
-                            .await
-                        {
-                            Ok(_) => {
-                                info!("[qc-02] ✓ Block #{} assembly initiated", block_height);
-                            }
-                            Err(e) => {
-                                error!("[qc-02] ❌ Assembly failed: {}", e);
-                            }
-                        }
-                    }
-                    ChoreographyEvent::MerkleRootComputed {
-                        block_hash,
-                        merkle_root,
-                        sender_id,
-                    } => {
-                        if sender_id != SubsystemId::TransactionIndexing {
-                            warn!("[qc-02] Ignoring MerkleRootComputed from {:?}", sender_id);
-                            continue;
-                        }
-                        if let Err(e) = self.adapter.on_merkle_root(block_hash, merkle_root).await {
-                            error!("[qc-02] Failed to process MerkleRootComputed: {}", e);
-                        }
-                    }
-                    ChoreographyEvent::StateRootComputed {
-                        block_hash,
-                        state_root,
-                        sender_id,
-                    } => {
-                        if sender_id != SubsystemId::StateManagement {
-                            warn!("[qc-02] Ignoring StateRootComputed from {:?}", sender_id);
-                            continue;
-                        }
-                        if let Err(e) = self.adapter.on_state_root(block_hash, state_root).await {
-                            error!("[qc-02] Failed to process StateRootComputed: {}", e);
-                        }
-                    }
-                    _ => {}
-                },
+            let event = match self.receiver.recv().await {
+                Ok(e) => e,
                 Err(broadcast::error::RecvError::Lagged(n)) => {
                     warn!("[qc-02] Lagged by {} messages", n);
+                    continue;
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     info!("[qc-02] Channel closed, exiting");
                     break;
                 }
+            };
+
+            match event {
+                ChoreographyEvent::BlockValidated { block_hash, block_height, sender_id }
+                    if sender_id == SubsystemId::Consensus =>
+                {
+                    self.handle_block_validated(block_hash, block_height).await;
+                }
+                ChoreographyEvent::MerkleRootComputed { block_hash, merkle_root, sender_id }
+                    if sender_id == SubsystemId::TransactionIndexing =>
+                {
+                    self.handle_merkle_root(block_hash, merkle_root).await;
+                }
+                ChoreographyEvent::StateRootComputed { block_hash, state_root, sender_id }
+                    if sender_id == SubsystemId::StateManagement =>
+                {
+                    self.handle_state_root(block_hash, state_root).await;
+                }
+                ChoreographyEvent::BlockValidated { sender_id, .. } => {
+                    warn!("[qc-02] Ignoring BlockValidated from {:?}", sender_id);
+                }
+                ChoreographyEvent::MerkleRootComputed { sender_id, .. } => {
+                    warn!("[qc-02] Ignoring MerkleRootComputed from {:?}", sender_id);
+                }
+                ChoreographyEvent::StateRootComputed { sender_id, .. } => {
+                    warn!("[qc-02] Ignoring StateRootComputed from {:?}", sender_id);
+                }
+                _ => {}
             }
         }
     }
@@ -380,66 +379,74 @@ impl FinalityHandler {
         Self { receiver }
     }
 
+    /// Handle BlockStored event - finalize at epoch boundaries.
+    fn handle_block_stored(
+        &self,
+        block_hash: [u8; 32],
+        block_height: u64,
+        publisher: &Arc<crate::wiring::EventRouter>,
+    ) {
+        info!(
+            "[qc-09] 📥 Received BlockStored for block #{}",
+            block_height
+        );
+
+        // Finalize every 4 blocks (epoch boundary)
+        let epoch_size = 4;
+        if block_height % epoch_size != 0 && block_height > 10 {
+            return;
+        }
+
+        let epoch = block_height / epoch_size;
+        info!(
+            "[qc-09] 🔒 Block #{} at epoch {} boundary, finalizing...",
+            block_height, epoch
+        );
+
+        let event = ChoreographyEvent::BlockFinalized {
+            block_hash,
+            block_height,
+            finality_proof: vec![],
+            sender_id: SubsystemId::Finality,
+        };
+
+        if let Err(e) = publisher.publish(event) {
+            error!("[qc-09] ❌ Failed to finalize: {}", e);
+            return;
+        }
+        info!(
+            "[qc-09] ✓ Block #{} FINALIZED at epoch {}",
+            block_height, epoch
+        );
+    }
+
     /// Run the handler loop.
     pub async fn run(mut self, publisher: Arc<crate::wiring::EventRouter>) {
         info!("[qc-09] Finality handler started (Casper-FFG)");
 
         loop {
-            match self.receiver.recv().await {
-                Ok(ChoreographyEvent::BlockStored {
-                    block_hash,
-                    block_height,
-                    sender_id,
-                    ..
-                }) => {
-                    if sender_id != SubsystemId::BlockStorage {
-                        warn!("[qc-09] Ignoring BlockStored from {:?}", sender_id);
-                        continue;
-                    }
-
-                    info!(
-                        "[qc-09] 📥 Received BlockStored for block #{}",
-                        block_height
-                    );
-
-                    // Finalize every 4 blocks (epoch boundary)
-                    let epoch_size = 4;
-                    if block_height % epoch_size == 0 || block_height <= 10 {
-                        let epoch = block_height / epoch_size;
-                        info!(
-                            "[qc-09] 🔒 Block #{} at epoch {} boundary, finalizing...",
-                            block_height, epoch
-                        );
-
-                        let event = ChoreographyEvent::BlockFinalized {
-                            block_hash,
-                            block_height,
-                            finality_proof: vec![],
-                            sender_id: SubsystemId::Finality,
-                        };
-
-                        match publisher.publish(event) {
-                            Ok(_) => {
-                                info!(
-                                    "[qc-09] ✓ Block #{} FINALIZED at epoch {}",
-                                    block_height, epoch
-                                );
-                            }
-                            Err(e) => {
-                                error!("[qc-09] ❌ Failed to finalize: {}", e);
-                            }
-                        }
-                    }
-                }
-                Ok(_) => {}
+            let event = match self.receiver.recv().await {
+                Ok(e) => e,
                 Err(broadcast::error::RecvError::Lagged(n)) => {
                     warn!("[qc-09] Lagged by {} messages", n);
+                    continue;
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     info!("[qc-09] Channel closed, exiting");
                     break;
                 }
+            };
+
+            let ChoreographyEvent::BlockStored { block_hash, block_height, sender_id, .. } = event else {
+                continue;
+            };
+
+            if sender_id != SubsystemId::BlockStorage {
+                warn!("[qc-09] Ignoring BlockStored from {:?}", sender_id);
+                continue;
             }
+
+            self.handle_block_stored(block_hash, block_height, &publisher);
         }
     }
 }
@@ -469,81 +476,82 @@ impl TransactionOrderingHandler {
         Self { receiver, adapter }
     }
 
+    /// Handle BlockValidated event.
+    async fn handle_block_validated(&self, block_hash: [u8; 32], block_height: u64) {
+        info!(
+            "[qc-12] Received BlockValidated for height {} from Consensus",
+            block_height
+        );
+
+        // Create ordering request
+        let request = qc_12_transaction_ordering::OrderTransactionsRequest {
+            correlation_id: {
+                let mut id = [0u8; 16];
+                id[..8].copy_from_slice(&block_height.to_le_bytes());
+                id[8..16].copy_from_slice(&block_hash[..8]);
+                id
+            },
+            reply_to: format!("qc-12-ordering-{}", block_height),
+            transaction_hashes: vec![],
+            senders: vec![],
+            nonces: vec![],
+            read_sets: vec![],
+            write_sets: vec![],
+        };
+
+        // Process ordering
+        let response = self
+            .adapter
+            .process_order_transactions(
+                SubsystemId::Consensus,
+                request,
+                block_hash,
+                block_height,
+            )
+            .await;
+
+        if response.success {
+            info!(
+                "[qc-12] ✓ Block {} ordering complete: {} groups, max parallelism {}",
+                block_height,
+                response.metrics.parallel_groups,
+                response.metrics.max_parallelism
+            );
+        } else {
+            error!(
+                "[qc-12] ❌ Block {} ordering failed: {:?}",
+                block_height, response.error
+            );
+        }
+    }
+
     /// Run the handler loop.
-    ///
-    /// Listens for BlockValidated events from Consensus and orders
-    /// transactions for parallel execution.
     pub async fn run(mut self) {
         info!("[qc-12] Transaction Ordering handler started");
 
         loop {
-            match self.receiver.recv().await {
-                Ok(ChoreographyEvent::BlockValidated {
-                    block_hash,
-                    block_height,
-                    sender_id,
-                }) => {
-                    if sender_id != SubsystemId::Consensus {
-                        warn!("[qc-12] Ignoring BlockValidated from {:?}", sender_id);
-                        continue;
-                    }
-
-                    info!(
-                        "[qc-12] Received BlockValidated for height {} from Consensus",
-                        block_height
-                    );
-
-                    // In production, we would extract transactions from the validated block
-                    // For now, create a minimal request to demonstrate the flow
-                    let request = qc_12_transaction_ordering::OrderTransactionsRequest {
-                        correlation_id: {
-                            let mut id = [0u8; 16];
-                            id[..8].copy_from_slice(&block_height.to_le_bytes());
-                            id[8..16].copy_from_slice(&block_hash[..8]);
-                            id
-                        },
-                        reply_to: format!("qc-12-ordering-{}", block_height),
-                        transaction_hashes: vec![], // Would be populated from block
-                        senders: vec![],
-                        nonces: vec![],
-                        read_sets: vec![],
-                        write_sets: vec![],
-                    };
-
-                    // Process ordering (adapter publishes TransactionsOrdered on success)
-                    let response = self
-                        .adapter
-                        .process_order_transactions(
-                            SubsystemId::Consensus,
-                            request,
-                            block_hash,
-                            block_height,
-                        )
-                        .await;
-
-                    if response.success {
-                        info!(
-                            "[qc-12] ✓ Block {} ordering complete: {} groups, max parallelism {}",
-                            block_height,
-                            response.metrics.parallel_groups,
-                            response.metrics.max_parallelism
-                        );
-                    } else {
-                        error!(
-                            "[qc-12] ❌ Block {} ordering failed: {:?}",
-                            block_height, response.error
-                        );
-                    }
-                }
-                Ok(_) => {} // Ignore other events
+            let event = match self.receiver.recv().await {
+                Ok(e) => e,
                 Err(broadcast::error::RecvError::Lagged(n)) => {
                     warn!("[qc-12] Lagged by {} messages", n);
+                    continue;
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     info!("[qc-12] Channel closed, exiting");
                     break;
                 }
+            };
+
+            let ChoreographyEvent::BlockValidated { block_hash, block_height, sender_id } = event else {
+                continue;
+            };
+
+            if sender_id != SubsystemId::Consensus {
+                warn!("[qc-12] Ignoring BlockValidated from {:?}", sender_id);
+                continue;
             }
+
+            self.handle_block_validated(block_hash, block_height).await;
         }
     }
 }
