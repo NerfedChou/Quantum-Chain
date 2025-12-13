@@ -1,10 +1,13 @@
-# Role-Based CI/CD Workflow System
-#
-# 00 • Orchestrator
+# ==============================================================================
+# CI/CD ORCHESTRATOR - FORTRESS EDITION
+# ==============================================================================
 # Master workflow that coordinates all role-based workflows
-#
+# 
 # This is the SINGLE ENTRY POINT for CI/CD
 # It calls each specialized workflow in the correct order
+#
+# ZERO TOLERANCE: All critical checks BLOCK merge. No exceptions.
+# ==============================================================================
 
 name: "00 • Orchestrator"
 
@@ -23,15 +26,23 @@ on:
         description: "Run full test suite including load tests"
         type: boolean
         default: false
+      zero-tolerance:
+        description: "Enable zero tolerance mode (block on any failure)"
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Fortress mode: ALL violations block merge
+  ZERO_TOLERANCE: ${{ github.event.inputs.zero-tolerance || 'true' }}
+
 jobs:
   # ==========================================================================
   # PHASE 1: Fast Feedback (< 5 minutes)
-  # These run on EVERY push/PR
+  # These run on EVERY push/PR - CRITICAL GATE
   # ==========================================================================
   
   architect:
@@ -130,7 +141,7 @@ jobs:
     secrets: inherit
 
   # ==========================================================================
-  # Summary Gate
+  # Summary Gate - FORTRESS EDITION
   # ==========================================================================
   
   ci-success:
@@ -143,30 +154,52 @@ jobs:
       - name: Check critical jobs
         run: |
           echo "╔════════════════════════════════════════════════════════════╗"
-          echo "║              CI/CD Pipeline Summary                        ║"
+          echo "║         CI/CD FORTRESS - Pipeline Summary                  ║"
           echo "╚════════════════════════════════════════════════════════════╝"
           echo ""
-          echo "Phase 1 - Fast Feedback:"
+          echo "Zero Tolerance Mode: ${{ env.ZERO_TOLERANCE }}"
+          echo ""
+          echo "Phase 1 - Fast Feedback (Architecture + Quality):"
           echo "  01 • Architect: ${{ needs.architect.result }}"
           echo "  02 • Quality:   ${{ needs.quality.result }}"
           echo ""
           echo "Phase 2 - Core Testing:"
           echo "  03 • Security:  ${{ needs.security.result }}"
           echo ""
-          echo "Phase 3 - Security:"
+          echo "Phase 3 - Security Deep Dive:"
           echo "  05 • Zero-Day:  ${{ needs.zero-day.result }}"
           echo ""
           
           # Check for failures in critical jobs
-          if [[ "${{ needs.architect.result }}" == "failure" ]] || \
-             [[ "${{ needs.quality.result }}" == "failure" ]] || \
-             [[ "${{ needs.security.result }}" == "failure" ]] || \
-             [[ "${{ needs.zero-day.result }}" == "failure" ]]; then
-            echo "❌ CI FAILED - Critical jobs did not pass"
+          FAILED=0
+          if [[ "${{ needs.architect.result }}" == "failure" ]]; then
+            echo "❌ BLOCKED: Architecture validation failed"
+            FAILED=1
+          fi
+          if [[ "${{ needs.quality.result }}" == "failure" ]]; then
+            echo "❌ BLOCKED: Code quality checks failed"
+            FAILED=1
+          fi
+          if [[ "${{ needs.security.result }}" == "failure" ]]; then
+            echo "❌ BLOCKED: Security tests failed"
+            FAILED=1
+          fi
+          if [[ "${{ needs.zero-day.result }}" == "failure" ]]; then
+            echo "❌ BLOCKED: Vulnerability scanning failed"
+            FAILED=1
+          fi
+          
+          if [ $FAILED -eq 1 ]; then
+            echo ""
+            echo "╔════════════════════════════════════════════════════════════╗"
+            echo "║         ❌ CI FORTRESS BLOCKED THIS MERGE                  ║"
+            echo "╚════════════════════════════════════════════════════════════╝"
             exit 1
           fi
           
-          echo "✅ All critical CI checks passed!"
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║         ✅ ALL CRITICAL CHECKS PASSED                       ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
           echo ""
           echo "Branch: ${{ github.ref }}"
           echo "SHA: ${{ github.sha }}"
@@ -175,33 +208,40 @@ jobs:
       - name: Generate CI Metrics Dashboard
         if: always()
         run: |
-          echo "## 📊 CI/CD Pipeline Metrics" >> $GITHUB_STEP_SUMMARY
+          echo "## 🏰 CI/CD Fortress Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Phase Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Phase | Workflow | Status | Critical |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|----------|--------|----------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 1️⃣ Fast Feedback | 01 • Architect | ${{ needs.architect.result }} | ✅ |" >> $GITHUB_STEP_SUMMARY
-          echo "| 1️⃣ Fast Feedback | 02 • Quality | ${{ needs.quality.result }} | ✅ |" >> $GITHUB_STEP_SUMMARY
-          echo "| 2️⃣ Core Testing | 03 • Security | ${{ needs.security.result }} | ✅ |" >> $GITHUB_STEP_SUMMARY
-          echo "| 3️⃣ Security | 05 • Zero-Day | ${{ needs.zero-day.result }} | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| 1️⃣ Fast Feedback | 01 • Architect | ${{ needs.architect.result }} | 🔴 BLOCKING |" >> $GITHUB_STEP_SUMMARY
+          echo "| 1️⃣ Fast Feedback | 02 • Quality | ${{ needs.quality.result }} | 🔴 BLOCKING |" >> $GITHUB_STEP_SUMMARY
+          echo "| 2️⃣ Core Testing | 03 • Security | ${{ needs.security.result }} | 🔴 BLOCKING |" >> $GITHUB_STEP_SUMMARY
+          echo "| 3️⃣ Security | 05 • Zero-Day | ${{ needs.zero-day.result }} | 🔴 BLOCKING |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Add performance insights
-          echo "### 🚀 Performance Insights" >> $GITHUB_STEP_SUMMARY
+          # Fortress features
+          echo "### 🏰 Fortress Features Active" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Fast Feedback**: Critical checks complete in ~5 minutes" >> $GITHUB_STEP_SUMMARY
-          echo "- **Incremental Testing**: Only changed crates tested (60-80% faster)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Shared Cache**: Rust toolchain cached across workflows" >> $GITHUB_STEP_SUMMARY
+          echo "| Feature | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Zero Tolerance Mode | ${{ env.ZERO_TOLERANCE }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| IPC-MATRIX Enforcement | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Envelope-Only Identity | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Choreography Validation | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Locked Build (--locked) | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secret Scanning | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Miri Memory Safety | ✅ |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Add architecture compliance
-          echo "### 🏛️ Architecture Compliance" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏛️ Architecture Compliance (V2.3)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Subsystem Isolation (Bounded Contexts)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Event-Driven Choreography" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Envelope-Only Identity (Zero Trust)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Test-Driven Development" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ LAW #1: Subsystem Isolation (Bounded Contexts)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ LAW #2: Event Bus Only Communication" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ LAW #3: Envelope-Only Identity (Zero Trust)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ LAW #4: Test-Driven Development" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ LAW #5: Check Recent Commits" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Add commit info

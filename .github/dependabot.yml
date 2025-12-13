@@ -1,0 +1,102 @@
+# ==============================================================================
+# Dependabot Configuration - Fortress Edition
+# ==============================================================================
+# Automatically updates dependencies with security focus
+# Actions are pinned to SHA for supply-chain security
+# ==============================================================================
+
+version: 2
+
+updates:
+  # ==========================================================================
+  # GitHub Actions - Update with SHA pinning
+  # ==========================================================================
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    commit-message:
+      prefix: "ci(deps):"
+    labels:
+      - "ci"
+      - "dependencies"
+      - "security"
+    reviewers:
+      - "quantum-chain/security-team"
+    open-pull-requests-limit: 5
+    # Group minor/patch updates
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ==========================================================================
+  # Cargo Dependencies - Rust crates
+  # ==========================================================================
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+      timezone: "UTC"
+    commit-message:
+      prefix: "deps(cargo):"
+    labels:
+      - "dependencies"
+      - "rust"
+    reviewers:
+      - "quantum-chain/core-team"
+    open-pull-requests-limit: 10
+    # Ignore major version updates (require manual review)
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    # Group security updates separately
+    groups:
+      security-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "security"
+      minor-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ==========================================================================
+  # Docker Dependencies
+  # ==========================================================================
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+    commit-message:
+      prefix: "deps(docker):"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # ==========================================================================
+  # npm Dependencies (controls panel)
+  # ==========================================================================
+  - package-ecosystem: "npm"
+    directory: "/controls"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+    commit-message:
+      prefix: "deps(npm):"
+    labels:
+      - "dependencies"
+      - "frontend"
+    open-pull-requests-limit: 5

@@ -1,0 +1,62 @@
+# ==============================================================================
+# CODEOWNERS - Fortress Edition
+# ==============================================================================
+# Defines code ownership and required reviewers for pull requests
+# 
+# SECURITY: Changes to security-critical files require security team approval
+# ARCHITECTURE: Changes to core architecture require architect approval
+# ==============================================================================
+
+# ==========================================================================
+# Default - Require at least one core team member
+# ==========================================================================
+* @quantum-chain/core-team
+
+# ==========================================================================
+# Architecture-Critical Files (Require Architect Approval)
+# ==========================================================================
+/CLAUDE.md @quantum-chain/architects
+/Documentation/Architecture.md @quantum-chain/architects
+/Documentation/IPC-MATRIX.md @quantum-chain/architects @quantum-chain/security-team
+/Documentation/System.md @quantum-chain/architects
+
+# ==========================================================================
+# CI/CD Workflows (Require DevOps + Security Approval)
+# ==========================================================================
+/.github/workflows/ @quantum-chain/devops @quantum-chain/security-team
+/.github/dependabot.yml @quantum-chain/devops @quantum-chain/security-team
+
+# ==========================================================================
+# Security-Critical Subsystems
+# ==========================================================================
+/crates/shared-crypto/ @quantum-chain/security-team @quantum-chain/architects
+/crates/qc-08-consensus/ @quantum-chain/security-team @quantum-chain/architects
+/crates/qc-09-finality/ @quantum-chain/security-team @quantum-chain/architects
+/crates/qc-10-signature-verification/ @quantum-chain/security-team
+
+# ==========================================================================
+# Shared Types (Foundation - High Impact)
+# ==========================================================================
+/crates/shared-types/ @quantum-chain/architects
+/crates/shared-bus/ @quantum-chain/architects
+
+# ==========================================================================
+# Configuration Files (Linting, Deny, etc.)
+# ==========================================================================
+/clippy.toml @quantum-chain/core-team
+/deny.toml @quantum-chain/security-team
+/rustfmt.toml @quantum-chain/core-team
+/Cargo.toml @quantum-chain/core-team
+/Cargo.lock @quantum-chain/core-team
+
+# ==========================================================================
+# Docker and Deployment
+# ==========================================================================
+/Dockerfile @quantum-chain/devops
+/docker/ @quantum-chain/devops
+/docker-compose*.yml @quantum-chain/devops
+
+# ==========================================================================
+# Tools and Scripts
+# ==========================================================================
+/tools/ @quantum-chain/devops @quantum-chain/core-team
