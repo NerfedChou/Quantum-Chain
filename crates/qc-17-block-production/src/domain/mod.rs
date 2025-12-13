@@ -37,6 +37,7 @@
 
 pub mod circuit_breaker;
 pub mod difficulty;
+pub mod difficulty_window;
 mod entities;
 pub mod genesis;
 pub mod invariants;
@@ -44,6 +45,9 @@ mod services;
 
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState, CircuitStats};
 pub use difficulty::{BlockInfo, DifficultyAdjuster, DifficultyConfig};
+pub use difficulty_window::{
+    BlockDifficultyInfo, DifficultyWindowCalculator, DifficultyWindowConfig,
+};
 pub use entities::*;
 pub use genesis::*;
 pub use invariants::*;
