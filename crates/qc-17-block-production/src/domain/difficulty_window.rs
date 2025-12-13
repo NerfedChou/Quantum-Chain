@@ -128,7 +128,10 @@ mod tests {
         let fallback = U256::from(1000);
 
         assert_eq!(calc.resolve_difficulty(U256::zero(), fallback), fallback);
-        assert_eq!(calc.resolve_difficulty(U256::from(500), fallback), U256::from(500));
+        assert_eq!(
+            calc.resolve_difficulty(U256::from(500), fallback),
+            U256::from(500)
+        );
     }
 
     #[test]

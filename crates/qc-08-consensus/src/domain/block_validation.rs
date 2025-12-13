@@ -115,7 +115,10 @@ pub struct ValidationResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationWarning {
     /// Block timestamp is slightly in the future (but within tolerance).
-    SlightlyFutureTimestamp { block_timestamp: u64, current_time: u64 },
+    SlightlyFutureTimestamp {
+        block_timestamp: u64,
+        current_time: u64,
+    },
     /// Block height was non-sequential but allowed (during sync).
     NonSequentialHeightAllowed { expected: u64, got: u64 },
 }

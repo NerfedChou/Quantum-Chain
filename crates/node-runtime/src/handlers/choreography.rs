@@ -143,48 +143,48 @@ impl ConsensusHandler {
                 }
             };
 
-            // Dispatch based on event type
-            match event {
-                ChoreographyEvent::BlockProduced {
+            self.dispatch_event(event);
+        }
+    }
+
+    /// Dispatch a choreography event to the appropriate handler.
+    fn dispatch_event(&self, event: ChoreographyEvent) {
+        match event {
+            ChoreographyEvent::BlockProduced {
+                block_hash,
+                block_height,
+                difficulty,
+                nonce,
+                timestamp,
+                parent_hash,
+                sender_id,
+            } => {
+                if sender_id != SubsystemId::BlockProduction {
+                    warn!("[qc-08] Ignoring BlockProduced from {:?}", sender_id);
+                    return;
+                }
+                let params = BlockProducedParams {
                     block_hash,
                     block_height,
                     difficulty,
                     nonce,
                     timestamp,
                     parent_hash,
-                    sender_id,
-                } => {
-                    if sender_id != SubsystemId::BlockProduction {
-                        warn!("[qc-08] Ignoring BlockProduced from {:?}", sender_id);
-                        continue;
-                    }
-
-                    let params = BlockProducedParams {
-                        block_hash,
-                        block_height,
-                        difficulty,
-                        nonce,
-                        timestamp,
-                        parent_hash,
-                    };
-                    self.handle_block_produced(&params);
-                }
-                ChoreographyEvent::BlockStored {
-                    block_hash,
-                    block_height,
-                    sender_id,
-                    ..
-                } => {
-                    if sender_id != SubsystemId::BlockStorage {
-                        continue; // Silently ignore - not an error
-                    }
-
-                    self.handle_block_stored(block_hash, block_height);
-                }
-                _ => {
-                    // Ignore other event types
-                }
+                };
+                self.handle_block_produced(&params);
             }
+            ChoreographyEvent::BlockStored {
+                block_hash,
+                block_height,
+                sender_id,
+                ..
+            } => {
+                if sender_id != SubsystemId::BlockStorage {
+                    return; // Silently ignore - not an error
+                }
+                self.handle_block_stored(block_hash, block_height);
+            }
+            _ => {} // Ignore other event types
         }
     }
 }

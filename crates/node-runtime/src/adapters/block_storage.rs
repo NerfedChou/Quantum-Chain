@@ -153,10 +153,7 @@ impl BlockStorageAdapter {
 
     /// Try to complete assembly if all components present.
     /// Delegates completeness check to domain.
-    async fn try_complete_assembly(
-        &self,
-        block_hash: [u8; 32],
-    ) -> Result<(), BlockStorageError> {
+    async fn try_complete_assembly(&self, block_hash: [u8; 32]) -> Result<(), BlockStorageError> {
         // Check if complete and take assembly atomically
         let completed: Option<PendingBlockAssembly> = {
             let mut buffer = self.assembly_buffer.write();
@@ -307,7 +304,10 @@ mod tests {
         let block_hash = [0xCD; 32];
 
         adapter.on_block_validated(block_hash, 1).await.unwrap();
-        adapter.on_merkle_root(block_hash, [0x11; 32]).await.unwrap();
+        adapter
+            .on_merkle_root(block_hash, [0x11; 32])
+            .await
+            .unwrap();
         adapter.on_state_root(block_hash, [0x22; 32]).await.unwrap();
 
         // Assembly should be taken and removed

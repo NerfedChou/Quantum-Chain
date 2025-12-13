@@ -619,7 +619,9 @@ impl NodeRuntime {
 
             let start_height = diff_calc.calculate_start_height(chain_height);
             let mut blocks: Vec<_> = (start_height..=chain_height)
-                .filter_map(|h| load_block_info(&*storage, h, &mut last_known_difficulty, &diff_calc))
+                .filter_map(|h| {
+                    load_block_info(&*storage, h, &mut last_known_difficulty, &diff_calc)
+                })
                 .collect();
 
             // Reverse to get newest-first order (required by DGW algorithm)

@@ -165,10 +165,12 @@ impl ConsensusAdapter {
         let current_time = self.current_time();
 
         // Delegate validation to domain service
-        match self
-            .validator
-            .validate_block(&validation_params, current_height, current_time, &validated_blocks)
-        {
+        match self.validator.validate_block(
+            &validation_params,
+            current_height,
+            current_time,
+            &validated_blocks,
+        ) {
             Ok(result) => {
                 drop(validated_blocks); // Release read lock before write
 
