@@ -56,6 +56,18 @@ use shared_types::SubsystemId;
 /// Event types that flow between subsystems.
 #[derive(Debug, Clone)]
 pub enum ChoreographyEvent {
+    /// Block produced by Block Production (17) - triggers consensus validation.
+    /// V2.4: qc-17 publishes this directly via event bus (no polling).
+    BlockProduced {
+        block_hash: [u8; 32],
+        block_height: u64,
+        difficulty: [u8; 32],
+        nonce: u64,
+        timestamp: u64,
+        parent_hash: [u8; 32],
+        sender_id: SubsystemId,
+    },
+
     /// Block validated by Consensus (8) - triggers choreography.
     BlockValidated {
         block_hash: [u8; 32],
@@ -116,6 +128,15 @@ pub enum ChoreographyEvent {
         missing_components: Vec<&'static str>,
         sender_id: SubsystemId,
     },
+
+    /// Genesis block initialized - chain bootstrap complete.
+    /// Published after genesis block is created and stored.
+    /// Other subsystems can use this to initialize their own genesis state.
+    GenesisInitialized {
+        block_hash: [u8; 32],
+        timestamp: u64,
+        sender_id: SubsystemId,
+    },
 }
 
 /// Authorization rules per IPC-MATRIX.md.
@@ -125,6 +146,15 @@ impl AuthorizationRules {
     /// Validate that the sender is authorized to emit this event type.
     pub fn validate_sender(event: &ChoreographyEvent) -> Result<(), AuthorizationError> {
         match event {
+            ChoreographyEvent::BlockProduced { sender_id, .. } => {
+                if *sender_id != SubsystemId::BlockProduction {
+                    return Err(AuthorizationError::UnauthorizedSender {
+                        event_type: "BlockProduced",
+                        expected: SubsystemId::BlockProduction,
+                        actual: *sender_id,
+                    });
+                }
+            }
             ChoreographyEvent::BlockValidated { sender_id, .. } => {
                 if *sender_id != SubsystemId::Consensus {
                     return Err(AuthorizationError::UnauthorizedSender {
@@ -183,6 +213,16 @@ impl AuthorizationRules {
                 if *sender_id != SubsystemId::BlockStorage {
                     return Err(AuthorizationError::UnauthorizedSender {
                         event_type: "AssemblyTimeout",
+                        expected: SubsystemId::BlockStorage,
+                        actual: *sender_id,
+                    });
+                }
+            }
+            ChoreographyEvent::GenesisInitialized { sender_id, .. } => {
+                // Genesis is published by BlockStorage after storing genesis block
+                if *sender_id != SubsystemId::BlockStorage {
+                    return Err(AuthorizationError::UnauthorizedSender {
+                        event_type: "GenesisInitialized",
                         expected: SubsystemId::BlockStorage,
                         actual: *sender_id,
                     });
@@ -257,6 +297,12 @@ impl EventRouter {
 
         // Publish to all subscribers
         match &event {
+            ChoreographyEvent::BlockProduced { block_height, .. } => {
+                info!(
+                    "[qc-17] 📦 BlockProduced #{} via choreography",
+                    block_height
+                );
+            }
             ChoreographyEvent::BlockValidated { block_height, .. } => {
                 debug!("Publishing BlockValidated for height {}", block_height);
             }
@@ -294,6 +340,16 @@ impl EventRouter {
                     "Assembly timeout for {:?}, missing: {:?}",
                     &block_hash[..4],
                     missing_components
+                );
+            }
+            ChoreographyEvent::GenesisInitialized {
+                block_hash,
+                timestamp,
+                ..
+            } => {
+                info!(
+                    "🌱 Genesis block initialized: {:02x}{:02x}... at timestamp {}",
+                    block_hash[0], block_hash[1], timestamp
                 );
             }
         }

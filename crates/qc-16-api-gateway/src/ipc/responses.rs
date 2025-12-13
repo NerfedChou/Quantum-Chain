@@ -1,7 +1,7 @@
 //! Internal response types for IPC communication per SPEC-16 Section 4.
 
-use crate::domain::correlation::CorrelationId;
 use crate::domain::types::{Address, Bytes, Hash, SyncStatus, U256};
+use crate::CorrelationId;
 use serde::{Deserialize, Serialize};
 
 /// Response envelope for all IPC messages

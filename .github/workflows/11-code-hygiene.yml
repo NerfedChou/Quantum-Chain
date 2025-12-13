@@ -142,63 +142,6 @@ jobs:
           echo "✅ No critical TODOs"
 
   # =========================================================================
-  # CLIPPY STRICT MODE
-  # Production-grade linting with no allowances
+  # NOTE: clippy-strict is in 02-code-quality.yml
+  # NOTE: test-suite is in 03-unit-integration-tests.yml
   # =========================================================================
-  clippy-strict:
-    name: Clippy Strict
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Run Clippy (deny warnings)
-        run: |
-          cargo clippy --all-targets --all-features -- \
-            -D warnings \
-            -D clippy::unwrap_used \
-            -D clippy::expect_used \
-            -A clippy::too_many_arguments
-
-  # =========================================================================
-  # FULL TEST SUITE
-  # =========================================================================
-  test-suite:
-    name: Full Test Suite
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Run all tests
-        run: cargo test --all-features --workspace
-
-      - name: Test with all feature combinations
-        run: |
-          cargo test -p node-runtime --features qc-15
-          cargo test -p qc-11-smart-contracts
-          cargo test -p qc-17-block-production

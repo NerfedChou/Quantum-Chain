@@ -328,22 +328,26 @@ impl NonceValidator {
             sender_nonces.entry(tx.from).or_default().push(tx.nonce);
         }
 
-        // Check each sender has sequential nonces starting from their current state
+        // Check each sender has sequential nonces
         for (address, mut nonces) in sender_nonces {
             nonces.sort_unstable();
-
-            // Check for duplicates
-            for i in 1..nonces.len() {
-                if nonces[i] == nonces[i - 1] {
-                    return Err(BlockProductionError::NonceMismatch {
-                        address: hex::encode(address),
-                        expected: nonces[i - 1] + 1,
-                        actual: nonces[i],
-                    });
-                }
-            }
+            Self::check_nonce_sequence(&address, &nonces)?;
         }
 
+        Ok(())
+    }
+
+    /// Check that nonces are sequential (no duplicates, no gaps)
+    fn check_nonce_sequence(address: &[u8; 20], nonces: &[u64]) -> Result<()> {
+        for i in 1..nonces.len() {
+            if nonces[i] == nonces[i - 1] {
+                return Err(BlockProductionError::NonceMismatch {
+                    address: hex::encode(address),
+                    expected: nonces[i - 1] + 1,
+                    actual: nonces[i],
+                });
+            }
+        }
         Ok(())
     }
 }

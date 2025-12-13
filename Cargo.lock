@@ -2039,7 +2039,6 @@ dependencies = [
  "rand 0.8.5",
  "rocksdb",
  "serde_json",
- "sha2",
  "sha3",
  "shared-bus",
  "shared-types",
@@ -2047,7 +2046,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -2588,7 +2586,6 @@ name = "qc-02-block-storage"
 version = "0.1.0"
 dependencies = [
  "bincode",
- "chrono",
  "crc32fast",
  "fs2",
  "hex",
@@ -2596,11 +2593,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "shared-crypto",
  "shared-types",
  "tokio",
  "tracing",
- "uuid",
  "zstd",
 ]
 
@@ -2609,7 +2604,6 @@ name = "qc-03-transaction-indexing"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "bincode",
  "hex",
  "hmac",
  "log",
@@ -2621,7 +2615,6 @@ dependencies = [
  "sha3",
  "shared-types",
  "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -2629,7 +2622,6 @@ name = "qc-04-state-management"
 version = "0.1.0"
 dependencies = [
  "bincode",
- "hex",
  "lru",
  "rayon",
  "serde",
@@ -2656,13 +2648,10 @@ dependencies = [
 name = "qc-06-mempool"
 version = "0.1.0"
 dependencies = [
- "hmac",
  "primitive-types",
  "rand 0.8.5",
  "serde",
  "serde_json",
- "sha2",
- "shared-bus",
  "shared-types",
  "tokio",
  "uuid",
@@ -2687,7 +2676,6 @@ dependencies = [
  "sha2",
  "shared-bus",
  "shared-types",
- "siphasher",
  "thiserror 1.0.69",
  "tokio",
  "tokio-test",
@@ -2700,9 +2688,9 @@ name = "qc-08-consensus"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "k256",
  "lazy_static",
  "parking_lot",
+ "primitive-types",
  "prometheus",
  "serde",
  "serde_with",
@@ -2760,14 +2748,10 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "primitive-types",
- "prometheus",
- "qc-zkp",
  "serde",
  "serde_json",
  "sha2",
  "sha3",
- "shared-bus",
- "shared-types",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -2784,8 +2768,6 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
- "sha2",
- "shared-types",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -2800,12 +2782,10 @@ dependencies = [
  "proptest",
  "serde",
  "sha2",
- "shared-types",
  "thiserror 1.0.69",
  "tokio",
  "tokio-test",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -2813,15 +2793,14 @@ name = "qc-14-sharding"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "parking_lot",
  "rand 0.8.5",
  "serde",
  "sha3",
- "shared-types",
  "thiserror 1.0.69",
  "tokio",
  "tokio-test",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -2830,15 +2809,14 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "hex",
+ "parking_lot",
  "rand 0.8.5",
  "serde",
  "sha2",
- "shared-types",
  "thiserror 1.0.69",
  "tokio",
  "tokio-test",
  "tracing",
- "uuid",
  "zeroize",
 ]
 
@@ -2890,9 +2868,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "dashmap 6.1.0",
  "hex",
- "hmac",
  "num_cpus",
  "primitive-types",
  "proptest",
@@ -2902,7 +2878,6 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "sha2",
- "sha3",
  "shared-bus",
  "shared-crypto",
  "shared-types",
@@ -3682,7 +3657,6 @@ name = "shared-types"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "bincode",
  "hmac",
  "parking_lot",
  "primitive-types",

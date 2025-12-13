@@ -185,7 +185,10 @@ impl TransactionPool {
             .copied();
 
         if let Some(hash) = existing_hash {
-            let existing = self.by_hash.get(&hash).unwrap();
+            let existing = self
+                .by_hash
+                .get(&hash)
+                .ok_or(MempoolError::TransactionNotFound(hash))?;
             if self.can_replace(existing, &tx)? {
                 self.remove_internal(&hash)?;
                 return self.add_internal(tx);
@@ -214,10 +217,14 @@ impl TransactionPool {
             return Err(MempoolError::RbfDisabled);
         }
 
-        let existing = self.by_hash.get(&hash).unwrap();
+        let existing = self
+            .by_hash
+            .get(&hash)
+            .ok_or(MempoolError::TransactionNotFound(hash))?;
         if !self.can_replace(existing, &tx)? {
+            let old_price = existing.gas_price;
             return Err(MempoolError::InsufficientFeeBump {
-                old_price: self.by_hash.get(&hash).unwrap().gas_price,
+                old_price,
                 new_price: tx.gas_price,
                 min_bump_percent: self.config.rbf_min_bump_percent,
             });

@@ -3,9 +3,9 @@
 //! CRITICAL: Validates transaction RLP structure BEFORE sending to mempool.
 //! Rejects garbage at the gate - don't bother subsystems with invalid data.
 
-use crate::domain::error::ApiError;
 use crate::domain::types::{Address, Bytes, Hash, U256};
 use crate::ipc::requests::SubmitTransactionRequest;
+use crate::ApiError;
 use rlp::{DecoderError, Rlp};
 use sha3::{Digest, Keccak256};
 use tracing::debug;

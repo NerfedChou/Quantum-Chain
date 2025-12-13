@@ -2,8 +2,8 @@
 //!
 //! Validates request size, batch limits, and JSON-RPC structure.
 
-use crate::domain::config::LimitsConfig;
-use crate::domain::error::ApiError;
+use crate::ApiError;
+use crate::LimitsConfig;
 use axum::{
     body::Body,
     http::{Request, StatusCode},

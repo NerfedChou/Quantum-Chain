@@ -914,7 +914,7 @@ mod tests {
         let result = handler.handle_get_chain_info(chain_info_msg);
         assert!(result.is_ok());
 
-        let response = result.unwrap();
+        let _response = result.unwrap();
         // Chain should now have height 0 (genesis)
         // Note: The service may not actually write the block if only 2 of 3 components arrive
         // In practice, all 3 must arrive for the block to be written

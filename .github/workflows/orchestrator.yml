@@ -55,6 +55,16 @@ jobs:
     uses: ./.github/workflows/02-code-quality.yml
     secrets: inherit
 
+  arch-gates:
+    name: "12 • Arch Gates"
+    uses: ./.github/workflows/12-architectural-gates.yml
+    secrets: inherit
+
+  ai-guard:
+    name: "13 • AI Guard"
+    uses: ./.github/workflows/13-ai-guard-rails.yml
+    secrets: inherit
+
   # ==========================================================================
   # PHASE 2: Core Testing (< 15 minutes)
   # Runs after Phase 1 passes
@@ -62,7 +72,7 @@ jobs:
   
   security:
     name: "03 • Security"
-    needs: [architect, quality]
+    needs: [architect, quality, arch-gates]
     uses: ./.github/workflows/03-unit-integration-tests.yml
     secrets: inherit
   

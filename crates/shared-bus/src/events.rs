@@ -37,6 +37,27 @@ pub enum BlockchainEvent {
     },
 
     // =========================================================================
+    // SUBSYSTEM 17: BLOCK PRODUCTION (EDA Choreography Start)
+    // =========================================================================
+    /// A new block was produced/mined and is ready for consensus validation.
+    /// **V2.3 CHOREOGRAPHY:** This triggers Consensus (8) to validate the block.
+    /// Source: Subsystem 17 | Target: Subsystem 8
+    BlockProduced {
+        /// The produced block's height.
+        block_height: u64,
+        /// The produced block's hash.
+        block_hash: Hash,
+        /// Difficulty target used for PoW.
+        difficulty: [u8; 32],
+        /// Nonce that solved the PoW.
+        nonce: u64,
+        /// Block timestamp.
+        timestamp: u64,
+        /// Parent block hash.
+        parent_hash: Hash,
+    },
+
+    // =========================================================================
     // SUBSYSTEM 8: CONSENSUS (Choreography Trigger)
     // =========================================================================
     /// A block was validated by consensus.
@@ -86,6 +107,20 @@ pub enum BlockchainEvent {
         block_height: u64,
         /// The stored block's hash.
         block_hash: Hash,
+    },
+
+    /// Genesis block was initialized and stored.
+    /// **V2.3 CHOREOGRAPHY:** This is a special bootstrap event that signals
+    /// the chain has been initialized. Subsystems can use this to initialize
+    /// their own genesis state.
+    /// Source: Runtime | Target: All subsystems
+    GenesisInitialized {
+        /// Hash of the genesis block.
+        block_hash: Hash,
+        /// Genesis block height (always 0).
+        height: u64,
+        /// Genesis timestamp.
+        timestamp: u64,
     },
 
     // =========================================================================
@@ -169,10 +204,11 @@ impl BlockchainEvent {
             | Self::PeerDisconnected(_)
             | Self::VerifyNodeIdentity { .. }
             | Self::NodeIdentityVerified { .. } => EventTopic::PeerDiscovery,
+            Self::BlockProduced { .. } => EventTopic::BlockProduction,
             Self::BlockValidated(_) | Self::BlockRejected { .. } => EventTopic::Consensus,
             Self::MerkleRootComputed { .. } => EventTopic::TransactionIndexing,
             Self::StateRootComputed { .. } => EventTopic::StateManagement,
-            Self::BlockStored { .. } => EventTopic::BlockStorage,
+            Self::BlockStored { .. } | Self::GenesisInitialized { .. } => EventTopic::BlockStorage,
             Self::TransactionVerified(_) | Self::TransactionInvalid { .. } => {
                 EventTopic::SignatureVerification
             }
@@ -190,9 +226,10 @@ impl BlockchainEvent {
             | Self::PeerDisconnected(_)
             | Self::VerifyNodeIdentity { .. } => 1,
             Self::NodeIdentityVerified { .. } => 10,
-            Self::BlockStored { .. } => 2,
+            Self::BlockStored { .. } | Self::GenesisInitialized { .. } => 2,
             Self::MerkleRootComputed { .. } => 3,
             Self::StateRootComputed { .. } => 4,
+            Self::BlockProduced { .. } => 17,
             Self::BlockValidated(_) | Self::BlockRejected { .. } => 8,
             Self::BlockFinalized { .. } => 9,
             Self::TransactionVerified(_) | Self::TransactionInvalid { .. } => 10,
@@ -218,6 +255,8 @@ pub enum EventTopic {
     BlockPropagation,
     /// Subsystem 6 events.
     Mempool,
+    /// Subsystem 17 events (Block Production).
+    BlockProduction,
     /// Subsystem 8 events.
     Consensus,
     /// Subsystem 9 events.

@@ -2,8 +2,8 @@
 //!
 //! Enforces method tier restrictions based on API key and localhost status.
 
-use crate::domain::error::ApiError;
-use crate::domain::methods::{get_method_tier, MethodTier};
+use crate::ApiError;
+use crate::{get_method_tier, MethodTier};
 use axum::{
     body::Body,
     extract::ConnectInfo,

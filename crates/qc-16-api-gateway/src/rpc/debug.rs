@@ -1,8 +1,8 @@
 //! Debug JSON-RPC methods per SPEC-16 Section 3.3 (Admin tier).
 
-use crate::domain::error::{ApiError, ApiResult};
 use crate::domain::types::{BlockId, Hash};
 use crate::ipc::handler::IpcHandler;
+use crate::{ApiError, ApiResult};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;

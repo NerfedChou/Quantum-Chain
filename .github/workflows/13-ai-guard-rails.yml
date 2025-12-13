@@ -1,0 +1,264 @@
+# ==============================================================================
+# AI GUARD RAILS - Preventing Common AI-Generated Anti-Patterns
+# ==============================================================================
+# This workflow catches patterns commonly introduced by AI coding assistants:
+# - .unwrap() and .expect() in production code
+# - panic!() outside of tests
+# - Hardcoded values (localhost, ports)
+# - Clone abuse
+# - Module size violations
+# - Orphan TODOs without issue references
+#
+# These checks complement human review by catching mechanical issues.
+# ==============================================================================
+
+name: "13 - AI Guard Rails"
+
+on:
+  workflow_call:
+  pull_request:
+    paths:
+      - "crates/**/*.rs"
+
+concurrency:
+  group: ai-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================================================
+  # GATE 1: Unwrap Prevention
+  # .unwrap() and .expect() should not appear in production code
+  # ==========================================================================
+  unwrap-prevention:
+    name: "🔐 Unwrap Prevention"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for .unwrap() in production
+        run: |
+          echo "## Unwrap Prevention" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Find .unwrap() outside of test code
+          unwraps=$(grep -rn "\.unwrap()" crates --include='*.rs' | \
+            grep -v "#\[cfg(test)\]" | \
+            grep -v "mod tests" | \
+            grep -v "_test.rs" | \
+            grep -v "/tests/" | \
+            head -20 || true)
+          
+          if [ -n "$unwraps" ]; then
+            count=$(echo "$unwraps" | wc -l)
+            echo "⚠️ **$count .unwrap() calls in production code**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$unwraps" | head -10 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
+            echo "> Use \`?\` operator or \`.ok_or()\` instead of \`.unwrap()\`" >> $GITHUB_STEP_SUMMARY
+            # Warning only for now
+          else
+            echo "✅ No .unwrap() in production code" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 2: Panic Prevention
+  # panic!() should not appear in production code
+  # ==========================================================================
+  panic-prevention:
+    name: "💥 Panic Prevention"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for panic!() in production
+        run: |
+          echo "## Panic Prevention" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          panics=$(grep -rn "panic!(" crates --include='*.rs' | \
+            grep -v "#\[cfg(test)\]" | \
+            grep -v "mod tests" | \
+            grep -v "_test.rs" | \
+            grep -v "/tests/" | \
+            head -20 || true)
+          
+          if [ -n "$panics" ]; then
+            count=$(echo "$panics" | wc -l)
+            echo "⚠️ **$count panic!() calls in production code**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$panics" | head -10 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
+            echo "> Return \`Result\` or use \`anyhow::bail!()\` instead of \`panic!()\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No panic!() in production code" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 3: Hardcoded Values
+  # Localhost, ports, and other magic values should be configurable
+  # ==========================================================================
+  hardcoded-values:
+    name: "🔢 Hardcoded Values"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for hardcoded network values
+        run: |
+          echo "## Hardcoded Values Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          hardcoded=$(grep -rn "127\.0\.0\.1\|localhost\|:8080\|:3000\|:5000\|:9000" \
+            crates --include='*.rs' | \
+            grep -v "#\[cfg(test)\]" | \
+            grep -v "mod tests" | \
+            grep -v "_test.rs" | \
+            head -10 || true)
+          
+          if [ -n "$hardcoded" ]; then
+            echo "⚠️ **Hardcoded network addresses detected**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$hardcoded" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
+            echo "> Use config structs or environment variables for network addresses" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No hardcoded network values" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 4: Clone Abuse
+  # Multiple .clone() on same line indicates ownership issues
+  # ==========================================================================
+  clone-abuse:
+    name: "📋 Clone Abuse"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for clone abuse
+        run: |
+          echo "## Clone Abuse Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          clone_abuse=$(grep -rn "\.clone().*\.clone()" crates --include='*.rs' | head -10 || true)
+          
+          if [ -n "$clone_abuse" ]; then
+            echo "⚠️ **Multiple .clone() on same line**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$clone_abuse" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
+            echo "> Consider using references or \`Arc\` for shared ownership" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No clone abuse detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 5: Module Size
+  # Modules over 500 lines should be decomposed
+  # ==========================================================================
+  module-size:
+    name: "📏 Module Size"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check module sizes
+        run: |
+          echo "## Module Size Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Modules over 500 lines indicate need for decomposition..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          MAX_LINES=500
+          oversized=""
+          
+          for file in $(find crates -name "*.rs" -path "*/src/*" ! -name "mod.rs" ! -path "*/tests/*"); do
+            lines=$(wc -l < "$file")
+            if [ "$lines" -gt "$MAX_LINES" ]; then
+              oversized=$(printf "%s\n%s (%s lines)" "$oversized" "$file" "$lines")
+            fi
+          done
+          
+          if [ -n "$oversized" ]; then
+            echo "⚠️ **Oversized modules detected:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$oversized" | head -10 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
+            echo "> Split large modules into submodules for maintainability" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ All modules under $MAX_LINES lines" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 6: Orphan TODOs
+  # TODOs must reference issue numbers
+  # ==========================================================================
+  orphan-todos:
+    name: "📝 Orphan TODOs"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for orphan TODOs
+        run: |
+          echo "## Orphan TODO Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Find TODOs without issue references
+          orphans=$(grep -rn "TODO" crates --include='*.rs' | \
+            grep -v "TODO(#" | \
+            grep -v "TODO:" | \
+            grep -v "// TODO -" | \
+            head -20 || true)
+          
+          if [ -n "$orphans" ]; then
+            count=$(echo "$orphans" | wc -l)
+            echo "⚠️ **$count orphan TODOs found** (no issue reference)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$orphans" | head -10 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
+            echo "> Use \`TODO(#123)\` format to link to GitHub issues" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ All TODOs have issue references" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # SUMMARY
+  # ==========================================================================
+  ai-guard-summary:
+    name: "📋 AI Guard Summary"
+    runs-on: ubuntu-latest
+    needs: [unwrap-prevention, panic-prevention, hardcoded-values, clone-abuse, module-size, orphan-todos]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## AI Guard Rails Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔐 Unwrap Prevention | ${{ needs.unwrap-prevention.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 💥 Panic Prevention | ${{ needs.panic-prevention.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔢 Hardcoded Values | ${{ needs.hardcoded-values.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📋 Clone Abuse | ${{ needs.clone-abuse.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📏 Module Size | ${{ needs.module-size.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📝 Orphan TODOs | ${{ needs.orphan-todos.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All checks are advisory (non-blocking) to enable gradual improvement." >> $GITHUB_STEP_SUMMARY

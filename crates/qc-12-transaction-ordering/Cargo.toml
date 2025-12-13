@@ -12,11 +12,7 @@ thiserror = "1.0"
 async-trait = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 
-# Shared types
-shared-types = { path = "../shared-types" }
-
-# Hashing
-sha2 = "0.10"
+# Types
 primitive-types = { version = "0.12", features = ["serde"] }
 
 # Async
