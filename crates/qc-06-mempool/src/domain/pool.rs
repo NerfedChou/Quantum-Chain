@@ -465,25 +465,32 @@ impl TransactionPool {
         let mut rolled_back = Vec::new();
 
         for hash in hashes {
-            if let Some(tx) = self.by_hash.get_mut(hash) {
-                if tx.is_pending_inclusion() {
-                    // Return to price index
-                    self.by_price.insert(PricedTransaction::new(
-                        tx.gas_price,
-                        tx.hash,
-                        tx.added_at,
-                    ));
+            let Some(tx) = self.by_hash.get_mut(hash) else {
+                continue;
+            };
 
-                    // Reset state
-                    let _ = tx.rollback();
-                    rolled_back.push(*hash);
-                }
+            if !tx.is_pending_inclusion() {
+                continue;
             }
+
+            // Return to price index
+            self.by_price.insert(PricedTransaction::new(
+                tx.gas_price,
+                tx.hash,
+                tx.added_at,
+            ));
+
+            // Reset state
+            let _ = tx.rollback();
+            rolled_back.push(*hash);
         }
+
+        // Remove from pending batches
+        self.pending_batches
+            .retain(|b| !b.transaction_hashes.iter().any(|h| hashes.contains(h)));
 
         rolled_back
     }
-
     /// Cleans up timed out pending inclusion transactions.
     ///
     /// INVARIANT-5: Transactions in PendingInclusion for > timeout are auto-rolled back.

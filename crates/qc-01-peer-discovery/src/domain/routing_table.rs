@@ -549,13 +549,15 @@ impl RoutingTable {
         let mut expired = Vec::new();
 
         for (idx, bucket) in self.buckets.iter_mut().enumerate() {
-            if let Some(ref pending) = bucket.pending_insertion {
-                if now >= pending.challenge_deadline {
-                    // Challenge timed out: treat as PONG failure (peer is dead)
-                    let pending = bucket.pending_insertion.take().unwrap();
-                    expired.push((idx, pending.candidate, pending.challenged_peer));
-                }
+            let Some(ref pending) = bucket.pending_insertion else {
+                continue;
+            };
+            if now < pending.challenge_deadline {
+                continue;
             }
+            // Challenge timed out: treat as PONG failure (peer is dead)
+            let pending = bucket.pending_insertion.take().unwrap();
+            expired.push((idx, pending.candidate, pending.challenged_peer));
         }
 
         // Complete eviction: remove dead peer, insert candidate
