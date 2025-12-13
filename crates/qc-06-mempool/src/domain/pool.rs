@@ -408,11 +408,8 @@ impl TransactionPool {
             }
 
             // Remove from price index (no longer available for proposals)
-            self.by_price.remove(&PricedTransaction::new(
-                tx.gas_price,
-                tx.hash,
-                tx.added_at,
-            ));
+            self.by_price
+                .remove(&PricedTransaction::new(tx.gas_price, tx.hash, tx.added_at));
 
             // Move to pending inclusion
             let _ = tx.propose(block_height, now);
@@ -474,11 +471,8 @@ impl TransactionPool {
             }
 
             // Return to price index
-            self.by_price.insert(PricedTransaction::new(
-                tx.gas_price,
-                tx.hash,
-                tx.added_at,
-            ));
+            self.by_price
+                .insert(PricedTransaction::new(tx.gas_price, tx.hash, tx.added_at));
 
             // Reset state
             let _ = tx.rollback();

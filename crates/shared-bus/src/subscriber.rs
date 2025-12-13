@@ -97,7 +97,9 @@ impl Subscription {
             let event = match self.receiver.try_recv() {
                 Ok(e) => e,
                 Err(broadcast::error::TryRecvError::Empty) => return Ok(None),
-                Err(broadcast::error::TryRecvError::Closed) => return Err(SubscriptionError::Closed),
+                Err(broadcast::error::TryRecvError::Closed) => {
+                    return Err(SubscriptionError::Closed)
+                }
                 Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
             };
 

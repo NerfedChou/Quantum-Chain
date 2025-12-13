@@ -68,10 +68,10 @@ impl BrutalAccount {
 
     fn hash(&self) -> [u8; 32] {
         let mut hasher = Keccak256::new();
-        hasher.update(&self.balance);
-        hasher.update(&self.nonce.to_le_bytes());
-        hasher.update(&self.code_hash);
-        hasher.update(&self.storage_root);
+        hasher.update(self.balance);
+        hasher.update(self.nonce.to_le_bytes());
+        hasher.update(self.code_hash);
+        hasher.update(self.storage_root);
 
         let mut result = [0u8; 32];
         result.copy_from_slice(&hasher.finalize());
@@ -127,7 +127,7 @@ impl BrutalStateTrie {
 
         for (address, account) in sorted {
             hasher.update(address);
-            hasher.update(&account.hash());
+            hasher.update(account.hash());
         }
 
         let mut root = [0u8; 32];

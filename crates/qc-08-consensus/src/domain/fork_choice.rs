@@ -115,26 +115,29 @@ impl LMDGhostStore {
     fn rebuild_weight_cache(&mut self, validator_set: &ValidatorSet) {
         self.weight_cache.clear();
 
+        // Collect votes first to avoid borrow issues
+        let votes: Vec<_> = self.latest_votes.iter().map(|(v, t)| (*v, *t)).collect();
+
         // For each validator's latest vote, add their stake to all ancestors
-        for (validator, target) in &self.latest_votes {
-            let stake = validator_set.get_stake(validator).unwrap_or(0);
+        for (validator, target) in votes {
+            let stake = validator_set.get_stake(&validator).unwrap_or(0);
 
             // Walk up the tree adding weight
-            let mut current = *target;
+            let mut current = target;
             let mut visited = HashSet::new();
 
             while visited.insert(current) {
-                let Some(header) = self.blocks.get(&current) else {
-                    break;
+                let parent = match self.blocks.get(&current) {
+                    Some(header) => {
+                        *self.weight_cache.entry(current).or_insert(0) += stake;
+                        if current == header.parent_hash {
+                            break;
+                        }
+                        header.parent_hash
+                    }
+                    None => break,
                 };
-
-                *self.weight_cache.entry(current).or_insert(0) += stake;
-
-                // Genesis or same as parent means stop
-                if current == header.parent_hash {
-                    break;
-                }
-                current = header.parent_hash;
+                current = parent;
             }
         }
 

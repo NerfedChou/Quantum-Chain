@@ -110,10 +110,7 @@ fn compute_block_hash(block: &shared_types::ValidatedBlock) -> [u8; 32] {
 }
 
 /// Resolve difficulty from stored block, using fallback if block has zero difficulty
-fn resolve_difficulty(
-    stored: &qc_02_block_storage::StoredBlock,
-    fallback: U256,
-) -> U256 {
+fn resolve_difficulty(stored: &qc_02_block_storage::StoredBlock, fallback: U256) -> U256 {
     if stored.block.header.difficulty.is_zero() {
         fallback
     } else {
@@ -594,10 +591,12 @@ impl NodeRuntime {
 
         // Start production in PoW mode with the correct starting height
         let miner_clone = Arc::clone(&miner_service);
-        let mut production_config = qc_17_block_production::ProductionConfig::default();
-        production_config.starting_height = chain_height;
-        production_config.recent_blocks = recent_blocks;
-        production_config.last_difficulty = Some(last_known_difficulty);
+        let production_config = qc_17_block_production::ProductionConfig {
+            starting_height: chain_height,
+            recent_blocks,
+            last_difficulty: Some(last_known_difficulty),
+            ..Default::default()
+        };
 
         tokio::spawn(async move {
             if let Err(e) = miner_clone
@@ -652,17 +651,28 @@ impl NodeRuntime {
 
             storage.read_block_by_height(target_height).map_or_else(
                 |_| {
-                    let label = if chain_height > 0 { "last block" } else { "genesis" };
+                    let label = if chain_height > 0 {
+                        "last block"
+                    } else {
+                        "genesis"
+                    };
                     info!("[Bridge] ⚠️ Could not load {}, using zeros", label);
                     ([0u8; 32], initial_difficulty)
                 },
                 |stored| {
                     let hash = compute_block_hash(&stored.block);
                     let diff = resolve_difficulty(&stored, last_known_difficulty);
-                    let label = if target_height == 0 { "genesis" } else { "last" };
+                    let label = if target_height == 0 {
+                        "genesis"
+                    } else {
+                        "last"
+                    };
                     info!(
                         "[Bridge] 📖 Loaded {} block hash ({:02x}{:02x}..., diff: {})",
-                        label, hash[0], hash[1], crate::difficulty_desc(&diff)
+                        label,
+                        hash[0],
+                        hash[1],
+                        crate::difficulty_desc(&diff)
                     );
                     (hash, diff)
                 },

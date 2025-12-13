@@ -44,17 +44,17 @@ impl BrutalBlock {
 
         // Compute block hash
         let mut hasher = Keccak256::new();
-        hasher.update(&parent_hash);
-        hasher.update(&height.to_le_bytes());
-        hasher.update(&state_root);
-        hasher.update(&tx_root);
+        hasher.update(parent_hash);
+        hasher.update(height.to_le_bytes());
+        hasher.update(state_root);
+        hasher.update(tx_root);
         let hash_result = hasher.finalize();
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&hash_result);
 
         // Compute checksum
         let mut checksum_hasher = Keccak256::new();
-        checksum_hasher.update(&hash);
+        checksum_hasher.update(hash);
         checksum_hasher.update(&data);
         let checksum_result = checksum_hasher.finalize();
         let mut checksum = [0u8; 32];
@@ -73,7 +73,7 @@ impl BrutalBlock {
 
     fn verify_checksum(&self) -> bool {
         let mut hasher = Keccak256::new();
-        hasher.update(&self.hash);
+        hasher.update(self.hash);
         hasher.update(&self.data);
         let computed: [u8; 32] = hasher.finalize().into();
         computed == self.checksum
