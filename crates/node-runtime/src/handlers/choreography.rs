@@ -45,11 +45,13 @@ use crate::adapters::TransactionOrderingAdapter;
 ///
 /// ## V2.3 Choreography (EDA Pattern)
 ///
-/// - Subscribes to: BlockProduced (from Block Production 17)
+/// - Subscribes to: BlockProduced (from Block Production 17), BlockStored (for height tracking)
 /// - Publishes: BlockValidated (triggers TxIndexing 3, StateMgmt 4, BlockStorage 2)
 ///
-/// This handler bridges the BlockProduced event to the validation flow,
-/// replacing the orchestration pattern where node-runtime directly stored blocks.
+/// ## Event-Sourced Chain Height
+///
+/// Chain height is updated when BlockStored events are received, ensuring the
+/// consensus adapter tracks the actual stored chain state.
 #[cfg(feature = "qc-08")]
 pub struct ConsensusHandler {
     /// Subscriber for events.
@@ -116,10 +118,16 @@ impl ConsensusHandler {
         );
     }
 
+    /// Handle a BlockStored event - update chain height (event sourcing).
+    fn handle_block_stored(&self, block_hash: [u8; 32], block_height: u64) {
+        // Event-source the chain height from BlockStored events
+        self.adapter.on_block_stored(block_height, &block_hash);
+    }
+
     /// Run the handler loop.
     pub async fn run(mut self) {
         info!("[qc-08] Consensus handler started (V2.3 Choreography)");
-        info!("[qc-08]   Subscribes to: BlockProduced (from qc-17)");
+        info!("[qc-08]   Subscribes to: BlockProduced (from qc-17), BlockStored (for height)");
         info!("[qc-08]   Publishes: BlockValidated (to qc-02, qc-03, qc-04)");
 
         loop {
@@ -135,34 +143,48 @@ impl ConsensusHandler {
                 }
             };
 
-            // Only process BlockProduced events from BlockProduction
-            let ChoreographyEvent::BlockProduced {
-                block_hash,
-                block_height,
-                difficulty,
-                nonce,
-                timestamp,
-                parent_hash,
-                sender_id,
-            } = event
-            else {
-                continue;
-            };
+            // Dispatch based on event type
+            match event {
+                ChoreographyEvent::BlockProduced {
+                    block_hash,
+                    block_height,
+                    difficulty,
+                    nonce,
+                    timestamp,
+                    parent_hash,
+                    sender_id,
+                } => {
+                    if sender_id != SubsystemId::BlockProduction {
+                        warn!("[qc-08] Ignoring BlockProduced from {:?}", sender_id);
+                        continue;
+                    }
 
-            if sender_id != SubsystemId::BlockProduction {
-                warn!("[qc-08] Ignoring BlockProduced from {:?}", sender_id);
-                continue;
+                    let params = BlockProducedParams {
+                        block_hash,
+                        block_height,
+                        difficulty,
+                        nonce,
+                        timestamp,
+                        parent_hash,
+                    };
+                    self.handle_block_produced(&params);
+                }
+                ChoreographyEvent::BlockStored {
+                    block_hash,
+                    block_height,
+                    sender_id,
+                    ..
+                } => {
+                    if sender_id != SubsystemId::BlockStorage {
+                        continue; // Silently ignore - not an error
+                    }
+
+                    self.handle_block_stored(block_hash, block_height);
+                }
+                _ => {
+                    // Ignore other event types
+                }
             }
-
-            let params = BlockProducedParams {
-                block_hash,
-                block_height,
-                difficulty,
-                nonce,
-                timestamp,
-                parent_hash,
-            };
-            self.handle_block_produced(&params);
         }
     }
 }

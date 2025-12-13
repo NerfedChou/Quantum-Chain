@@ -10,93 +10,64 @@
 //! 3. `StateRootComputed` from State Management (4)
 //!
 //! When all three arrive for the same block_hash, performs atomic write.
+//!
+//! ## Architecture (Push Logic Down)
+//!
+//! All assembly logic is delegated to the domain `BlockAssemblyBuffer`.
+//! This adapter is a thin wrapper that:
+//! - Receives events from choreography
+//! - Delegates to domain for state management
+//! - Publishes BlockStored events when assembly completes
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use tokio::sync::RwLock;
+use parking_lot::RwLock;
 use tracing::{debug, info, warn};
 
-use shared_types::SubsystemId;
+use qc_02_block_storage::{AssemblyConfig, BlockAssemblyBuffer, PendingBlockAssembly};
+use shared_types::{BlockHeader, ConsensusProof, SubsystemId, ValidatedBlock};
 
 use crate::adapters::EventBusAdapter;
 use crate::wiring::{ChoreographyEvent, EventRouter};
 
-/// Pending block assembly tracking.
-#[derive(Debug)]
-pub struct PendingAssembly {
-    /// Block hash (correlation key).
-    pub block_hash: [u8; 32],
-    /// Block height.
-    pub block_height: u64,
-    /// When assembly started.
-    pub started_at: Instant,
-    /// Block data from Consensus.
-    pub block_validated: Option<()>, // Would be ValidatedBlock
-    /// Merkle root from Transaction Indexing.
-    pub merkle_root: Option<[u8; 32]>,
-    /// State root from State Management.
-    pub state_root: Option<[u8; 32]>,
-}
-
-impl PendingAssembly {
-    /// Create a new pending assembly.
-    pub fn new(block_hash: [u8; 32], block_height: u64) -> Self {
-        Self {
-            block_hash,
-            block_height,
-            started_at: Instant::now(),
-            block_validated: None,
-            merkle_root: None,
-            state_root: None,
-        }
-    }
-
-    /// Check if all components have arrived.
-    pub fn is_complete(&self) -> bool {
-        self.block_validated.is_some() && self.merkle_root.is_some() && self.state_root.is_some()
-    }
-
-    /// Get missing components for timeout logging.
-    pub fn missing_components(&self) -> Vec<&'static str> {
-        let mut missing = Vec::new();
-        if self.block_validated.is_none() {
-            missing.push("BlockValidated");
-        }
-        if self.merkle_root.is_none() {
-            missing.push("MerkleRootComputed");
-        }
-        if self.state_root.is_none() {
-            missing.push("StateRootComputed");
-        }
-        missing
-    }
-}
-
 /// Block Storage adapter implementing Stateful Assembler pattern.
+///
+/// This is a thin wrapper around the domain `BlockAssemblyBuffer`.
+/// All assembly logic (completeness checking, timeout, buffer limits)
+/// is handled by the domain layer.
 pub struct BlockStorageAdapter {
     /// Event bus adapter for publishing.
     event_bus: EventBusAdapter,
-    /// Pending block assemblies keyed by block_hash.
-    pending: Arc<RwLock<HashMap<[u8; 32], PendingAssembly>>>,
-    /// Assembly timeout.
+    /// Domain assembly buffer (contains all logic).
+    assembly_buffer: Arc<RwLock<BlockAssemblyBuffer>>,
+    /// Assembly timeout for GC logging.
     assembly_timeout: Duration,
-    /// Maximum pending assemblies (memory bound).
-    max_pending: usize,
 }
 
 impl BlockStorageAdapter {
     /// Create a new block storage adapter.
     pub fn new(router: Arc<EventRouter>, assembly_timeout: Duration, max_pending: usize) -> Self {
         let event_bus = EventBusAdapter::new(router, SubsystemId::BlockStorage);
+        let config = AssemblyConfig {
+            assembly_timeout_secs: assembly_timeout.as_secs(),
+            max_pending_assemblies: max_pending,
+        };
+        let assembly_buffer = Arc::new(RwLock::new(BlockAssemblyBuffer::new(config)));
 
         Self {
             event_bus,
-            pending: Arc::new(RwLock::new(HashMap::new())),
+            assembly_buffer,
             assembly_timeout,
-            max_pending,
         }
+    }
+
+    /// Get current timestamp in seconds.
+    fn current_timestamp() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
     }
 
     /// Handle BlockValidated event from Consensus.
@@ -105,26 +76,45 @@ impl BlockStorageAdapter {
         block_hash: [u8; 32],
         block_height: u64,
     ) -> Result<(), BlockStorageError> {
-        let mut pending = self.pending.write().await;
+        let now = Self::current_timestamp();
 
-        // Check buffer limit (INVARIANT-8)
-        if pending.len() >= self.max_pending && !pending.contains_key(&block_hash) {
-            warn!(
-                "Assembly buffer full ({}/{}), rejecting new block",
-                pending.len(),
-                self.max_pending
-            );
-            return Err(BlockStorageError::BufferFull);
+        // Create a minimal validated block (actual block would come from consensus)
+        // In production, this would be passed with the event
+        let validated_block = ValidatedBlock {
+            header: BlockHeader {
+                version: 1,
+                height: block_height,
+                parent_hash: [0; 32],
+                merkle_root: [0; 32],
+                state_root: [0; 32],
+                timestamp: now,
+                proposer: [0; 32],
+                difficulty: primitive_types::U256::from(2).pow(primitive_types::U256::from(252)),
+                nonce: 0,
+            },
+            transactions: vec![],
+            consensus_proof: ConsensusProof::default(),
+        };
+
+        {
+            let mut buffer = self.assembly_buffer.write();
+
+            // Enforce max pending (INVARIANT-8) - domain handles logic
+            let purged = buffer.enforce_max_pending();
+            if !purged.is_empty() {
+                warn!(
+                    "Assembly buffer full, purged {} oldest entries",
+                    purged.len()
+                );
+            }
+
+            // Add block validated to domain buffer
+            buffer.add_block_validated(block_hash, validated_block, now);
+            debug!("BlockValidated received for height {}", block_height);
         }
 
-        let assembly = pending
-            .entry(block_hash)
-            .or_insert_with(|| PendingAssembly::new(block_hash, block_height));
-
-        assembly.block_validated = Some(());
-        debug!("BlockValidated received for height {}", block_height);
-
-        self.try_complete_assembly(block_hash, &pending).await
+        // Try to complete (check outside lock to avoid deadlock)
+        self.try_complete_assembly(block_hash).await
     }
 
     /// Handle MerkleRootComputed event from Transaction Indexing.
@@ -133,25 +123,15 @@ impl BlockStorageAdapter {
         block_hash: [u8; 32],
         merkle_root: [u8; 32],
     ) -> Result<(), BlockStorageError> {
-        let mut pending = self.pending.write().await;
+        let now = Self::current_timestamp();
 
-        // If assembly exists, update it and try to complete
-        if let Some(assembly) = pending.get_mut(&block_hash) {
-            assembly.merkle_root = Some(merkle_root);
+        {
+            let mut buffer = self.assembly_buffer.write();
+            buffer.add_merkle_root(block_hash, merkle_root, now);
             debug!("MerkleRootComputed received for {:?}", &block_hash[..4]);
-            return self.try_complete_assembly(block_hash, &pending).await;
         }
 
-        // Event arrived before BlockValidated - create pending entry if space
-        if pending.len() >= self.max_pending {
-            return Ok(());
-        }
-
-        let mut assembly = PendingAssembly::new(block_hash, 0);
-        assembly.merkle_root = Some(merkle_root);
-        pending.insert(block_hash, assembly);
-
-        Ok(())
+        self.try_complete_assembly(block_hash).await
     }
 
     /// Handle StateRootComputed event from State Management.
@@ -160,84 +140,82 @@ impl BlockStorageAdapter {
         block_hash: [u8; 32],
         state_root: [u8; 32],
     ) -> Result<(), BlockStorageError> {
-        let mut pending = self.pending.write().await;
+        let now = Self::current_timestamp();
 
-        // If assembly exists, update it and try to complete
-        if let Some(assembly) = pending.get_mut(&block_hash) {
-            assembly.state_root = Some(state_root);
+        {
+            let mut buffer = self.assembly_buffer.write();
+            buffer.add_state_root(block_hash, state_root, now);
             debug!("StateRootComputed received for {:?}", &block_hash[..4]);
-            return self.try_complete_assembly(block_hash, &pending).await;
         }
 
-        // Event arrived before BlockValidated - create pending entry if space
-        if pending.len() >= self.max_pending {
-            return Ok(());
-        }
-
-        let mut assembly = PendingAssembly::new(block_hash, 0);
-        assembly.state_root = Some(state_root);
-        pending.insert(block_hash, assembly);
-
-        Ok(())
+        self.try_complete_assembly(block_hash).await
     }
 
     /// Try to complete assembly if all components present.
+    /// Delegates completeness check to domain.
     async fn try_complete_assembly(
         &self,
         block_hash: [u8; 32],
-        pending: &HashMap<[u8; 32], PendingAssembly>,
     ) -> Result<(), BlockStorageError> {
-        if let Some(assembly) = pending.get(&block_hash) {
-            if assembly.is_complete() {
-                info!(
-                    "Block {} assembly complete - performing atomic write",
-                    assembly.block_height
-                );
+        // Check if complete and take assembly atomically
+        let completed: Option<PendingBlockAssembly> = {
+            let mut buffer = self.assembly_buffer.write();
+            buffer.take_complete(&block_hash)
+        };
 
-                // Publish BlockStored event (safe unwrap - we just checked is_complete)
-                let merkle_root = assembly
-                    .merkle_root
-                    .ok_or_else(|| BlockStorageError::WriteFailed("Missing merkle_root".into()))?;
-                let state_root = assembly
-                    .state_root
-                    .ok_or_else(|| BlockStorageError::WriteFailed("Missing state_root".into()))?;
+        if let Some(assembly) = completed {
+            info!(
+                "Block {} assembly complete - performing atomic write",
+                assembly.block_height
+            );
 
-                let event = ChoreographyEvent::BlockStored {
-                    block_hash,
-                    block_height: assembly.block_height,
-                    merkle_root,
-                    state_root,
-                    sender_id: SubsystemId::BlockStorage,
-                };
+            // Extract components (domain guarantees they exist)
+            let merkle_root = assembly
+                .merkle_root
+                .ok_or_else(|| BlockStorageError::WriteFailed("Missing merkle_root".into()))?;
+            let state_root = assembly
+                .state_root
+                .ok_or_else(|| BlockStorageError::WriteFailed("Missing state_root".into()))?;
 
-                self.event_bus
-                    .publish(event)
-                    .map_err(|e| BlockStorageError::PublishFailed(e.to_string()))?;
+            // Publish BlockStored event
+            let event = ChoreographyEvent::BlockStored {
+                block_hash,
+                block_height: assembly.block_height,
+                merkle_root,
+                state_root,
+                sender_id: SubsystemId::BlockStorage,
+            };
 
-                // Remove from pending (would be done with mutable access)
-            }
+            self.event_bus
+                .publish(event)
+                .map_err(|e| BlockStorageError::PublishFailed(e.to_string()))?;
+
+            info!(
+                "[qc-02] 📤 Published BlockStored #{} to choreography",
+                assembly.block_height
+            );
         }
+
         Ok(())
     }
 
     /// Garbage collect timed-out assemblies (INVARIANT-7).
+    /// Delegates to domain and publishes timeout events.
     pub async fn gc_stale_assemblies(&self) {
-        let mut pending = self.pending.write().await;
-        let now = Instant::now();
+        let now = Self::current_timestamp();
 
-        let stale: Vec<_> = pending
-            .iter()
-            .filter(|(_, assembly)| now.duration_since(assembly.started_at) > self.assembly_timeout)
-            .map(|(hash, assembly)| (*hash, assembly.missing_components()))
-            .collect();
+        let expired = {
+            let mut buffer = self.assembly_buffer.write();
+            buffer.gc_expired_with_data(now)
+        };
 
-        for (block_hash, missing) in stale {
+        for (block_hash, assembly) in expired {
+            let missing = Self::get_missing_components(&assembly);
             warn!(
                 "Assembly timeout for {:?}, missing: {:?}",
                 &block_hash[..4],
                 missing
             );
-            pending.remove(&block_hash);
 
             // Publish AssemblyTimeout event
             let event = ChoreographyEvent::AssemblyTimeout {
@@ -247,6 +225,31 @@ impl BlockStorageAdapter {
             };
             let _ = self.event_bus.publish(event);
         }
+    }
+
+    /// Get missing components for a pending assembly.
+    fn get_missing_components(assembly: &PendingBlockAssembly) -> Vec<&'static str> {
+        let mut missing = Vec::new();
+        if assembly.validated_block.is_none() {
+            missing.push("BlockValidated");
+        }
+        if assembly.merkle_root.is_none() {
+            missing.push("MerkleRootComputed");
+        }
+        if assembly.state_root.is_none() {
+            missing.push("StateRootComputed");
+        }
+        missing
+    }
+
+    /// Get the assembly timeout duration.
+    pub fn assembly_timeout(&self) -> Duration {
+        self.assembly_timeout
+    }
+
+    /// Get the number of pending assemblies.
+    pub fn pending_count(&self) -> usize {
+        self.assembly_buffer.read().len()
     }
 }
 
@@ -272,3 +275,42 @@ impl std::fmt::Display for BlockStorageError {
 }
 
 impl std::error::Error for BlockStorageError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_adapter() -> BlockStorageAdapter {
+        let router = Arc::new(EventRouter::default());
+        BlockStorageAdapter::new(router, Duration::from_secs(30), 100)
+    }
+
+    #[test]
+    fn test_adapter_creation() {
+        let adapter = create_test_adapter();
+        assert_eq!(adapter.pending_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_single_component_not_complete() {
+        let adapter = create_test_adapter();
+        let block_hash = [0xAB; 32];
+
+        // Only BlockValidated - not complete
+        adapter.on_block_validated(block_hash, 1).await.unwrap();
+        assert_eq!(adapter.pending_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_all_components_completes() {
+        let adapter = create_test_adapter();
+        let block_hash = [0xCD; 32];
+
+        adapter.on_block_validated(block_hash, 1).await.unwrap();
+        adapter.on_merkle_root(block_hash, [0x11; 32]).await.unwrap();
+        adapter.on_state_root(block_hash, [0x22; 32]).await.unwrap();
+
+        // Assembly should be taken and removed
+        assert_eq!(adapter.pending_count(), 0);
+    }
+}

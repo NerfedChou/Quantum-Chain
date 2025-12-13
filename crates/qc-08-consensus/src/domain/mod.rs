@@ -3,6 +3,7 @@
 //! Reference: SPEC-08-CONSENSUS.md Section 2
 //!
 //! Additional modules for advanced consensus:
+//! - block_validation: Pure block validation logic
 //! - slashing: Double-vote detection
 //! - checkpoints: Weak subjectivity
 //! - fork_choice: LMD-GHOST
@@ -11,6 +12,7 @@
 //! - vdf: Verifiable Delay Function (grinding protection)
 
 mod block;
+pub mod block_validation;
 mod bls_aggregation;
 mod chain;
 mod checkpoints;
@@ -23,6 +25,7 @@ mod validator;
 mod vdf;
 
 pub use block::*;
+pub use block_validation::*;
 pub use bls_aggregation::*;
 pub use chain::*;
 pub use checkpoints::*;

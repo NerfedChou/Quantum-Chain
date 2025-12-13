@@ -374,12 +374,255 @@ jobs:
           fi
 
   # ==========================================================================
+  # GATE 10: Magic Number Check (Smart Node, Dumb Pipe)
+  # Runtime must NOT contain hardcoded business logic values
+  # "if block.height > 100" → VIOLATION
+  # ==========================================================================
+  magic-numbers:
+    name: "🔢 Magic Numbers"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for magic numbers in runtime
+        run: |
+          echo "## Magic Number Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**The Golden Rule:** If runtime checks content of a variable, move to Domain." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Pattern: numeric comparisons in if statements (excluding ports, versions, indices)
+          violations=$(grep -rn "if.*[><=].*[0-9]\{2,\}" crates/node-runtime/src --include='*.rs' \
+            | grep -v "// " \
+            | grep -v "port" \
+            | grep -v "PORT" \
+            | grep -v "version" \
+            | grep -v "\[0\]" \
+            | grep -v "\[1\]" \
+            | grep -v "config\." \
+            | grep -v "env!" \
+            | grep -v "Duration" \
+            | grep -v "timeout" \
+            || true)
+          
+          count=$(echo "$violations" | grep -c '.' || echo "0")
+          
+          if [ -n "$violations" ] && [ "$count" -gt "0" ]; then
+            echo "⚠️ **Potential magic numbers detected** ($count occurrences):" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$violations" | head -20 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!CAUTION]" >> $GITHUB_STEP_SUMMARY
+            echo "> If runtime contains \`if value > MAGIC_NUMBER\`, move logic to Domain." >> $GITHUB_STEP_SUMMARY
+            # Warning only - not blocking
+          else
+            echo "✅ No magic numbers detected in runtime" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 11: Field Access Check (Smart Node, Dumb Pipe)
+  # Runtime must NOT peek inside domain structs
+  # "let diff = block.header.difficulty" → VIOLATION
+  # "let diff = difficulty_service.calculate(block)" → OK
+  # ==========================================================================
+  field-access:
+    name: "🔍 Field Access"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for deep field access in runtime
+        run: |
+          echo "## Field Access Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Runtime should ask domain services for values, not peek inside structs." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Pattern: accessing nested fields of domain types
+          deep_access=$(grep -rn "\.\(header\|data\|body\|payload\|proof\)\." \
+            crates/node-runtime/src --include='*.rs' \
+            | grep -v "// " \
+            | grep -v "fn " \
+            | grep -v "struct " \
+            | grep -v "config\." \
+            | grep -v "gateway_config" \
+            || true)
+          
+          count=$(echo "$deep_access" | grep -c '.' || echo "0")
+          
+          if [ -n "$deep_access" ] && [ "$count" -gt "0" ]; then
+            echo "⚠️ **Potential field access violations** ($count occurrences):" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$deep_access" | head -15 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!WARNING]" >> $GITHUB_STEP_SUMMARY
+            echo "> ❌ \`block.header.difficulty\` → ✅ \`difficulty_service.get(block)\`" >> $GITHUB_STEP_SUMMARY
+            # Warning only - not blocking
+          else
+            echo "✅ No suspicious field access in runtime" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 12: Domain Purity (Smart Node, Dumb Pipe)
+  # Domain modules must be pure Rust - NO async, NO IO, NO network
+  # This is a BLOCKING gate - impure domains break the architecture
+  # ==========================================================================
+  domain-purity:
+    name: "🧪 Domain Purity"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for impure imports in domain
+        run: |
+          echo "## Domain Purity Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Domain modules must be **pure Rust** with zero IO/async imports." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Subsystem | tokio | async | std::fs | std::net | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|-------|---------|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          impure_crates=""
+          for crate in crates/qc-*/; do
+            name=$(basename $crate)
+            domain_path="$crate/src/domain"
+            
+            if [ ! -d "$domain_path" ]; then
+              continue
+            fi
+            
+            has_tokio="✅"
+            has_async="✅"
+            has_fs="✅"
+            has_net="✅"
+            status="✅ PURE"
+            
+            # Check for impure imports (exclude comments)
+            if grep -r "use tokio\|tokio::" "$domain_path" --include='*.rs' 2>/dev/null | grep -v "//!" | grep -qv "//"; then
+              has_tokio="❌"
+              status="❌ IMPURE"
+              impure_crates="$impure_crates $name(tokio)"
+            fi
+            
+            if grep -r "async fn\|\.await" "$domain_path" --include='*.rs' 2>/dev/null | grep -v "//!" | grep -qv "//"; then
+              has_async="❌"
+              status="❌ IMPURE"
+              impure_crates="$impure_crates $name(async)"
+            fi
+            
+            if grep -rq "std::fs\|use std::io" "$domain_path" --include='*.rs' 2>/dev/null; then
+              has_fs="❌"
+              status="❌ IMPURE"
+              impure_crates="$impure_crates $name(fs)"
+            fi
+            
+            if grep -rq "std::net\|TcpStream\|UdpSocket" "$domain_path" --include='*.rs' 2>/dev/null; then
+              has_net="❌"
+              status="❌ IMPURE"
+              impure_crates="$impure_crates $name(net)"
+            fi
+            
+            echo "| $name | $has_tokio | $has_async | $has_fs | $has_net | $status |" >> $GITHUB_STEP_SUMMARY
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$impure_crates" ]; then
+            echo "> [!CAUTION]" >> $GITHUB_STEP_SUMMARY
+            echo "> **Impure domain modules detected:**$impure_crates" >> $GITHUB_STEP_SUMMARY
+            echo "> Domain must be pure Rust with zero IO/async. Move impure code to adapters." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "✅ All domain modules are pure" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 13: Red Flag Audit (Smart Node, Dumb Pipe)
+  # Combined check for all anti-patterns that violate the architecture
+  # ==========================================================================
+  red-flags:
+    name: "🚩 Red Flags"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run comprehensive red flag audit
+        run: |
+          echo "## Red Flag Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Checking for 'Smart Node, Dumb Pipe' violations..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          flags=0
+          
+          # Check 1: Runtime business logic (if/match on domain values)
+          logic_in_runtime=$(grep -rn "match.*block\.\|match.*tx\.\|match.*header\." \
+            crates/node-runtime/src --include='*.rs' | grep -v "// " || true)
+          if [ -n "$logic_in_runtime" ] && [ "$(echo "$logic_in_runtime" | grep -c '.')" -gt "0" ]; then
+            echo "### 🚩 Business Logic in Runtime" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$logic_in_runtime" | head -5 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            flags=$((flags + 1))
+          fi
+          
+          # Check 2: Direct method chains on subsystems (command pattern)
+          method_chains=$(grep -rn "\.process(.*)\.\|\.validate(.*)\.\|\.execute(.*)\." \
+            crates/node-runtime/src --include='*.rs' | grep -v "// " || true)
+          if [ -n "$method_chains" ] && [ "$(echo "$method_chains" | grep -c '.')" -gt "0" ]; then
+            echo "### 🚩 Direct Method Chains (Command Pattern)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$method_chains" | head -5 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            flags=$((flags + 1))
+          fi
+          
+          # Check 3: Hardcoded subsystem IDs in conditionals
+          subsystem_ids=$(grep -rn "SubsystemId::[A-Z]" crates/node-runtime/src --include='*.rs' \
+            | grep -E "if|match" | grep -v "// " || true)
+          if [ -n "$subsystem_ids" ] && [ "$(echo "$subsystem_ids" | grep -c '.')" -gt "0" ]; then
+            echo "### 🚩 Hardcoded Subsystem Logic" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$subsystem_ids" | head -5 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            flags=$((flags + 1))
+          fi
+          
+          # Check 4: Manual data passing between subsystems (orchestration)
+          manual_passing=$(grep -rn "let.*=.*subsystem_a.*\;.*subsystem_b" \
+            crates/node-runtime/src --include='*.rs' | grep -v "// " || true)
+          if [ -n "$manual_passing" ] && [ "$(echo "$manual_passing" | grep -c '.')" -gt "0" ]; then
+            echo "### 🚩 Manual Data Passing (Orchestration)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$manual_passing" | head -5 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            flags=$((flags + 1))
+          fi
+          
+          # Summary
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$flags" -gt "0" ]; then
+            echo "⚠️ **$flags red flag categories detected**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> **The Golden Rule:**" >> $GITHUB_STEP_SUMMARY
+            echo "> If you're writing if/else in Runtime that checks content, move it to Domain." >> $GITHUB_STEP_SUMMARY
+            # Warning only - not blocking
+          else
+            echo "✅ No red flags detected - Runtime is properly 'dumb'" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
   # SUMMARY GATE
   # ==========================================================================
   arch-summary:
     name: "📋 Architecture Summary"
     runs-on: ubuntu-latest
-    needs: [domain-isolation, adapter-boundary, parameter-objects, import-budget, subsystem-structure, request-objects, cascade-risk, choreography-compliance]
+    needs: [domain-isolation, adapter-boundary, parameter-objects, import-budget, subsystem-structure, request-objects, cascade-risk, choreography-compliance, magic-numbers, field-access, domain-purity, red-flags]
     if: always()
     steps:
       - name: Check gate results
@@ -396,7 +639,13 @@ jobs:
           requests="${{ needs.request-objects.result }}"
           cascade="${{ needs.cascade-risk.result }}"
           choreography="${{ needs.choreography-compliance.result }}"
+          magic="${{ needs.magic-numbers.result }}"
+          field="${{ needs.field-access.result }}"
+          purity="${{ needs.domain-purity.result }}"
+          redflags="${{ needs.red-flags.result }}"
           
+          echo "### Core Gates" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Gate | Status | Blocking |" >> $GITHUB_STEP_SUMMARY
           echo "|------|--------|----------|" >> $GITHUB_STEP_SUMMARY
           echo "| 🏰 Domain Isolation | $domain | ✅ Yes |" >> $GITHUB_STEP_SUMMARY
@@ -407,9 +656,18 @@ jobs:
           echo "| 📨 Request Objects | $requests | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
           echo "| 💥 Cascade Risk | $cascade | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
           echo "| 🎭 Choreography | $choreography | ✅ Yes |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Smart Node, Dumb Pipe Gates" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Gate | Status | Blocking |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔢 Magic Numbers | $magic | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔍 Field Access | $field | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🧪 Domain Purity | $purity | ✅ Yes |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🚩 Red Flags | $redflags | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
           
           # Fail if critical gates failed
-          if [ "$domain" = "failure" ] || [ "$budget" = "failure" ] || [ "$choreography" = "failure" ]; then
+          if [ "$domain" = "failure" ] || [ "$budget" = "failure" ] || [ "$choreography" = "failure" ] || [ "$purity" = "failure" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "❌ **Critical architectural violations detected. Merge blocked.**" >> $GITHUB_STEP_SUMMARY
             exit 1

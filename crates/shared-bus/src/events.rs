@@ -109,6 +109,20 @@ pub enum BlockchainEvent {
         block_hash: Hash,
     },
 
+    /// Genesis block was initialized and stored.
+    /// **V2.3 CHOREOGRAPHY:** This is a special bootstrap event that signals
+    /// the chain has been initialized. Subsystems can use this to initialize
+    /// their own genesis state.
+    /// Source: Runtime | Target: All subsystems
+    GenesisInitialized {
+        /// Hash of the genesis block.
+        block_hash: Hash,
+        /// Genesis block height (always 0).
+        height: u64,
+        /// Genesis timestamp.
+        timestamp: u64,
+    },
+
     // =========================================================================
     // SUBSYSTEM 10: SIGNATURE VERIFICATION
     // =========================================================================
@@ -194,7 +208,7 @@ impl BlockchainEvent {
             Self::BlockValidated(_) | Self::BlockRejected { .. } => EventTopic::Consensus,
             Self::MerkleRootComputed { .. } => EventTopic::TransactionIndexing,
             Self::StateRootComputed { .. } => EventTopic::StateManagement,
-            Self::BlockStored { .. } => EventTopic::BlockStorage,
+            Self::BlockStored { .. } | Self::GenesisInitialized { .. } => EventTopic::BlockStorage,
             Self::TransactionVerified(_) | Self::TransactionInvalid { .. } => {
                 EventTopic::SignatureVerification
             }
@@ -212,7 +226,7 @@ impl BlockchainEvent {
             | Self::PeerDisconnected(_)
             | Self::VerifyNodeIdentity { .. } => 1,
             Self::NodeIdentityVerified { .. } => 10,
-            Self::BlockStored { .. } => 2,
+            Self::BlockStored { .. } | Self::GenesisInitialized { .. } => 2,
             Self::MerkleRootComputed { .. } => 3,
             Self::StateRootComputed { .. } => 4,
             Self::BlockProduced { .. } => 17,

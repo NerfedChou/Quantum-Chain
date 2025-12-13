@@ -87,7 +87,9 @@ use crate::handlers::{
 use crate::wiring::ChoreographyCoordinator;
 use qc_02_block_storage::BlockStorageApi;
 use qc_16_api_gateway::{ApiGatewayService, GatewayConfig};
-use qc_17_block_production::BlockProducerService;
+use qc_17_block_production::{
+    BlockProducerService, DifficultyWindowCalculator, DifficultyWindowConfig,
+};
 use quantum_telemetry::{init_telemetry, TelemetryConfig};
 
 /// Helper to describe difficulty for logging
@@ -97,19 +99,19 @@ fn difficulty_desc(difficulty: &U256) -> String {
     format!("~{} zero bytes", leading_zero_bytes)
 }
 
-/// Load a single block's info for historical tracking
+/// Load a single block's info for historical tracking.
+/// Uses DifficultyWindowCalculator.resolve_difficulty for zero-difficulty handling.
 fn load_block_info(
     storage: &impl qc_02_block_storage::BlockStorageApi,
     height: u64,
     last_diff: &mut U256,
+    calc: &DifficultyWindowCalculator,
 ) -> Option<qc_17_block_production::HistoricalBlockInfo> {
     let stored = storage.read_block_by_height(height).ok()?;
-    let difficulty = if stored.block.header.difficulty.is_zero() {
-        *last_diff
-    } else {
+    let difficulty = calc.resolve_difficulty(stored.block.header.difficulty, *last_diff);
+    if !stored.block.header.difficulty.is_zero() {
         *last_diff = stored.block.header.difficulty;
-        stored.block.header.difficulty
-    };
+    }
     Some(qc_17_block_production::HistoricalBlockInfo {
         height,
         timestamp: stored.block.header.timestamp,
@@ -409,7 +411,22 @@ impl NodeRuntime {
             )
             .context("Failed to store genesis block")?;
 
+        drop(storage); // Release lock before publishing event
+
         info!("Genesis block stored successfully");
+
+        // Publish GenesisInitialized event for choreography
+        // This allows other subsystems to react to genesis initialization
+        let genesis_event = crate::wiring::ChoreographyEvent::GenesisInitialized {
+            block_hash: genesis.header.block_hash,
+            timestamp: genesis.header.timestamp,
+            sender_id: shared_types::SubsystemId::BlockStorage,
+        };
+
+        if let Err(e) = self.choreography.router().publish(genesis_event) {
+            warn!("Failed to publish GenesisInitialized event: {}", e);
+            // Non-fatal - genesis is still stored
+        }
 
         // Initialize finalized height to 0
         info!("Setting initial finalized height to 0");
@@ -594,13 +611,15 @@ impl NodeRuntime {
         // We track the last known good difficulty to handle old blocks without difficulty
         let recent_blocks: Vec<qc_17_block_production::HistoricalBlockInfo> = {
             let storage = container.block_storage.read();
-            let window_size = 24.min(chain_height as usize); // DGW window size
+            // Use domain calculator instead of inline magic numbers
+            let diff_calc = DifficultyWindowCalculator::new(DifficultyWindowConfig::default());
+            let window_size = diff_calc.calculate_window_size(chain_height);
             let mut last_known_difficulty =
                 primitive_types::U256::from(2).pow(primitive_types::U256::from(252));
 
-            let start_height = chain_height.saturating_sub(window_size as u64);
+            let start_height = diff_calc.calculate_start_height(chain_height);
             let mut blocks: Vec<_> = (start_height..=chain_height)
-                .filter_map(|h| load_block_info(&*storage, h, &mut last_known_difficulty))
+                .filter_map(|h| load_block_info(&*storage, h, &mut last_known_difficulty, &diff_calc))
                 .collect();
 
             // Reverse to get newest-first order (required by DGW algorithm)
@@ -608,8 +627,9 @@ impl NodeRuntime {
 
             if let Some(first) = blocks.first() {
                 info!(
-                    "[qc-17] 📊 Loaded {} historical blocks for difficulty adjustment (last: {})",
+                    "[qc-17] 📊 Loaded {} historical blocks (window: {}) for difficulty adjustment (last: {})",
                     blocks.len(),
+                    window_size,
                     difficulty_desc(&first.difficulty)
                 );
             }
@@ -669,8 +689,8 @@ impl NodeRuntime {
         let consensus_adapter = Arc::new(crate::adapters::ConsensusAdapter::new(Arc::clone(
             &choreography_router,
         )));
-        // Set initial chain height for validation
-        consensus_adapter.set_chain_height(chain_height);
+        // Set initial chain height for validation (event-sourced thereafter)
+        consensus_adapter.set_initial_chain_height(chain_height);
 
         let consensus_handler = crate::handlers::ConsensusHandler::new(
             choreography_router.subscribe(),

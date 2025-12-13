@@ -49,6 +49,7 @@ impl EventBusAdapter {
             ChoreographyEvent::BlockFinalized { sender_id, .. } => *sender_id,
             ChoreographyEvent::TransactionsOrdered { sender_id, .. } => *sender_id,
             ChoreographyEvent::AssemblyTimeout { sender_id, .. } => *sender_id,
+            ChoreographyEvent::GenesisInitialized { sender_id, .. } => *sender_id,
         };
 
         if event_sender != self.subsystem_id {

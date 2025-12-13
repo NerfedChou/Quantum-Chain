@@ -128,6 +128,15 @@ pub enum ChoreographyEvent {
         missing_components: Vec<&'static str>,
         sender_id: SubsystemId,
     },
+
+    /// Genesis block initialized - chain bootstrap complete.
+    /// Published after genesis block is created and stored.
+    /// Other subsystems can use this to initialize their own genesis state.
+    GenesisInitialized {
+        block_hash: [u8; 32],
+        timestamp: u64,
+        sender_id: SubsystemId,
+    },
 }
 
 /// Authorization rules per IPC-MATRIX.md.
@@ -204,6 +213,16 @@ impl AuthorizationRules {
                 if *sender_id != SubsystemId::BlockStorage {
                     return Err(AuthorizationError::UnauthorizedSender {
                         event_type: "AssemblyTimeout",
+                        expected: SubsystemId::BlockStorage,
+                        actual: *sender_id,
+                    });
+                }
+            }
+            ChoreographyEvent::GenesisInitialized { sender_id, .. } => {
+                // Genesis is published by BlockStorage after storing genesis block
+                if *sender_id != SubsystemId::BlockStorage {
+                    return Err(AuthorizationError::UnauthorizedSender {
+                        event_type: "GenesisInitialized",
                         expected: SubsystemId::BlockStorage,
                         actual: *sender_id,
                     });
@@ -321,6 +340,16 @@ impl EventRouter {
                     "Assembly timeout for {:?}, missing: {:?}",
                     &block_hash[..4],
                     missing_components
+                );
+            }
+            ChoreographyEvent::GenesisInitialized {
+                block_hash,
+                timestamp,
+                ..
+            } => {
+                info!(
+                    "🌱 Genesis block initialized: {:02x}{:02x}... at timestamp {}",
+                    block_hash[0], block_hash[1], timestamp
                 );
             }
         }

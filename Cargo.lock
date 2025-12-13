@@ -2703,6 +2703,7 @@ dependencies = [
  "k256",
  "lazy_static",
  "parking_lot",
+ "primitive-types",
  "prometheus",
  "serde",
  "serde_with",

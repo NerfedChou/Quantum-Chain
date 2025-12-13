@@ -111,9 +111,10 @@ pub mod service;
 // Re-export main types
 pub use adapters::InMemoryEventBus;
 pub use domain::{
-    Block, BlockHeader, ChainHead, ChainState, ConsensusAlgorithm, ConsensusConfig, ConsensusError,
+    Block, BlockHeader, BlockValidationConfig, BlockValidationError, BlockValidationParams,
+    BlockValidator, ChainHead, ChainState, ConsensusAlgorithm, ConsensusConfig, ConsensusError,
     ConsensusResult, PBFTProof, PoSProof, SignedTransaction, ValidatedBlock, ValidationProof,
-    ValidatorInfo, ValidatorSet,
+    ValidationResult, ValidationWarning, ValidatorInfo, ValidatorSet,
 };
 pub use ipc::IpcHandler;
 pub use ports::{ConsensusApi, EventBus, MempoolGateway, SignatureVerifier, ValidatorSetProvider};
