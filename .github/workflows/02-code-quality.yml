@@ -217,7 +217,7 @@ jobs:
           
           echo "✅ All functions within complexity bounds"
       
-      - name: Check Function Length (ZTAC: 80 lines)
+      - name: "Check Function Length (ZTAC: 80 lines)"
         run: |
           echo "=========================================="
           echo "ZTAC: Function Length (≤ 80 lines)"
