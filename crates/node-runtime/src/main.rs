@@ -180,7 +180,7 @@ fn load_last_block_for_bridge(
         Err(_) => {
             let label = if chain_height > 0 { "last block" } else { "genesis" };
             info!("[Bridge] ⚠️ Could not load {}, using zeros", label);
-            ([0u8; 32], qc_17_block_production::DifficultyConfig::default().initial_difficulty)
+            ([0u8; 32], fallback_difficulty)
         }
         Ok(stored) => {
             let hash = compute_block_hash(&stored.block);
@@ -188,7 +188,7 @@ fn load_last_block_for_bridge(
             let label = if target_height == 0 { "genesis" } else { "last" };
             info!(
                 "[Bridge] 📖 Loaded {} block hash ({:02x}{:02x}..., diff: {})",
-                label, hash[0], hash[1], difficulty_desc(&diff)
+                label, hash[0], hash[1], crate::difficulty_desc(&diff)
             );
             (hash, diff)
         }
