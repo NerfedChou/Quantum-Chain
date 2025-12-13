@@ -145,11 +145,13 @@ impl CommitteeCache {
 
         // Subtract missing validators (O(M) where M = absent count)
         for (i, &present) in participation.iter().enumerate() {
-            if !present {
-                if let Some(validator) = validator_set.validators.get(i) {
-                    effective.subtract(&validator.pubkey);
-                }
+            if present {
+                continue;
             }
+            let Some(validator) = validator_set.validators.get(i) else {
+                continue;
+            };
+            effective.subtract(&validator.pubkey);
         }
 
         effective

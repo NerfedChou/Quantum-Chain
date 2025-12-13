@@ -163,15 +163,19 @@ impl<K: KeyProvider> IpcHandler<K> {
         // Apply all transactions
         for tx in &payload.transactions {
             // Debit sender
-            if tx.value > 0 {
-                trie.apply_balance_change(tx.from, -(tx.value as i128))?;
-                accounts_modified += 1;
+            if tx.value == 0 {
+                // Increment sender nonce regardless of value
+                trie.apply_nonce_increment(tx.from, tx.nonce)?;
+                continue;
+            }
 
-                // Credit recipient
-                if let Some(to) = tx.to {
-                    trie.apply_balance_change(to, tx.value as i128)?;
-                    accounts_modified += 1;
-                }
+            trie.apply_balance_change(tx.from, -(tx.value as i128))?;
+            accounts_modified += 1;
+
+            // Credit recipient if present
+            if let Some(to) = tx.to {
+                trie.apply_balance_change(to, tx.value as i128)?;
+                accounts_modified += 1;
             }
 
             // Increment sender nonce

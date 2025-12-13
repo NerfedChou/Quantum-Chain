@@ -585,12 +585,13 @@ impl ApiQueryHandler {
                 let mut block_tx_counts = Vec::new();
                 let start_block = indexed_height.saturating_sub(14);
                 for block_num in start_block..=indexed_height {
-                    if let Some(count) = tx_index.get_tx_count_for_block(block_num) {
-                        block_tx_counts.push(serde_json::json!({
-                            "block": block_num,
-                            "tx_count": count
-                        }));
-                    }
+                    let Some(count) = tx_index.get_tx_count_for_block(block_num) else {
+                        continue;
+                    };
+                    block_tx_counts.push(serde_json::json!({
+                        "block": block_num,
+                        "tx_count": count
+                    }));
                 }
 
                 Ok(serde_json::json!({
