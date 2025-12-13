@@ -74,65 +74,59 @@ impl EventBusIpcReceiver {
         info!("[EventBusIpcReceiver] Started listening for API query responses");
 
         loop {
-            match self.subscription.recv().await {
-                Some(BlockchainEvent::ApiQueryResponse {
-                    correlation_id,
-                    source,
-                    result,
-                }) => {
-                    debug!(
-                        correlation_id = %correlation_id,
-                        source = source,
-                        success = result.is_ok(),
-                        "Received API query response"
-                    );
-
-                    // Parse correlation ID
-                    match CorrelationId::parse(&correlation_id) {
-                        Ok(cid) => {
-                            // Convert result to ResponseError format
-                            let response_result = match result {
-                                Ok(value) => Ok(value),
-                                Err(api_error) => Err(ResponseError {
-                                    code: api_error.code,
-                                    message: api_error.message,
-                                    data: None,
-                                }),
-                            };
-
-                            // Complete the pending request
-                            let completed = self.pending_store.complete(cid, response_result);
-
-                            if completed {
-                                debug!(
-                                    correlation_id = %correlation_id,
-                                    "Completed pending request"
-                                );
-                            } else {
-                                warn!(
-                                    correlation_id = %correlation_id,
-                                    "No pending request found for correlation ID (may have timed out)"
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            error!(
-                                correlation_id = %correlation_id,
-                                error = %e,
-                                "Failed to parse correlation ID"
-                            );
-                        }
-                    }
-                }
-                Some(other) => {
-                    // Received a non-response event (shouldn't happen with proper filtering)
-                    debug!("Received non-response event: {:?}", other);
-                }
+            let event = match self.subscription.recv().await {
+                Some(e) => e,
                 None => {
-                    // Event bus closed
                     error!("[EventBusIpcReceiver] Event bus closed, shutting down");
                     break;
                 }
+            };
+
+            let BlockchainEvent::ApiQueryResponse {
+                correlation_id,
+                source,
+                result,
+            } = event
+            else {
+                continue;
+            };
+
+            debug!(
+                correlation_id = %correlation_id,
+                source = source,
+                success = result.is_ok(),
+                "Received API query response"
+            );
+
+            // Parse correlation ID
+            let Ok(cid) = CorrelationId::parse(&correlation_id) else {
+                error!(
+                    correlation_id = %correlation_id,
+                    "Failed to parse correlation ID"
+                );
+                continue;
+            };
+
+            // Convert result to ResponseError format
+            let response_result = match result {
+                Ok(value) => Ok(value),
+                Err(api_error) => Err(ResponseError {
+                    code: api_error.code,
+                    message: api_error.message,
+                    data: None,
+                }),
+            };
+
+            // Complete the pending request
+            let completed = self.pending_store.complete(cid, response_result);
+
+            if completed {
+                debug!(correlation_id = %correlation_id, "Completed pending request");
+            } else {
+                warn!(
+                    correlation_id = %correlation_id,
+                    "No pending request found for correlation ID (may have timed out)"
+                );
             }
         }
     }

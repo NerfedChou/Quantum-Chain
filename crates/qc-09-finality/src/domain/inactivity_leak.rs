@@ -162,12 +162,16 @@ impl InactivityLeakTracker {
 
         for (validator, stake) in stakes {
             let penalty = self.calculate_penalty(validator, *stake);
-            if penalty > 0 {
-                if let Some(score) = self.scores.get_mut(validator) {
-                    score.total_penalty = score.total_penalty.saturating_add(penalty);
-                }
-                penalties.push((*validator, penalty));
+            if penalty == 0 {
+                continue;
             }
+
+            let Some(score) = self.scores.get_mut(validator) else {
+                penalties.push((*validator, penalty));
+                continue;
+            };
+            score.total_penalty = score.total_penalty.saturating_add(penalty);
+            penalties.push((*validator, penalty));
         }
 
         penalties

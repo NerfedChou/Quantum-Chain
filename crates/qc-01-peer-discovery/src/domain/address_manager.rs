@@ -163,23 +163,21 @@ impl AddressBucket {
 
     /// Remove an entry by NodeId
     pub fn remove(&mut self, node_id: &NodeId) -> Option<AddressEntry> {
-        if let Some(pos) = self
+        let pos = self
             .entries
             .iter()
-            .position(|e| &e.peer_info.node_id == node_id)
-        {
-            let entry = self.entries.remove(pos);
-            let subnet = SubnetKey::from_ip(&entry.peer_info.socket_addr.ip);
-            if let Some(count) = self.subnet_counts.get_mut(&subnet) {
-                *count = count.saturating_sub(1);
-                if *count == 0 {
-                    self.subnet_counts.remove(&subnet);
-                }
+            .position(|e| &e.peer_info.node_id == node_id)?;
+
+        let entry = self.entries.remove(pos);
+        let subnet = SubnetKey::from_ip(&entry.peer_info.socket_addr.ip);
+
+        if let Some(count) = self.subnet_counts.get_mut(&subnet) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.subnet_counts.remove(&subnet);
             }
-            Some(entry)
-        } else {
-            None
         }
+        Some(entry)
     }
 
     /// Get all entries

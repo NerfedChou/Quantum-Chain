@@ -122,22 +122,22 @@ impl BloomFilterHandler {
             .expect("current_block lock poisoned");
         let mut rate_limits = self.rate_limits.write().expect("rate_limits lock poisoned");
 
-        if let Some((last_block, count)) = rate_limits.get_mut(client_id) {
-            // Check if we're still in the rate limit window
-            if current_block < *last_block + RATE_LIMIT_BLOCKS {
-                if *count >= MAX_UPDATES_PER_WINDOW {
-                    return Err(FilterError::RateLimited);
-                }
-                *count += 1;
-            } else {
-                // New window
-                *last_block = current_block;
-                *count = 1;
-            }
-        } else {
-            // First update from this client
-            rate_limits.insert(client_id.to_string(), (current_block, 1));
+        let entry = rate_limits
+            .entry(client_id.to_string())
+            .or_insert((current_block, 0));
+
+        // Check if new window
+        if current_block >= entry.0 + RATE_LIMIT_BLOCKS {
+            entry.0 = current_block;
+            entry.1 = 1;
+            return Ok(());
         }
+
+        // In current window - check limit
+        if entry.1 >= MAX_UPDATES_PER_WINDOW {
+            return Err(FilterError::RateLimited);
+        }
+        entry.1 += 1;
 
         Ok(())
     }
@@ -186,20 +186,22 @@ impl BloomFilterHandler {
     pub fn check_update_rate_limit(&self, client_id: &str, current_block: u64) -> bool {
         let mut rate_limits = self.rate_limits.write().expect("rate_limits lock poisoned");
 
-        if let Some((last_block, count)) = rate_limits.get_mut(client_id) {
-            if current_block < *last_block + RATE_LIMIT_BLOCKS {
-                if *count >= MAX_UPDATES_PER_WINDOW {
-                    return false;
-                }
-                *count += 1;
-            } else {
-                *last_block = current_block;
-                *count = 1;
-            }
-        } else {
-            rate_limits.insert(client_id.to_string(), (current_block, 1));
+        let entry = rate_limits
+            .entry(client_id.to_string())
+            .or_insert((current_block, 0));
+
+        // Check if new window
+        if current_block >= entry.0 + RATE_LIMIT_BLOCKS {
+            entry.0 = current_block;
+            entry.1 = 1;
+            return true;
         }
 
+        // In current window - check limit
+        if entry.1 >= MAX_UPDATES_PER_WINDOW {
+            return false;
+        }
+        entry.1 += 1;
         true
     }
 }

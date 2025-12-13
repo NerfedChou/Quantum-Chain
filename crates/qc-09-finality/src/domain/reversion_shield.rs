@@ -96,15 +96,13 @@ impl ReversionShield {
         let max_depth = 1000; // Prevent infinite loops
 
         for _ in 0..max_depth {
-            match self.block_tree.get(current) {
-                Some(parent) => {
-                    if parent == block_b {
-                        return true;
-                    }
-                    current = parent;
-                }
-                None => return false,
+            let Some(parent) = self.block_tree.get(current) else {
+                return false;
+            };
+            if parent == block_b {
+                return true;
             }
+            current = parent;
         }
 
         false

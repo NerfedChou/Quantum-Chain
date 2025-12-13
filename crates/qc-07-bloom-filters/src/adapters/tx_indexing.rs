@@ -90,16 +90,15 @@ impl TxIndexingAdapter {
         let response = timeout(IPC_TIMEOUT, async {
             use futures::StreamExt;
             while let Some(event) = stream.next().await {
-                let matched = match &event {
-                    BlockchainEvent::ApiQueryResponse {
-                        correlation_id: resp_id,
-                        result,
-                        ..
-                    } if *resp_id == correlation_id => Some(result.clone()),
-                    _ => None,
-                };
-                if matched.is_some() {
-                    return matched;
+                if let BlockchainEvent::ApiQueryResponse {
+                    correlation_id: resp_id,
+                    result,
+                    ..
+                } = event
+                {
+                    if resp_id == correlation_id {
+                        return Some(result);
+                    }
                 }
             }
             None

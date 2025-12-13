@@ -180,20 +180,22 @@ impl TransactionOrderingHandler {
             // Build access pattern
             let mut access_pattern = AccessPattern::default();
 
-            if i < request.read_sets.len() {
-                for (addr, key) in &request.read_sets[i] {
-                    access_pattern
-                        .reads
-                        .insert(StorageLocation::new(H160::from(*addr), H256::from(*key)));
-                }
+            // Add reads if available
+            if let Some(read_set) = request.read_sets.get(i) {
+                access_pattern.reads.extend(
+                    read_set
+                        .iter()
+                        .map(|(addr, key)| StorageLocation::new(H160::from(*addr), H256::from(*key))),
+                );
             }
 
-            if i < request.write_sets.len() {
-                for (addr, key) in &request.write_sets[i] {
-                    access_pattern
-                        .writes
-                        .insert(StorageLocation::new(H160::from(*addr), H256::from(*key)));
-                }
+            // Add writes if available
+            if let Some(write_set) = request.write_sets.get(i) {
+                access_pattern.writes.extend(
+                    write_set
+                        .iter()
+                        .map(|(addr, key)| StorageLocation::new(H160::from(*addr), H256::from(*key))),
+                );
             }
 
             transactions.push(AnnotatedTransaction::new(

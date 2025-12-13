@@ -84,16 +84,16 @@ where
         let mut stream = self.bus.event_stream(filter);
 
         loop {
-            match stream.next().await {
-                Some(event) => {
-                    if let Err(e) = self.handle_event(event).await {
-                        error!("Error handling event: {:?}", e);
-                    }
-                }
+            let event = match stream.next().await {
+                Some(e) => e,
                 None => {
                     warn!("[BloomFilterBusAdapter] Event stream ended, shutting down");
                     break;
                 }
+            };
+
+            if let Err(e) = self.handle_event(event).await {
+                error!("Error handling event: {:?}", e);
             }
         }
     }
