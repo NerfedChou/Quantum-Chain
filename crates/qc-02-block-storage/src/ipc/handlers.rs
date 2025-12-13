@@ -428,15 +428,16 @@ where
         if chain_tip_height > 0 {
             // Read blocks from highest to lowest
             for height in (start_height..=chain_tip_height).rev() {
-                if let Ok(stored) = self.service.read_block_by_height(height) {
-                    let block_hash = compute_block_hash(&stored.block.header);
-                    recent_blocks.push(BlockDifficultyInfo {
-                        height: stored.block.header.height,
-                        timestamp: stored.block.header.timestamp,
-                        difficulty: stored.block.header.difficulty,
-                        hash: block_hash,
-                    });
-                }
+                let Ok(stored) = self.service.read_block_by_height(height) else {
+                    continue;
+                };
+                let block_hash = compute_block_hash(&stored.block.header);
+                recent_blocks.push(BlockDifficultyInfo {
+                    height: stored.block.header.height,
+                    timestamp: stored.block.header.timestamp,
+                    difficulty: stored.block.header.difficulty,
+                    hash: block_hash,
+                });
             }
         }
 
