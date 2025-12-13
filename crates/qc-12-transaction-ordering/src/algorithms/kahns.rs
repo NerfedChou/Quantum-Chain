@@ -58,9 +58,10 @@ pub fn kahns_topological_sort(graph: &DependencyGraph) -> Result<ExecutionSchedu
                     continue;
                 };
                 *degree = degree.saturating_sub(1);
-                if *degree == 0 {
-                    next_queue.push(*neighbor);
+                if *degree != 0 {
+                    continue;
                 }
+                next_queue.push(*neighbor);
             }
         }
 

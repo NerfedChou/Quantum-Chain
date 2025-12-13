@@ -16,7 +16,10 @@ pub fn invariant_topological_order(schedule: &ExecutionSchedule, graph: &Depende
         for tx_hash in &group.transactions {
             // Check all incoming edges: their sources must be already executed
             for edge in &graph.edges {
-                if edge.to == *tx_hash && !executed.contains(&edge.from) {
+                if edge.to != *tx_hash {
+                    continue;
+                }
+                if !executed.contains(&edge.from) {
                     // Dependency not yet executed - violation!
                     return false;
                 }

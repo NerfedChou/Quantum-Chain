@@ -161,14 +161,19 @@ impl<T: TransactionDataProvider + 'static> BloomFilterApi for BloomFilterService
         }
 
         // 4. Check log addresses
-        if let Some(receipt) = receipt {
-            for (i, log) in receipt.logs.iter().enumerate() {
-                if filter.contains(&log.address) {
-                    return MatchResult {
-                        matches: true,
-                        matched_field: Some(MatchedField::LogAddress(i)),
-                    };
-                }
+        let Some(receipt) = receipt else {
+            return MatchResult {
+                matches: false,
+                matched_field: None,
+            };
+        };
+
+        for (i, log) in receipt.logs.iter().enumerate() {
+            if filter.contains(&log.address) {
+                return MatchResult {
+                    matches: true,
+                    matched_field: Some(MatchedField::LogAddress(i)),
+                };
             }
         }
 
