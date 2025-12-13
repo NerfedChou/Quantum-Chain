@@ -11,7 +11,7 @@ use crate::{
     },
     error::{BlockProductionError, Result},
     ports::{
-        BlockProducerService, BlockStorageReader, MinedBlockInfo, ProductionConfig,
+        BlockProducerService, BlockStorageReader, ProductionConfig,
         ProductionStatus,
     },
     security::SecurityValidator,
@@ -78,7 +78,6 @@ impl ConcreteBlockProducer {
             last_block_at: None,
             current_difficulty: None,
             last_nonce: None,
-            pending_blocks: Vec::new(),
         };
 
         // Initialize PoW miner with number of threads from config or default
@@ -686,11 +685,6 @@ impl BlockProducerService for ConcreteBlockProducer {
 
     async fn get_status(&self) -> ProductionStatus {
         self.status.read().unwrap().clone()
-    }
-
-    async fn drain_pending_blocks(&self) -> Vec<MinedBlockInfo> {
-        let mut status = self.status.write().unwrap();
-        std::mem::take(&mut status.pending_blocks)
     }
 
     async fn update_gas_limit(&self, new_limit: u64) -> Result<()> {

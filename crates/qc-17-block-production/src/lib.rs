@@ -186,7 +186,7 @@ pub use domain::{
 
 pub use ports::{
     BlockProducerService, ConsensusSubmitter, EventPublisher, HistoricalBlockInfo, MempoolReader,
-    MinedBlockInfo, ProductionConfig, ProductionStatus, SignatureProvider, StateReader,
+    ProductionConfig, ProductionStatus, SignatureProvider, StateReader,
 };
 
 pub use events::{
