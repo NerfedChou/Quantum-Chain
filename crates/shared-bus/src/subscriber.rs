@@ -69,21 +69,19 @@ impl Subscription {
     /// - `None` - The channel was closed (bus dropped)
     pub async fn recv(&mut self) -> Option<BlockchainEvent> {
         loop {
-            match self.receiver.recv().await {
-                Ok(event) => {
-                    if self.filter.matches(&event) {
-                        return Some(event);
-                    }
-                    // Event doesn't match filter, continue waiting
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    return None;
-                }
+            let event = match self.receiver.recv().await {
+                Ok(e) => e,
+                Err(broadcast::error::RecvError::Closed) => return None,
                 Err(broadcast::error::RecvError::Lagged(count)) => {
                     debug!(lagged = count, "Subscriber lagged, some events dropped");
-                    // Continue receiving
+                    continue;
                 }
+            };
+
+            if self.filter.matches(&event) {
+                return Some(event);
             }
+            // Event doesn't match filter, continue waiting
         }
     }
 
@@ -96,23 +94,17 @@ impl Subscription {
     /// - `Err(SubscriptionError::Closed)` - The channel was closed
     pub fn try_recv(&mut self) -> Result<Option<BlockchainEvent>, SubscriptionError> {
         loop {
-            match self.receiver.try_recv() {
-                Ok(event) => {
-                    if self.filter.matches(&event) {
-                        return Ok(Some(event));
-                    }
-                    // Event doesn't match filter, try again
-                }
-                Err(broadcast::error::TryRecvError::Empty) => {
-                    return Ok(None);
-                }
-                Err(broadcast::error::TryRecvError::Closed) => {
-                    return Err(SubscriptionError::Closed);
-                }
-                Err(broadcast::error::TryRecvError::Lagged(_)) => {
-                    // Continue receiving
-                }
+            let event = match self.receiver.try_recv() {
+                Ok(e) => e,
+                Err(broadcast::error::TryRecvError::Empty) => return Ok(None),
+                Err(broadcast::error::TryRecvError::Closed) => return Err(SubscriptionError::Closed),
+                Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+            };
+
+            if self.filter.matches(&event) {
+                return Ok(Some(event));
             }
+            // Event doesn't match filter, try again
         }
     }
 
@@ -126,13 +118,17 @@ impl Subscription {
 impl Drop for Subscription {
     fn drop(&mut self) {
         // Decrement subscription count
-        if let Ok(mut subs) = self.subscriptions.write() {
-            if let Some(count) = subs.get_mut(&self.topic_key) {
-                *count = count.saturating_sub(1);
-                if *count == 0 {
-                    subs.remove(&self.topic_key);
-                }
-            }
+        let Ok(mut subs) = self.subscriptions.write() else {
+            return;
+        };
+        let Some(count) = subs.get_mut(&self.topic_key) else {
+            debug!(topic = %self.topic_key, "Subscription dropped");
+            return;
+        };
+
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            subs.remove(&self.topic_key);
         }
         debug!(topic = %self.topic_key, "Subscription dropped");
     }

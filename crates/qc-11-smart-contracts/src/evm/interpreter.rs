@@ -273,16 +273,15 @@ where
                 let x = self.stack.pop()?;
 
                 // k >= 32 means no extension needed
-                if k >= U256::from(32) {
-                    self.stack.push(x)?;
-                    continue;
-                }
-
-                let k = k.as_usize();
-                let bit_index = 8 * k + 7;
-                let bit = x.bit(bit_index);
-                let mask = (U256::one() << (bit_index + 1)) - 1;
-                let result = if bit { x | !mask } else { x & mask };
+                let result = if k >= U256::from(32) {
+                    x
+                } else {
+                    let k = k.as_usize();
+                    let bit_index = 8 * k + 7;
+                    let bit = x.bit(bit_index);
+                    let mask = (U256::one() << (bit_index + 1)) - 1;
+                    if bit { x | !mask } else { x & mask }
+                };
                 self.stack.push(result)?;
             }
 

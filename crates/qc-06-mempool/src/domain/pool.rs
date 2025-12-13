@@ -395,28 +395,27 @@ impl TransactionPool {
         let mut proposed_hashes = Vec::new();
 
         for hash in hashes {
-            match self.by_hash.get_mut(hash) {
-                Some(tx) => {
-                    if tx.is_pending_inclusion() {
-                        result.already_pending.push(*hash);
-                    } else {
-                        // Remove from price index (no longer available for proposals)
-                        self.by_price.remove(&PricedTransaction::new(
-                            tx.gas_price,
-                            tx.hash,
-                            tx.added_at,
-                        ));
+            let Some(tx) = self.by_hash.get_mut(hash) else {
+                result.not_found.push(*hash);
+                continue;
+            };
 
-                        // Move to pending inclusion
-                        let _ = tx.propose(block_height, now);
-                        result.proposed_count += 1;
-                        proposed_hashes.push(*hash);
-                    }
-                }
-                None => {
-                    result.not_found.push(*hash);
-                }
+            if tx.is_pending_inclusion() {
+                result.already_pending.push(*hash);
+                continue;
             }
+
+            // Remove from price index (no longer available for proposals)
+            self.by_price.remove(&PricedTransaction::new(
+                tx.gas_price,
+                tx.hash,
+                tx.added_at,
+            ));
+
+            // Move to pending inclusion
+            let _ = tx.propose(block_height, now);
+            result.proposed_count += 1;
+            proposed_hashes.push(*hash);
         }
 
         // Track the batch

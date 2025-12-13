@@ -143,19 +143,20 @@ impl TransactionFamily {
             }
             seen.insert(current);
 
+            // Skip original hash but count descendants
             if current != *hash {
                 info.descendant_count += 1;
                 info.descendant_hashes.insert(current);
-
-                if info.descendant_count >= MAX_DESCENDANTS {
-                    break;
-                }
             }
 
+            // Early break at limit
+            if info.descendant_count >= MAX_DESCENDANTS {
+                break;
+            }
+
+            // Queue children for traversal
             if let Some(children) = self.children.get(&current) {
-                for child in children {
-                    stack.push(*child);
-                }
+                stack.extend(children.iter().copied());
             }
         }
 
