@@ -135,18 +135,21 @@ impl BlockStorageAdapter {
     ) -> Result<(), BlockStorageError> {
         let mut pending = self.pending.write().await;
 
+        // If assembly exists, update it and try to complete
         if let Some(assembly) = pending.get_mut(&block_hash) {
             assembly.merkle_root = Some(merkle_root);
             debug!("MerkleRootComputed received for {:?}", &block_hash[..4]);
             return self.try_complete_assembly(block_hash, &pending).await;
         }
 
-        // Event arrived before BlockValidated - create pending entry
-        if pending.len() < self.max_pending {
-            let mut assembly = PendingAssembly::new(block_hash, 0);
-            assembly.merkle_root = Some(merkle_root);
-            pending.insert(block_hash, assembly);
+        // Event arrived before BlockValidated - create pending entry if space
+        if pending.len() >= self.max_pending {
+            return Ok(());
         }
+
+        let mut assembly = PendingAssembly::new(block_hash, 0);
+        assembly.merkle_root = Some(merkle_root);
+        pending.insert(block_hash, assembly);
 
         Ok(())
     }
@@ -159,18 +162,21 @@ impl BlockStorageAdapter {
     ) -> Result<(), BlockStorageError> {
         let mut pending = self.pending.write().await;
 
+        // If assembly exists, update it and try to complete
         if let Some(assembly) = pending.get_mut(&block_hash) {
             assembly.state_root = Some(state_root);
             debug!("StateRootComputed received for {:?}", &block_hash[..4]);
             return self.try_complete_assembly(block_hash, &pending).await;
         }
 
-        // Event arrived before BlockValidated - create pending entry
-        if pending.len() < self.max_pending {
-            let mut assembly = PendingAssembly::new(block_hash, 0);
-            assembly.state_root = Some(state_root);
-            pending.insert(block_hash, assembly);
+        // Event arrived before BlockValidated - create pending entry if space
+        if pending.len() >= self.max_pending {
+            return Ok(());
         }
+
+        let mut assembly = PendingAssembly::new(block_hash, 0);
+        assembly.state_root = Some(state_root);
+        pending.insert(block_hash, assembly);
 
         Ok(())
     }

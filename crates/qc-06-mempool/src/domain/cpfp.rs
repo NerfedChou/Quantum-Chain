@@ -176,24 +176,24 @@ impl TransactionFamily {
         };
 
         // Check ancestor limit
-        if let Some(parent) = parent_hash {
-            let mut count = 1;
-            let mut current = parent;
-            while let Some(grandparent) = self.parents.get(&current) {
-                count += 1;
-                if count > MAX_ANCESTORS {
-                    return true;
-                }
-                current = *grandparent;
+        let Some(parent) = parent_hash else {
+            return false;
+        };
+
+        let mut count = 1;
+        let mut current = parent;
+        while let Some(grandparent) = self.parents.get(&current) {
+            count += 1;
+            if count > MAX_ANCESTORS {
+                return true;
             }
+            current = *grandparent;
         }
 
         // Check descendant limit of potential parent
-        if let Some(parent) = parent_hash {
-            let descendants = self.get_descendants(&parent);
-            if descendants.descendant_count >= MAX_DESCENDANTS {
-                return true;
-            }
+        let descendants = self.get_descendants(&parent);
+        if descendants.descendant_count >= MAX_DESCENDANTS {
+            return true;
         }
 
         false

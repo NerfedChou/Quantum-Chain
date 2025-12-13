@@ -206,22 +206,24 @@ impl TransactionPool {
             .and_then(|m| m.get(&tx.nonce))
             .copied();
 
-        if let Some(hash) = existing_hash {
-            if self.config.enable_rbf {
-                let existing = self.by_hash.get(&hash).unwrap();
-                if self.can_replace(existing, &tx)? {
-                    self.remove_internal(&hash)?;
-                    return self.add_internal(tx);
-                }
-                return Err(MempoolError::InsufficientFeeBump {
-                    old_price: self.by_hash.get(&hash).unwrap().gas_price,
-                    new_price: tx.gas_price,
-                    min_bump_percent: self.config.rbf_min_bump_percent,
-                });
-            }
+        let Some(hash) = existing_hash else {
+            return self.add_internal(tx);
+        };
+
+        if !self.config.enable_rbf {
             return Err(MempoolError::RbfDisabled);
         }
 
+        let existing = self.by_hash.get(&hash).unwrap();
+        if !self.can_replace(existing, &tx)? {
+            return Err(MempoolError::InsufficientFeeBump {
+                old_price: self.by_hash.get(&hash).unwrap().gas_price,
+                new_price: tx.gas_price,
+                min_bump_percent: self.config.rbf_min_bump_percent,
+            });
+        }
+
+        self.remove_internal(&hash)?;
         self.add_internal(tx)
     }
 

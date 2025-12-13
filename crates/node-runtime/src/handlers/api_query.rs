@@ -190,21 +190,18 @@ impl ApiQueryHandler {
 
                 // Get the height to query
                 let latest = storage.get_latest_height().unwrap_or(0);
-                let height = block_id.map_or(latest, |id| {
-                    // Parse as string tag first
-                    if let Some(tag) = id.as_str() {
-                        return match tag {
-                            "latest" | "pending" => latest,
-                            "earliest" => 0,
-                            hex if hex.starts_with("0x") => {
-                                u64::from_str_radix(&hex[2..], 16).unwrap_or(0)
-                            }
-                            _ => 0,
-                        };
-                    }
-                    // Then try as number
-                    id.as_u64().unwrap_or(latest)
-                });
+                let height = block_id
+                    .and_then(|id| id.as_str())
+                    .map(|tag| match tag {
+                        "latest" | "pending" => latest,
+                        "earliest" => 0,
+                        hex if hex.starts_with("0x") => {
+                            u64::from_str_radix(&hex[2..], 16).unwrap_or(0)
+                        }
+                        _ => 0,
+                    })
+                    .or_else(|| block_id.and_then(|id| id.as_u64()))
+                    .unwrap_or(latest);
 
                 match storage.read_block_by_height(height) {
                     Ok(stored) => {
