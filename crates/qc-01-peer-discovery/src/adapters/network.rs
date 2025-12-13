@@ -535,13 +535,12 @@ mod toml_config {
                 toml::from_str(content).map_err(|e| ConfigError::Parse(e.to_string()))?;
 
             // Parse bootstrap nodes
-            let mut bootstrap_nodes = Vec::new();
-            for node_str in &file.bootstrap.nodes {
-                let Some(addr) = Self::parse_socket_addr(node_str) else {
-                    continue;
-                };
-                bootstrap_nodes.push(addr);
-            }
+            let bootstrap_nodes: Vec<_> = file
+                .bootstrap
+                .nodes
+                .iter()
+                .filter_map(|node_str| Self::parse_socket_addr(node_str))
+                .collect();
 
             // Build Kademlia config with defaults
             let kc = file.kademlia;

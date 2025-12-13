@@ -248,6 +248,37 @@ impl TrieNode {
         let encoded = self.rlp_encode();
         keccak256(&encoded)
     }
+
+    /// Process a single trie node during proof traversal.
+    ///
+    /// Returns `Some(next_hash)` to continue traversal, or `None` to stop.
+    /// This helper reduces nesting depth in proof generation loops.
+    fn process_for_proof(&self, key: &Nibbles, depth: &mut usize) -> Option<Hash> {
+        match self {
+            TrieNode::Empty => None,
+
+            TrieNode::Leaf { .. } => None, // Stop at leaf
+
+            TrieNode::Extension { path, child } => {
+                let remaining = key.slice(*depth);
+                if !remaining.0.starts_with(&path.0) {
+                    return None; // Path diverges
+                }
+                *depth += path.len();
+                Some(*child)
+            }
+
+            TrieNode::Branch { children, .. } => {
+                if *depth >= key.len() {
+                    return None; // Boundary reached
+                }
+                let nibble = key.at(*depth) as usize;
+                let child = children[nibble]?;
+                *depth += 1;
+                Some(child)
+            }
+        }
+    }
 }
 
 // =============================================================================
@@ -715,41 +746,11 @@ impl PatriciaMerkleTrie {
             // Add RLP-encoded node to proof
             proof_nodes.push(node.rlp_encode());
 
-            match node {
-                TrieNode::Empty => break,
-
-                TrieNode::Leaf { path, .. } => {
-                    // Verify path matches (or exclusion proof if mismatch)
-                    let _remaining = key.slice(depth);
-                    let _expected = &path.0;
-                    // Key found or exclusion proof completed
-                    break;
-                }
-
-                TrieNode::Extension { path, child } => {
-                    let remaining = key.slice(depth);
-                    // Path diverges - exclusion proof
-                    if !remaining.0.starts_with(&path.0) {
-                        break;
-                    }
-                    depth += path.len();
-                    current_hash = *child;
-                }
-
-                TrieNode::Branch { children, .. } => {
-                    // Boundary check - stop traversal
-                    if depth >= key.len() {
-                        break;
-                    }
-                    let nibble = key.at(depth) as usize;
-                    // Path doesn't exist - exclusion proof
-                    let Some(child_hash) = children[nibble] else {
-                        break;
-                    };
-                    depth += 1;
-                    current_hash = child_hash;
-                }
-            }
+            // Process node and get next hash (or None to stop)
+            let Some(next_hash) = node.process_for_proof(&key, &mut depth) else {
+                break;
+            };
+            current_hash = next_hash;
         }
 
         Ok(StateProof {

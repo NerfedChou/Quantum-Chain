@@ -145,7 +145,9 @@
 #![warn(missing_docs)]
 #![allow(missing_docs)] // TODO: Add documentation for all public items
 #![warn(clippy::all)]
-#![allow(clippy::excessive_nesting)] // Acceptable for middleware chains
+// TODO(TECH-DEBT): Middleware chains have 37 excessive_nesting violations requiring major refactoring
+// Justification: RPC handler dispatch uses nested match arms; scheduled for Phase 4 cleanup
+#![allow(clippy::excessive_nesting)]
 #![deny(unsafe_code)]
 
 pub mod adapters;

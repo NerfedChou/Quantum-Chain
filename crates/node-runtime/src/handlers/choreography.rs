@@ -364,38 +364,38 @@ impl BlockStorageHandler {
             ChoreographyEvent::BlockValidated {
                 block_hash,
                 block_height,
-                    sender_id,
-                } => {
-                    if sender_id == SubsystemId::Consensus {
-                        self.handle_block_validated(block_hash, block_height).await;
-                    } else {
-                        warn!("[qc-02] Ignoring BlockValidated from {:?}", sender_id);
-                    }
+                sender_id,
+            } => {
+                if sender_id == SubsystemId::Consensus {
+                    self.handle_block_validated(block_hash, block_height).await;
+                } else {
+                    warn!("[qc-02] Ignoring BlockValidated from {:?}", sender_id);
                 }
-                ChoreographyEvent::MerkleRootComputed {
-                    block_hash,
-                    merkle_root,
-                    sender_id,
-                } => {
-                    if sender_id == SubsystemId::TransactionIndexing {
-                        self.handle_merkle_root(block_hash, merkle_root).await;
-                    } else {
-                        warn!("[qc-02] Ignoring MerkleRootComputed from {:?}", sender_id);
-                    }
-                }
-                ChoreographyEvent::StateRootComputed {
-                    block_hash,
-                    state_root,
-                    sender_id,
-                } => {
-                    if sender_id == SubsystemId::StateManagement {
-                        self.handle_state_root(block_hash, state_root).await;
-                    } else {
-                        warn!("[qc-02] Ignoring StateRootComputed from {:?}", sender_id);
-                    }
-                }
-                _ => {}
             }
+            ChoreographyEvent::MerkleRootComputed {
+                block_hash,
+                merkle_root,
+                sender_id,
+            } => {
+                if sender_id == SubsystemId::TransactionIndexing {
+                    self.handle_merkle_root(block_hash, merkle_root).await;
+                } else {
+                    warn!("[qc-02] Ignoring MerkleRootComputed from {:?}", sender_id);
+                }
+            }
+            ChoreographyEvent::StateRootComputed {
+                block_hash,
+                state_root,
+                sender_id,
+            } => {
+                if sender_id == SubsystemId::StateManagement {
+                    self.handle_state_root(block_hash, state_root).await;
+                } else {
+                    warn!("[qc-02] Ignoring StateRootComputed from {:?}", sender_id);
+                }
+            }
+            _ => {}
+        }
     }
 }
 

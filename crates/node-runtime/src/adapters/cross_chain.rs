@@ -54,10 +54,7 @@ impl CrossChainAdapter {
     }
 
     /// Initiate a new atomic swap.
-    pub fn initiate_swap(
-        &mut self,
-        params: AtomicSwapParams,
-    ) -> (AtomicSwap, Secret) {
+    pub fn initiate_swap(&mut self, params: AtomicSwapParams) -> (AtomicSwap, Secret) {
         let (swap, secret) = create_atomic_swap(params);
 
         self.swaps.insert(swap.id, swap.clone());
