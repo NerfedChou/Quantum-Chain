@@ -41,6 +41,7 @@ impl EventBusAdapter {
     pub fn publish(&self, event: ChoreographyEvent) -> Result<(), EventBusError> {
         // Verify sender matches this adapter
         let event_sender = match &event {
+            ChoreographyEvent::BlockProduced { sender_id, .. } => *sender_id,
             ChoreographyEvent::BlockValidated { sender_id, .. } => *sender_id,
             ChoreographyEvent::MerkleRootComputed { sender_id, .. } => *sender_id,
             ChoreographyEvent::StateRootComputed { sender_id, .. } => *sender_id,

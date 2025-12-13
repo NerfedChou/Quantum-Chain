@@ -124,7 +124,7 @@ impl IpcHandler {
 
     /// Health check a subsystem (ping with short timeout)
     pub async fn health_check(&self, target: &str) -> Result<u64, IpcError> {
-        use crate::domain::correlation::CorrelationId;
+        use crate::CorrelationId;
 
         let start = std::time::Instant::now();
         let timeout = Duration::from_millis(500);

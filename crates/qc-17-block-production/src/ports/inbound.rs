@@ -24,9 +24,10 @@ pub trait BlockProducerService: Send + Sync {
     /// Get current mining/proposing status
     async fn get_status(&self) -> ProductionStatus;
 
-    /// Drain pending mined blocks from the queue
-    /// Returns blocks that were mined since last drain, each with their own difficulty/nonce
-    /// CRITICAL: This prevents data loss when multiple blocks mine between bridge polls
+    /// DEPRECATED (V2.4): Drain pending mined blocks from the queue
+    /// This is no longer used - bridge now subscribes to BlockProduced events.
+    /// Kept for API compatibility, will be removed in V2.5.
+    #[deprecated(since = "2.4.0", note = "Bridge now subscribes to BlockProduced events")]
     async fn drain_pending_blocks(&self) -> Vec<MinedBlockInfo>;
 
     /// Update block gas limit
@@ -140,7 +141,9 @@ pub struct ProductionStatus {
     /// Last mined nonce (PoW only)
     pub last_nonce: Option<u64>,
 
-    /// Queue of mined blocks waiting for bridge to process
-    /// Each block has its own difficulty/nonce - prevents data loss when multiple blocks mine between polls
+    /// DEPRECATED (V2.4): Queue of mined blocks waiting for bridge to process
+    /// This is no longer used - blocks are now published via BlockProduced events.
+    /// Kept for API compatibility, will be removed in V2.5.
+    #[deprecated(since = "2.4.0", note = "Blocks now published via BlockProduced events")]
     pub pending_blocks: Vec<MinedBlockInfo>,
 }

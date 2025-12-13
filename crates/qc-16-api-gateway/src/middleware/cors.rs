@@ -2,7 +2,7 @@
 //!
 //! Wrapper around tower-http CORS with gateway configuration.
 
-use crate::domain::config::CorsConfig;
+use crate::CorsConfig;
 use axum::http::{HeaderName, Method};
 use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer as TowerCorsLayer};

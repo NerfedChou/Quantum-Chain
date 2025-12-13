@@ -1,6 +1,6 @@
 //! Ethereum JSON-RPC methods (eth_*) per SPEC-16 Section 3.1.
 
-use crate::domain::error::{ApiError, ApiResult};
+use crate::{ApiError, ApiResult};
 use crate::domain::types::*;
 use crate::ipc::handler::IpcHandler;
 use crate::ipc::requests::*;

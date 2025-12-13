@@ -556,7 +556,9 @@ impl RoutingTable {
                 continue;
             }
             // Challenge timed out: treat as PONG failure (peer is dead)
-            let pending = bucket.pending_insertion.take().unwrap();
+            let Some(pending) = bucket.pending_insertion.take() else {
+                continue;
+            };
             expired.push((idx, pending.candidate, pending.challenged_peer));
         }
 

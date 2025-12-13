@@ -128,18 +128,23 @@ pub mod batch {
         // Verify sequential nonces
         for (address, mut nonces) in sender_nonces {
             nonces.sort_unstable();
-
-            for window in nonces.windows(2) {
-                if window[1] != window[0] + 1 {
-                    return Err(BlockProductionError::NonceMismatch {
-                        address: hex::encode(address),
-                        expected: window[0] + 1,
-                        actual: window[1],
-                    });
-                }
-            }
+            verify_nonce_sequence(&address, &nonces)?;
         }
 
+        Ok(())
+    }
+
+    /// Verify nonces are sequential (helper to reduce nesting)
+    fn verify_nonce_sequence(address: &[u8; 20], nonces: &[u64]) -> Result<()> {
+        for window in nonces.windows(2) {
+            if window[1] != window[0] + 1 {
+                return Err(BlockProductionError::NonceMismatch {
+                    address: hex::encode(address),
+                    expected: window[0] + 1,
+                    actual: window[1],
+                });
+            }
+        }
         Ok(())
     }
 

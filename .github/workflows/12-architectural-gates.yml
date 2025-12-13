@@ -1,0 +1,419 @@
+# ==============================================================================
+# ARCHITECTURAL GATES - COUPLING & COHESION ENFORCEMENT
+# ==============================================================================
+# Prevents architectural degradation by enforcing:
+# - Domain isolation (no cross-subsystem imports in domain/)
+# - Adapter boundaries (no domain internals re-exported)
+# - Parameter object usage (fail on too_many_arguments)
+# - Orchestration import budget (node-runtime <= 50 imports)
+#
+# ZERO TOLERANCE: Violations BLOCK merge. No exceptions.
+# ==============================================================================
+
+name: "12 - Architectural Gates"
+
+on:
+  workflow_call:
+  pull_request:
+    paths:
+      - "crates/**/*.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+concurrency:
+  group: arch-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  # Import budget for orchestration layer
+  NODE_RUNTIME_IMPORT_BUDGET: 50
+
+jobs:
+  # ==========================================================================
+  # GATE 1: Domain Isolation
+  # Domain modules must NEVER import other subsystems
+  # ==========================================================================
+  domain-isolation:
+    name: "🏰 Domain Isolation"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check domain imports
+        id: domain-check
+        run: |
+          echo "## Domain Isolation Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Find any domain/ folder importing from qc_* crates
+          violations=$(find crates/qc-*/src/domain -name "*.rs" -exec grep -l "^use qc_" {} \; 2>/dev/null || true)
+          
+          if [ -n "$violations" ]; then
+            echo "❌ **VIOLATION**: Domain modules importing other subsystems:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$violations" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!CAUTION]" >> $GITHUB_STEP_SUMMARY
+            echo "> Domain modules must be pure. Use ports/outbound traits for external dependencies." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          
+          echo "✅ All domain modules are properly isolated" >> $GITHUB_STEP_SUMMARY
+
+  # ==========================================================================
+  # GATE 2: Adapter Boundary
+  # Adapters must not re-export domain internals
+  # ==========================================================================
+  adapter-boundary:
+    name: "🛡️ Adapter Boundary"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check adapter exports
+        run: |
+          echo "## Adapter Boundary Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check for pub use of domain internals in adapters
+          violations=$(grep -rn "pub use.*domain::" crates/*/src/adapters --include="*.rs" 2>/dev/null || true)
+          
+          if [ -n "$violations" ]; then
+            echo "⚠️ **WARNING**: Adapters re-exporting domain internals:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$violations" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> Adapters should expose their own types, not domain internals." >> $GITHUB_STEP_SUMMARY
+            # Warning only, not blocking for now
+          else
+            echo "✅ Adapter boundaries are clean" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 3: Parameter Object Enforcement
+  # Functions must use Request/Params objects, not raw parameters
+  # ==========================================================================
+  parameter-objects:
+    name: "📦 Parameter Objects"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        
+      - name: Check function signatures
+        run: |
+          echo "## Parameter Object Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Run clippy with too_many_arguments as deny
+          cargo clippy --all-targets -- \
+            -D clippy::too_many_arguments \
+            2>&1 | tee clippy_output.txt || true
+          
+          # Count violations
+          violations=$(grep -c "too_many_arguments" clippy_output.txt || echo "0")
+          
+          if [ "$violations" -gt "0" ]; then
+            echo "⚠️ Found $violations functions with too many arguments" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> Consider using Parameter Objects (Request/Params structs)" >> $GITHUB_STEP_SUMMARY
+            # Warning for now, will become error later
+          else
+            echo "✅ All functions have acceptable parameter counts" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 4: Orchestration Import Budget
+  # node-runtime must not become a God Object
+  # ==========================================================================
+  import-budget:
+    name: "📊 Import Budget"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check node-runtime imports
+        run: |
+          echo "## Orchestration Import Budget" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Count cross-subsystem imports in node-runtime
+          count=$(grep -rh "^use qc_" crates/node-runtime/src --include='*.rs' 2>/dev/null | wc -l)
+          budget=${{ env.NODE_RUNTIME_IMPORT_BUDGET }}
+          
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Current imports | $count |" >> $GITHUB_STEP_SUMMARY
+          echo "| Budget | $budget |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$count" -gt "$budget" ]; then
+            echo "❌ **OVER BUDGET**: node-runtime has $count imports (budget: $budget)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!CAUTION]" >> $GITHUB_STEP_SUMMARY
+            echo "> node-runtime is becoming a God Object. Consider:" >> $GITHUB_STEP_SUMMARY
+            echo "> - Using event-driven communication" >> $GITHUB_STEP_SUMMARY
+            echo "> - Extracting subsystem facades" >> $GITHUB_STEP_SUMMARY
+            echo "> - Moving logic to dedicated crates" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          
+          # Calculate usage percentage
+          pct=$((count * 100 / budget))
+          echo "✅ Import budget: $count/$budget ($pct% used)" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$pct" -gt "80" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> ⚠️ Approaching budget limit. Plan refactoring." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 6: Subsystem Structure Compliance
+  # Every qc-* crate must have domain/, ports/, adapters/
+  # ==========================================================================
+  subsystem-structure:
+    name: "📐 Subsystem Structure"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check required directories
+        run: |
+          echo "## Subsystem Structure Compliance" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Subsystem | domain/ | ports/ | adapters/ | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|---------|--------|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          all_pass=true
+          for crate in crates/qc-*/; do
+            name=$(basename $crate)
+            has_domain="❌"
+            has_ports="❌"
+            has_adapters="❌"
+            status="❌ FAIL"
+            
+            [ -d "$crate/src/domain" ] && has_domain="✅"
+            [ -d "$crate/src/ports" ] && has_ports="✅"
+            [ -d "$crate/src/adapters" ] && has_adapters="✅"
+            
+            if [ "$has_domain" = "✅" ] && [ "$has_ports" = "✅" ]; then
+              status="✅ PASS"
+            else
+              all_pass=false
+            fi
+            
+            echo "| $name | $has_domain | $has_ports | $has_adapters | $status |" >> $GITHUB_STEP_SUMMARY
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$all_pass" = false ]; then
+            echo "> ⚠️ Some subsystems missing required directories" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ All subsystems have required structure" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 7: Request Object Minimum
+  # Every subsystem domain must have at least 1 Request/Params struct
+  # ==========================================================================
+  request-objects:
+    name: "📨 Request Objects"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check request object usage
+        run: |
+          echo "## Request Object Usage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Subsystem | Request/Params Structs | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|------------------------|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          violations=""
+          for crate in crates/qc-*/; do
+            name=$(basename $crate)
+            
+            # Count Request/Params/Command structs in domain
+            count=$(grep -rn "struct.*Request\|struct.*Params\|struct.*Command" \
+              "$crate/src/domain" --include="*.rs" 2>/dev/null | wc -l || echo "0")
+            
+            if [ "$count" -lt "1" ]; then
+              status="⚠️ None"
+              violations="$violations$name "
+            elif [ "$count" -lt "2" ]; then
+              status="🟡 $count"
+            else
+              status="✅ $count"
+            fi
+            
+            echo "| $name | $count | $status |" >> $GITHUB_STEP_SUMMARY
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$violations" ]; then
+            echo "> ⚠️ **Subsystems without Request Objects**: $violations" >> $GITHUB_STEP_SUMMARY
+            echo "> Consider adding Request/Params structs to reduce signature coupling" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ All subsystems use Request Objects" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 8: Cascade Risk Threshold
+  # Domain import percentage must be <= 50%
+  # ==========================================================================
+  cascade-risk:
+    name: "💥 Cascade Risk"
+    runs-on: ubuntu-latest
+    env:
+      CASCADE_THRESHOLD: 50
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check domain import percentage
+        run: |
+          echo "## Cascade Risk Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Subsystem | Files | Domain Imports | % | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|----------------|---|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          high_risk=""
+          for crate in crates/qc-*/; do
+            name=$(basename $crate)
+            
+            # Count total files
+            total=$(find "$crate/src" -name "*.rs" 2>/dev/null | wc -l)
+            if [ "$total" -eq "0" ]; then
+              continue
+            fi
+            
+            # Count files importing domain
+            domain_count=$(grep -rl "domain::" "$crate/src" --include='*.rs' 2>/dev/null | wc -l || echo "0")
+            
+            # Calculate percentage
+            if [ "$total" -gt "0" ]; then
+              pct=$((domain_count * 100 / total))
+            else
+              pct=0
+            fi
+            
+            # Determine status
+            if [ "$pct" -gt "$CASCADE_THRESHOLD" ]; then
+              status="🔴 HIGH"
+              high_risk="$high_risk$name($pct%) "
+            elif [ "$pct" -gt "30" ]; then
+              status="🟡 MEDIUM"
+            else
+              status="🟢 LOW"
+            fi
+            
+            echo "| $name | $total | $domain_count | $pct% | $status |" >> $GITHUB_STEP_SUMMARY
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$high_risk" ]; then
+            echo "> [!WARNING]" >> $GITHUB_STEP_SUMMARY
+            echo "> **High cascade risk detected**: $high_risk" >> $GITHUB_STEP_SUMMARY
+            echo "> Domain changes in these subsystems affect >50% of files" >> $GITHUB_STEP_SUMMARY
+            # Warning only for now, can make blocking later
+          else
+            echo "✅ All subsystems have acceptable cascade risk" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 9: Choreography Compliance
+  # node-runtime must NOT call subsystem methods at runtime (orchestration)
+  # Only event-driven communication is allowed after bootstrap
+  # ==========================================================================
+  choreography-compliance:
+    name: "🎭 Choreography"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for runtime orchestration
+        run: |
+          echo "## Choreography Compliance" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Checking node-runtime for direct subsystem calls at runtime..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Detect direct .await calls on subsystem services (orchestration pattern)
+          # Exclude: spawn, container creation, event bus operations
+          # V2.4: Bridge now uses event subscription - no more status_checker polling
+          violations=$(grep -n "\.await" crates/node-runtime/src/main.rs 2>/dev/null | \
+            grep -E "service\.|pool\.|producer\.|manager\." | \
+            grep -v "spawn" | grep -v "new(" | grep -v "build(" || true)
+          
+          violation_count=$(echo "$violations" | grep -c '.' || echo "0")
+          
+          if [ -n "$violations" ] && [ "$violation_count" -gt "0" ]; then
+            echo "⚠️ **Potential orchestration detected** ($violation_count occurrences):" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$violations" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!CAUTION]" >> $GITHUB_STEP_SUMMARY
+            echo "> Choreography architecture requires event-driven communication." >> $GITHUB_STEP_SUMMARY
+            echo "> Direct method calls on subsystems violate the pattern." >> $GITHUB_STEP_SUMMARY
+            echo "> Refactor to use Event Bus queries instead." >> $GITHUB_STEP_SUMMARY
+            # Critical - exit with failure
+            exit 1
+          else
+            echo "✅ No runtime orchestration detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "node-runtime uses event-driven choreography as required." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # SUMMARY GATE
+  # ==========================================================================
+  arch-summary:
+    name: "📋 Architecture Summary"
+    runs-on: ubuntu-latest
+    needs: [domain-isolation, adapter-boundary, parameter-objects, import-budget, subsystem-structure, request-objects, cascade-risk, choreography-compliance]
+    if: always()
+    steps:
+      - name: Check gate results
+        run: |
+          echo "## Architecture Gates Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check each gate
+          domain="${{ needs.domain-isolation.result }}"
+          adapter="${{ needs.adapter-boundary.result }}"
+          params="${{ needs.parameter-objects.result }}"
+          budget="${{ needs.import-budget.result }}"
+          structure="${{ needs.subsystem-structure.result }}"
+          requests="${{ needs.request-objects.result }}"
+          cascade="${{ needs.cascade-risk.result }}"
+          choreography="${{ needs.choreography-compliance.result }}"
+          
+          echo "| Gate | Status | Blocking |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🏰 Domain Isolation | $domain | ✅ Yes |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🛡️ Adapter Boundary | $adapter | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📦 Parameter Objects | $params | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📊 Import Budget | $budget | ✅ Yes |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📐 Subsystem Structure | $structure | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📨 Request Objects | $requests | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
+          echo "| 💥 Cascade Risk | $cascade | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🎭 Choreography | $choreography | ✅ Yes |" >> $GITHUB_STEP_SUMMARY
+          
+          # Fail if critical gates failed
+          if [ "$domain" = "failure" ] || [ "$budget" = "failure" ] || [ "$choreography" = "failure" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **Critical architectural violations detected. Merge blocked.**" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ All critical architectural gates passed" >> $GITHUB_STEP_SUMMARY

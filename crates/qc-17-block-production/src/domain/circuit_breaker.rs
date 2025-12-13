@@ -114,31 +114,31 @@ impl CircuitBreaker {
             .or_insert_with(SubsystemCircuit::new);
 
         match circuit.state {
-            CircuitState::Closed => true,
+            CircuitState::Closed | CircuitState::HalfOpen => true,
             CircuitState::Open => {
-                // Check if timeout has elapsed
-                if let Some(last_failure) = circuit.last_failure_time {
-                    if last_failure.elapsed() >= self.config.open_timeout {
-                        // Transition to half-open
-                        circuit.state = CircuitState::HalfOpen;
-                        circuit.success_count = 0;
-                        tracing::info!(
-                            "[circuit-breaker] {} transitioning to half-open",
-                            subsystem
-                        );
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
-            CircuitState::HalfOpen => {
-                // Allow limited requests in half-open
-                true
+                self.try_transition_to_half_open(circuit, subsystem)
             }
         }
+    }
+
+    /// Try to transition from Open to HalfOpen if timeout elapsed
+    fn try_transition_to_half_open(&self, circuit: &mut SubsystemCircuit, subsystem: &str) -> bool {
+        let Some(last_failure) = circuit.last_failure_time else {
+            return false;
+        };
+        
+        if last_failure.elapsed() < self.config.open_timeout {
+            return false;
+        }
+
+        // Transition to half-open
+        circuit.state = CircuitState::HalfOpen;
+        circuit.success_count = 0;
+        tracing::info!(
+            "[circuit-breaker] {} transitioning to half-open",
+            subsystem
+        );
+        true
     }
 
     /// Record a successful request

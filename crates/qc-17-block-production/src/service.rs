@@ -145,48 +145,46 @@ impl ConcreteBlockProducer {
             .and_then(|p| p.dgw_window)
             .unwrap_or(24) as u32;
 
-        if let Some(ref reader) = self.block_storage_reader {
-            debug!(
-                "[qc-17] Querying Block Storage for chain state (DGW window: {})",
-                dgw_window
-            );
-
-            match reader.get_chain_info(dgw_window).await {
-                Ok(chain_info) => {
-                    info!(
-                        "[qc-17] 📊 Retrieved chain state: height={}, {} recent blocks",
-                        chain_info.chain_tip_height,
-                        chain_info.recent_blocks.len()
-                    );
-
-                    // Get last difficulty from most recent block
-                    let last_difficulty = chain_info.recent_blocks.first().map(|b| b.difficulty);
-
-                    if let Some(diff) = last_difficulty {
-                        info!(
-                            "[qc-17] 💎 Last difficulty: {}",
-                            DifficultyAdjuster::describe_difficulty(diff)
-                        );
-                    }
-
-                    Ok(ProductionConfig {
-                        starting_height: chain_info.chain_tip_height,
-                        last_difficulty,
-                        recent_blocks: chain_info.recent_blocks,
-                        ..ProductionConfig::default()
-                    })
-                }
-                Err(e) => {
-                    warn!(
-                        "[qc-17] Failed to query chain state: {}. Starting from genesis.",
-                        e
-                    );
-                    Ok(ProductionConfig::default())
-                }
-            }
-        } else {
+        let Some(ref reader) = self.block_storage_reader else {
             debug!("[qc-17] No block storage reader configured, using default config");
-            Ok(ProductionConfig::default())
+            return Ok(ProductionConfig::default());
+        };
+
+        debug!(
+            "[qc-17] Querying Block Storage for chain state (DGW window: {})",
+            dgw_window
+        );
+
+        let Ok(chain_info) = reader.get_chain_info(dgw_window).await else {
+            warn!("[qc-17] Failed to query chain state. Starting from genesis.");
+            return Ok(ProductionConfig::default());
+        };
+
+        info!(
+            "[qc-17] 📊 Retrieved chain state: height={}, {} recent blocks",
+            chain_info.chain_tip_height,
+            chain_info.recent_blocks.len()
+        );
+
+        // Get last difficulty and log it
+        let last_difficulty = chain_info.recent_blocks.first().map(|b| b.difficulty);
+        Self::log_last_difficulty(last_difficulty);
+
+        Ok(ProductionConfig {
+            starting_height: chain_info.chain_tip_height,
+            last_difficulty,
+            recent_blocks: chain_info.recent_blocks,
+            ..ProductionConfig::default()
+        })
+    }
+
+    /// Log last difficulty if available (helper to reduce nesting)
+    fn log_last_difficulty(last_difficulty: Option<U256>) {
+        if let Some(diff) = last_difficulty {
+            info!(
+                "[qc-17] 💎 Last difficulty: {}",
+                DifficultyAdjuster::describe_difficulty(diff)
+            );
         }
     }
 
@@ -284,7 +282,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                 // Start PoW mining in background task
                 let is_active = Arc::new(std::sync::atomic::AtomicBool::new(true));
                 let is_active_clone = Arc::clone(&is_active);
-                let _event_bus = Arc::clone(&self.event_bus); // Reserved for future event publishing
+                let event_bus = Arc::clone(&self.event_bus); // EDA: Publish BlockProduced events
                 let block_config = self.config.read().unwrap().clone();
                 let pow_miner = PoWMiner::new(threads);
                 let status = self.status.clone(); // Share the same RwLock, don't copy!
@@ -566,8 +564,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                                 });
                                 info!("EVENT_FLOW_JSON {}", event);
 
-                                // Update status with difficulty and nonce for bridge
-                                // CRITICAL: Push to pending_blocks queue so bridge gets each block's correct data
+                                // Update status (for monitoring/stats only)
                                 {
                                     let mut status_guard = status.write().unwrap();
                                     status_guard.blocks_produced = blocks_mined;
@@ -576,23 +573,40 @@ impl BlockProducerService for ConcreteBlockProducer {
                                     status_guard.current_difficulty = Some(difficulty);
                                     status_guard.last_nonce = Some(nonce);
 
-                                    // Push this block's info to pending queue for bridge
-                                    status_guard.pending_blocks.push(MinedBlockInfo {
-                                        height: block_number,
-                                        timestamp,
-                                        difficulty,
-                                        nonce,
-                                        parent_hash: parent_hash.0,
-                                    });
+                                    // NOTE: pending_blocks queue removed - now using EDA event publishing
+                                    // See BlockProduced event publishing below
 
                                     info!(
-                                        "[qc-17] 📊 Status updated: blocks_produced={}, pending_queue={}",
-                                        status_guard.blocks_produced, status_guard.pending_blocks.len()
+                                        "[qc-17] 📊 Status updated: blocks_produced={}",
+                                        status_guard.blocks_produced
                                     );
                                 }
 
-                                // Block validation is triggered by the choreography bridge in node-runtime
-                                // which polls status and publishes BlockValidated events
+                                // V2.3 CHOREOGRAPHY: Publish BlockProduced event directly
+                                // This triggers qc-08 (Consensus) to validate the block
+                                use shared_bus::EventPublisher;
+                                use shared_bus::BlockchainEvent;
+                                let block_hash_event: [u8; 32] = block_hash.clone().try_into().unwrap_or_default();
+                                let difficulty_bytes: [u8; 32] = {
+                                    let mut bytes = [0u8; 32];
+                                    difficulty.to_big_endian(&mut bytes);
+                                    bytes
+                                };
+                                let event = BlockchainEvent::BlockProduced {
+                                    block_height: block_number,
+                                    block_hash: block_hash_event,
+                                    difficulty: difficulty_bytes,
+                                    nonce,
+                                    timestamp,
+                                    parent_hash: parent_hash.0,
+                                };
+                                let receivers = event_bus.publish(event).await;
+                                info!(
+                                    "[qc-17] 📤 Published BlockProduced event for block #{} (receivers: {})",
+                                    block_number, receivers
+                                );
+
+                                // NOTE: Bridge polling is now REDUNDANT - can be removed in Phase 2
 
                                 // Update last block hash for proper chain linking
                                 // Use the hash from mining directly

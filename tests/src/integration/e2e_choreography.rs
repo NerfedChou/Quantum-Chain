@@ -405,4 +405,88 @@ mod tests {
             "Different transactions should produce different roots"
         );
     }
+
+    // =========================================================================
+    // BLOCK PRODUCTION CHOREOGRAPHY (qc-17 → Event Bus → Subscribers)
+    // =========================================================================
+
+    /// Test: qc-17 BlockProduced event flows through event bus to subscribers
+    ///
+    /// TDD Phase: RED → GREEN
+    ///
+    /// This test validates the Phase 1 choreography fix where qc-17 publishes
+    /// BlockProduced events directly to the event bus, instead of storing in
+    /// memory for the bridge to poll.
+    #[tokio::test]
+    async fn test_block_produced_triggers_choreography_flow() {
+        use shared_bus::{BlockchainEvent, EventFilter, EventPublisher, EventTopic};
+        use std::time::Duration;
+
+        // GIVEN: Event bus with subscriber listening for BlockProduction events
+        let event_bus = Arc::new(InMemoryEventBus::new());
+        let filter = EventFilter::topics(vec![EventTopic::BlockProduction]);
+        let mut subscription = event_bus.subscribe(filter);
+
+        // WHEN: qc-17 publishes a BlockProduced event (simulating mining completion)
+        let block_height = 42u64;
+        let block_hash = block_hash_from_height(block_height);
+        let parent_hash = block_hash_from_height(block_height - 1);
+        let timestamp = now_secs();
+
+        let event = BlockchainEvent::BlockProduced {
+            block_height,
+            block_hash,
+            difficulty: [0u8; 32],
+            nonce: 123456789,
+            timestamp,
+            parent_hash,
+        };
+
+        let receivers = event_bus.publish(event.clone()).await;
+        assert!(receivers > 0, "Should have at least one subscriber");
+
+        // THEN: Subscriber receives the BlockProduced event
+        let received = tokio::time::timeout(Duration::from_secs(1), subscription.recv())
+            .await
+            .expect("Should receive event within timeout")
+            .expect("Stream should not be closed");
+
+        match received {
+            BlockchainEvent::BlockProduced {
+                block_height: h,
+                nonce,
+                ..
+            } => {
+                assert_eq!(h, 42, "Block height should match");
+                assert_eq!(nonce, 123456789, "Nonce should match");
+            }
+            _ => panic!("Expected BlockProduced event, got {:?}", received),
+        }
+    }
+
+    /// Test: Multiple subscribers receive BlockProduced event (choreography fan-out)
+    #[tokio::test]
+    async fn test_block_produced_fanout_to_multiple_subscribers() {
+        use shared_bus::{BlockchainEvent, EventFilter, EventPublisher, EventTopic};
+
+        let event_bus = Arc::new(InMemoryEventBus::new());
+        let filter = EventFilter::topics(vec![EventTopic::BlockProduction]);
+
+        // Create 3 subscribers (simulating Consensus, Metrics, Logging)
+        let _sub1 = event_bus.subscribe(filter.clone());
+        let _sub2 = event_bus.subscribe(filter.clone());
+        let _sub3 = event_bus.subscribe(filter);
+
+        let event = BlockchainEvent::BlockProduced {
+            block_height: 1,
+            block_hash: [1u8; 32],
+            difficulty: [0u8; 32],
+            nonce: 1,
+            timestamp: now_secs(),
+            parent_hash: [0u8; 32],
+        };
+
+        let receivers = event_bus.publish(event).await;
+        assert_eq!(receivers, 3, "All 3 subscribers should receive the event");
+    }
 }

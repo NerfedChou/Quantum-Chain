@@ -169,6 +169,53 @@ fn create_validated_block(params: MinedBlockParams) -> shared_types::ValidatedBl
     }
 }
 
+/// Result of storing and publishing a block
+struct BlockProcessingResult {
+    stored_hash: [u8; 32],
+}
+
+/// Store a mined block and publish the BlockValidated event
+/// Returns the stored block hash on success
+fn store_and_publish_block(
+    block: shared_types::ValidatedBlock,
+    block_height: u64,
+    storage: &mut impl qc_02_block_storage::ports::inbound::BlockStorageApi,
+    router: &std::sync::Arc<crate::wiring::EventRouter>,
+) -> Option<BlockProcessingResult> {
+    // Store block to qc-02
+    let stored_hash = match storage.write_block(
+        block,
+        shared_types::Hash::default(),
+        shared_types::Hash::default(),
+    ) {
+        Ok(hash) => hash,
+        Err(e) => {
+            error!("[Bridge] ❌ Failed to store block #{}: {}", block_height, e);
+            return None;
+        }
+    };
+
+    info!(
+        "[Bridge] 💾 Block #{} stored successfully (hash: {:02x}{:02x}...)",
+        block_height, stored_hash[0], stored_hash[1]
+    );
+
+    // Publish BlockValidated event
+    let event = crate::wiring::ChoreographyEvent::BlockValidated {
+        block_hash: stored_hash,
+        block_height,
+        sender_id: shared_types::SubsystemId::Consensus,
+    };
+    
+    if let Err(e) = router.publish(event) {
+        error!("[Bridge] ❌ Failed to publish BlockValidated: {}", e);
+    } else {
+        info!("[Bridge] ✅ Published BlockValidated for block #{}", block_height);
+    }
+
+    Some(BlockProcessingResult { stored_hash })
+}
+
 /// Load last block hash and difficulty for bridge initialization
 ///
 /// If `chain_height > 0`, attempts to load the last block at that height.
@@ -677,12 +724,12 @@ impl NodeRuntime {
 
         info!("  [17] Block Production Miner started (PoW auto-mining enabled)");
 
-        // CHOREOGRAPHY BRIDGE: Create a task that triggers BlockValidated for mined blocks
-        // Since qc-17 uses PoW, each mined block is already validated by difficulty proof
+        // V2.4 CHOREOGRAPHY: Subscribe to BlockProduced events from shared-bus
+        // Instead of polling qc-17's internal queue, we react to events it publishes.
+        // This is the proper EDA pattern per Architecture.md Section 2.3.
         let choreography_router = self.choreography.router();
-        let miner_status_checker = Arc::clone(&miner_service);
         let block_storage_for_bridge = Arc::clone(&container.block_storage);
-        let mut last_block_height = chain_height; // Start from loaded height
+        let mut last_block_height = chain_height;
 
         // Track the last block hash for parent linking
         let (mut last_block_hash, _last_stored_difficulty): ([u8; 32], primitive_types::U256) = {
@@ -690,97 +737,70 @@ impl NodeRuntime {
             load_last_block_for_bridge(&*storage, chain_height, last_known_difficulty)
         };
 
-        info!("[Bridge] Starting choreography bridge task...");
+        // Subscribe to BlockProduced events from shared-bus (EDA pattern)
+        let event_bus_for_bridge = Arc::clone(&container.event_bus);
+        let filter = shared_bus::EventFilter::topics(vec![shared_bus::EventTopic::BlockProduction]);
+        let mut subscription = event_bus_for_bridge.subscribe(filter);
+
+        info!("[Bridge] 🎧 Starting choreography subscription (EDA pattern - no polling)...");
 
         tokio::spawn(async move {
-            info!("[Bridge] 🌉 Bridge task loop starting...");
-            let mut iteration = 0u64;
-            loop {
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                iteration += 1;
+            info!("[Bridge] 🎧 Listening for BlockProduced events via subscription...");
 
-                // CRITICAL FIX: Drain the pending blocks queue instead of just reading status
-                // This ensures each block gets its own correct difficulty/nonce even when
-                // multiple blocks are mined between bridge polls
-                let pending_blocks = miner_status_checker.drain_pending_blocks().await;
-
-                // Debug: Log every 10th iteration or when we have blocks
-                if iteration % 10 == 0 || !pending_blocks.is_empty() {
-                    let status = miner_status_checker.get_status().await;
+            // EDA: React to events instead of polling
+            while let Some(event) = subscription.recv().await {
+                if let shared_bus::BlockchainEvent::BlockProduced {
+                    block_height,
+                    block_hash,
+                    difficulty,
+                    nonce,
+                    timestamp,
+                    parent_hash,
+                } = event
+                {
                     info!(
-                        "[Bridge] 🔄 Poll #{}: total_mined={}, pending={}, last_height={}",
-                        iteration,
-                        status.blocks_produced,
-                        pending_blocks.len(),
-                        last_block_height
+                        "[Bridge] 📥 Received BlockProduced #{} via subscription (nonce: {})",
+                        block_height, nonce
                     );
-                }
 
-                // Process each mined block with its OWN difficulty and nonce
-                for mined_block in pending_blocks {
-                    let block_height = mined_block.height;
-                    let difficulty = mined_block.difficulty;
-                    let nonce = mined_block.nonce;
+                    // Convert difficulty format
+                    let difficulty_u256 = primitive_types::U256::from_big_endian(&difficulty);
 
                     let block = create_validated_block(MinedBlockParams {
                         height: block_height,
-                        difficulty,
+                        difficulty: difficulty_u256,
                         nonce,
-                        timestamp: mined_block.timestamp,
-                        parent_hash: last_block_hash,
+                        timestamp,
+                        parent_hash: if parent_hash != [0u8; 32] {
+                            parent_hash
+                        } else {
+                            last_block_hash
+                        },
                     });
 
                     info!(
-                        "[Bridge] 🌉 Storing block #{} (nonce: {}, diff: {}) to storage",
-                        block_height,
-                        nonce,
-                        crate::difficulty_desc(&difficulty)
+                        "[Bridge] 🌉 Storing block #{} (EDA subscription path)",
+                        block_height
                     );
 
-                    // Store block directly to qc-02
-                    use qc_02_block_storage::ports::inbound::BlockStorageApi;
+                    // Store and publish BlockValidated
                     let mut storage = block_storage_for_bridge.write();
-
-                    let stored_hash = match (*storage).write_block(
+                    if let Some(result) = store_and_publish_block(
                         block,
-                        shared_types::Hash::default(),
-                        shared_types::Hash::default(),
-                    ) {
-                        Ok(hash) => hash,
-                        Err(e) => {
-                            error!("[Bridge] ❌ Failed to store block #{}: {}", block_height, e);
-                            continue;
-                        }
-                    };
-
-                    info!(
-                        "[Bridge] 💾 Block #{} stored successfully (hash: {:02x}{:02x}...)",
-                        block_height, stored_hash[0], stored_hash[1]
-                    );
-
-                    last_block_hash = stored_hash;
-
-                    // Publish BlockValidated to choreography router
-                    let event = crate::wiring::ChoreographyEvent::BlockValidated {
-                        block_hash: last_block_hash,
                         block_height,
-                        sender_id: shared_types::SubsystemId::Consensus,
-                    };
-                    if let Err(e) = choreography_router.publish(event) {
-                        error!("[Bridge] ❌ Failed to publish BlockValidated: {}", e);
-                    } else {
-                        info!(
-                            "[Bridge] ✅ Published BlockValidated for block #{}",
-                            block_height
-                        );
+                        &mut *storage,
+                        &choreography_router,
+                    ) {
+                        last_block_hash = result.stored_hash;
+                        last_block_height = block_height;
                     }
-
-                    last_block_height = block_height;
                 }
             }
+
+            warn!("[Bridge] Subscription ended - event bus closed");
         });
 
-        info!("  [Bridge] Choreography bridge started");
+        info!("  [Bridge] Choreography subscription started (EDA - no polling)");
 
         info!("Choreography handlers started");
         Ok(())

@@ -33,7 +33,7 @@ pub use tracing::TracingLayer;
 pub use validation::{validate_jsonrpc, ValidationLayer};
 pub use whitelist::{WhitelistConfig, WhitelistLayer};
 
-use crate::domain::config::GatewayConfig;
+use crate::GatewayConfig;
 use std::sync::Arc;
 
 /// Middleware stack builder

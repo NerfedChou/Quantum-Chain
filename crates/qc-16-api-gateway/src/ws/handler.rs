@@ -6,7 +6,7 @@
 //! - Rate limiting per connection
 
 use crate::domain::correlation::CorrelationId;
-use crate::domain::methods::SubscriptionType;
+use crate::SubscriptionType;
 use crate::domain::types::Filter;
 use crate::ws::subscriptions::{SubscriptionManager, SubscriptionNotification};
 use axum::extract::ws::{Message, WebSocket};

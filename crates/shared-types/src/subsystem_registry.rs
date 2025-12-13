@@ -193,7 +193,11 @@ impl SubsystemRegistry {
     }
 
     /// Handle a subsystem start failure.
-    fn handle_start_failure(&self, id: &SubsystemId, e: SubsystemError) -> Result<(), SubsystemError> {
+    fn handle_start_failure(
+        &self,
+        id: &SubsystemId,
+        e: SubsystemError,
+    ) -> Result<(), SubsystemError> {
         if self.required.contains(id) {
             error!("[Registry] ✗ Required {:?} failed: {}", id, e);
             return Err(e);
@@ -222,8 +226,8 @@ impl SubsystemRegistry {
         };
 
         let mut entry = entry_arc.write();
-        let should_stop = entry.status == SubsystemStatus::Healthy
-            || entry.status == SubsystemStatus::Degraded;
+        let should_stop =
+            entry.status == SubsystemStatus::Healthy || entry.status == SubsystemStatus::Degraded;
 
         if !should_stop {
             return;
@@ -300,7 +304,10 @@ impl SubsystemRegistry {
 
         // Dependency not healthy
         if !self.required.contains(dep_id) {
-            warn!("[Registry] Optional dependency {:?} not healthy, continuing", dep_id);
+            warn!(
+                "[Registry] Optional dependency {:?} not healthy, continuing",
+                dep_id
+            );
             return Ok(());
         }
 

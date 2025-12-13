@@ -1,7 +1,7 @@
 //! WebSocket subscription manager per SPEC-16 Section 5.
 
 use crate::domain::correlation::CorrelationId;
-use crate::domain::methods::SubscriptionType;
+use crate::SubscriptionType;
 use crate::domain::types::{Filter, Hash};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};

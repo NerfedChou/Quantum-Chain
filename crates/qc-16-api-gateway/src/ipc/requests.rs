@@ -3,7 +3,7 @@
 //! CRITICAL: Read-only requests have NO signatures (internal trusted channels).
 //! Only SubmitTransaction includes user's transaction signature.
 
-use crate::domain::correlation::CorrelationId;
+use crate::CorrelationId;
 use crate::domain::types::{Address, BlockId, Bytes, CallRequest, Filter, Hash, U256};
 use serde::{Deserialize, Serialize};
 

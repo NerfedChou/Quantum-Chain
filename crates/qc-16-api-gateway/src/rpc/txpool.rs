@@ -1,6 +1,6 @@
 //! TxPool JSON-RPC methods per SPEC-16 Section 3.2 (Protected tier).
 
-use crate::domain::error::{ApiError, ApiResult};
+use crate::{ApiError, ApiResult};
 use crate::domain::types::Address;
 use crate::ipc::handler::IpcHandler;
 use crate::ipc::requests::*;

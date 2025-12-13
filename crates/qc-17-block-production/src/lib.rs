@@ -151,9 +151,7 @@
 // Crate-level lints
 #![warn(missing_docs)]
 #![warn(clippy::all)]
-// TODO(TECH-DEBT): Mining loops have 5 excessive_nesting violations requiring major refactoring
-// Justification: Mining inner loops have inherent complexity; scheduled for Phase 4 cleanup
-#![allow(clippy::excessive_nesting)]
+// Mining loops refactored to comply with excessive_nesting_threshold = 4
 #![deny(unsafe_code)]
 
 /// IPC adapters for external communication
