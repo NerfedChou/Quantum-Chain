@@ -169,6 +169,10 @@ fn create_validated_block(params: MinedBlockParams) -> shared_types::ValidatedBl
 }
 
 /// Load last block hash and difficulty for bridge initialization
+///
+/// If `chain_height > 0`, attempts to load the last block at that height.
+/// If `chain_height == 0`, loads the genesis block (height 0).
+/// Returns a tuple of (block_hash, difficulty), using zeros and `fallback_difficulty` on error.
 fn load_last_block_for_bridge(
     storage: &impl qc_02_block_storage::BlockStorageApi,
     chain_height: u64,
