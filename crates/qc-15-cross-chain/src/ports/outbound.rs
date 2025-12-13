@@ -45,7 +45,7 @@ pub struct BlockHeader {
 }
 
 /// HTLC deployment parameters.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HTLCDeployParams {
     /// Target chain.
     pub chain: ChainId,
