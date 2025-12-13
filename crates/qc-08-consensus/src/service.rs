@@ -310,40 +310,7 @@ where
                 .ok_or(ConsensusError::UnknownValidator(attestation.validator))?;
 
             // ZERO-TRUST: Re-verify signature (even if pre-validated)
-            // Handle BLS and ECDSA signatures separately - no invalid padding
-            let valid = if attestation.is_bls() {
-                // BLS signature (96 bytes) - use aggregate BLS verification
-                let sig_bytes: [u8; 96] =
-                    attestation.signature.as_slice().try_into().map_err(|_| {
-                        ConsensusError::InvalidSignatureFormat(attestation.validator)
-                    })?;
-
-                self.sig_verifier
-                    .verify_aggregate_bls(&signing_message, &sig_bytes, &[*pubkey])
-            } else if attestation.signature.len() == 65 {
-                // ECDSA signature (65 bytes) - use ECDSA verification
-                let sig_bytes: [u8; 65] =
-                    attestation.signature.as_slice().try_into().map_err(|_| {
-                        ConsensusError::InvalidSignatureFormat(attestation.validator)
-                    })?;
-
-                // Convert BLS pubkey to ECDSA pubkey format for verification
-                // In production, validators should have separate ECDSA keys
-                let ecdsa_pubkey: [u8; 33] = {
-                    let mut pk = [0u8; 33];
-                    pk[0] = 0x02; // compressed prefix
-                    pk[1..].copy_from_slice(&pubkey[..32]);
-                    pk
-                };
-
-                self.sig_verifier
-                    .verify_ecdsa(&signing_message, &sig_bytes, &ecdsa_pubkey)
-            } else {
-                // Invalid signature length - reject immediately
-                return Err(ConsensusError::InvalidSignatureFormat(
-                    attestation.validator,
-                ));
-            };
+            let valid = self.verify_attestation_signature(attestation, &signing_message, pubkey)?;
 
             // SECURITY: Always enforce signature verification
             if !valid {
@@ -366,6 +333,50 @@ where
         }
 
         Ok(())
+    }
+
+    /// Verify a single attestation signature (helper to reduce nesting)
+    fn verify_attestation_signature(
+        &self,
+        attestation: &crate::domain::Attestation,
+        signing_message: &[u8],
+        pubkey: &[u8; 48],
+    ) -> ConsensusResult<bool> {
+        if attestation.is_bls() {
+            // BLS signature (96 bytes)
+            let sig_bytes: [u8; 96] = attestation
+                .signature
+                .as_slice()
+                .try_into()
+                .map_err(|_| ConsensusError::InvalidSignatureFormat(attestation.validator))?;
+
+            Ok(self
+                .sig_verifier
+                .verify_aggregate_bls(signing_message, &sig_bytes, &[*pubkey]))
+        } else if attestation.signature.len() == 65 {
+            // ECDSA signature (65 bytes)
+            let sig_bytes: [u8; 65] = attestation
+                .signature
+                .as_slice()
+                .try_into()
+                .map_err(|_| ConsensusError::InvalidSignatureFormat(attestation.validator))?;
+
+            // Convert BLS pubkey to ECDSA pubkey format for verification
+            let ecdsa_pubkey: [u8; 33] = {
+                let mut pk = [0u8; 33];
+                pk[0] = 0x02; // compressed prefix
+                pk[1..].copy_from_slice(&pubkey[..32]);
+                pk
+            };
+
+            Ok(self
+                .sig_verifier
+                .verify_ecdsa(signing_message, &sig_bytes, &ecdsa_pubkey))
+        } else {
+            Err(ConsensusError::InvalidSignatureFormat(
+                attestation.validator,
+            ))
+        }
     }
 
     /// Validate PBFT proof with ZERO-TRUST signature re-verification

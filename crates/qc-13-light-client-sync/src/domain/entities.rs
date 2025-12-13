@@ -186,10 +186,11 @@ impl HeaderChain {
     /// Reference: System.md Line 646
     pub fn verify_checkpoints(&self) -> Result<(), LightClientError> {
         for cp in &self.checkpoints {
-            if let Some(hash) = self.by_height.get(&cp.height) {
-                if *hash != cp.hash {
-                    return Err(LightClientError::CheckpointMismatch { height: cp.height });
-                }
+            let Some(hash) = self.by_height.get(&cp.height) else {
+                continue;
+            };
+            if *hash != cp.hash {
+                return Err(LightClientError::CheckpointMismatch { height: cp.height });
             }
         }
         Ok(())

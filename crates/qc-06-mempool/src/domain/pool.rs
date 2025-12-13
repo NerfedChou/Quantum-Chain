@@ -206,22 +206,24 @@ impl TransactionPool {
             .and_then(|m| m.get(&tx.nonce))
             .copied();
 
-        if let Some(hash) = existing_hash {
-            if self.config.enable_rbf {
-                let existing = self.by_hash.get(&hash).unwrap();
-                if self.can_replace(existing, &tx)? {
-                    self.remove_internal(&hash)?;
-                    return self.add_internal(tx);
-                }
-                return Err(MempoolError::InsufficientFeeBump {
-                    old_price: self.by_hash.get(&hash).unwrap().gas_price,
-                    new_price: tx.gas_price,
-                    min_bump_percent: self.config.rbf_min_bump_percent,
-                });
-            }
+        let Some(hash) = existing_hash else {
+            return self.add_internal(tx);
+        };
+
+        if !self.config.enable_rbf {
             return Err(MempoolError::RbfDisabled);
         }
 
+        let existing = self.by_hash.get(&hash).unwrap();
+        if !self.can_replace(existing, &tx)? {
+            return Err(MempoolError::InsufficientFeeBump {
+                old_price: self.by_hash.get(&hash).unwrap().gas_price,
+                new_price: tx.gas_price,
+                min_bump_percent: self.config.rbf_min_bump_percent,
+            });
+        }
+
+        self.remove_internal(&hash)?;
         self.add_internal(tx)
     }
 
@@ -406,11 +408,8 @@ impl TransactionPool {
             }
 
             // Remove from price index (no longer available for proposals)
-            self.by_price.remove(&PricedTransaction::new(
-                tx.gas_price,
-                tx.hash,
-                tx.added_at,
-            ));
+            self.by_price
+                .remove(&PricedTransaction::new(tx.gas_price, tx.hash, tx.added_at));
 
             // Move to pending inclusion
             let _ = tx.propose(block_height, now);
@@ -463,25 +462,29 @@ impl TransactionPool {
         let mut rolled_back = Vec::new();
 
         for hash in hashes {
-            if let Some(tx) = self.by_hash.get_mut(hash) {
-                if tx.is_pending_inclusion() {
-                    // Return to price index
-                    self.by_price.insert(PricedTransaction::new(
-                        tx.gas_price,
-                        tx.hash,
-                        tx.added_at,
-                    ));
+            let Some(tx) = self.by_hash.get_mut(hash) else {
+                continue;
+            };
 
-                    // Reset state
-                    let _ = tx.rollback();
-                    rolled_back.push(*hash);
-                }
+            if !tx.is_pending_inclusion() {
+                continue;
             }
+
+            // Return to price index
+            self.by_price
+                .insert(PricedTransaction::new(tx.gas_price, tx.hash, tx.added_at));
+
+            // Reset state
+            let _ = tx.rollback();
+            rolled_back.push(*hash);
         }
+
+        // Remove from pending batches
+        self.pending_batches
+            .retain(|b| !b.transaction_hashes.iter().any(|h| hashes.contains(h)));
 
         rolled_back
     }
-
     /// Cleans up timed out pending inclusion transactions.
     ///
     /// INVARIANT-5: Transactions in PendingInclusion for > timeout are auto-rolled back.

@@ -85,7 +85,10 @@ impl TxIndexingHandler {
         let transaction_hashes: Vec<[u8; 32]> = vec![];
         let computation_start = std::time::Instant::now();
 
-        if let Err(e) = self.adapter.process_block_validated(block_hash, block_height, transaction_hashes) {
+        if let Err(e) =
+            self.adapter
+                .process_block_validated(block_hash, block_height, transaction_hashes)
+        {
             error!("[qc-03] ❌ Failed to compute merkle: {}", e);
             return;
         }
@@ -129,7 +132,12 @@ impl TxIndexingHandler {
                 }
             };
 
-            let ChoreographyEvent::BlockValidated { block_hash, block_height, sender_id } = event else {
+            let ChoreographyEvent::BlockValidated {
+                block_hash,
+                block_height,
+                sender_id,
+            } = event
+            else {
                 continue;
             };
 
@@ -188,7 +196,10 @@ impl StateMgmtHandler {
         let transactions = vec![];
         let computation_start = std::time::Instant::now();
 
-        if let Err(e) = self.adapter.process_block_validated(block_hash, block_height, transactions) {
+        if let Err(e) = self
+            .adapter
+            .process_block_validated(block_hash, block_height, transactions)
+        {
             error!("[qc-04] ❌ Failed to compute state: {}", e);
             return;
         }
@@ -232,7 +243,12 @@ impl StateMgmtHandler {
                 }
             };
 
-            let ChoreographyEvent::BlockValidated { block_hash, block_height, sender_id } = event else {
+            let ChoreographyEvent::BlockValidated {
+                block_hash,
+                block_height,
+                sender_id,
+            } = event
+            else {
                 continue;
             };
 
@@ -286,7 +302,11 @@ impl BlockStorageHandler {
             })
         );
 
-        if let Err(e) = self.adapter.on_block_validated(block_hash, block_height).await {
+        if let Err(e) = self
+            .adapter
+            .on_block_validated(block_hash, block_height)
+            .await
+        {
             error!("[qc-02] ❌ Assembly failed: {}", e);
             return;
         }
@@ -335,19 +355,25 @@ impl BlockStorageHandler {
             };
 
             match event {
-                ChoreographyEvent::BlockValidated { block_hash, block_height, sender_id }
-                    if sender_id == SubsystemId::Consensus =>
-                {
+                ChoreographyEvent::BlockValidated {
+                    block_hash,
+                    block_height,
+                    sender_id,
+                } if sender_id == SubsystemId::Consensus => {
                     self.handle_block_validated(block_hash, block_height).await;
                 }
-                ChoreographyEvent::MerkleRootComputed { block_hash, merkle_root, sender_id }
-                    if sender_id == SubsystemId::TransactionIndexing =>
-                {
+                ChoreographyEvent::MerkleRootComputed {
+                    block_hash,
+                    merkle_root,
+                    sender_id,
+                } if sender_id == SubsystemId::TransactionIndexing => {
                     self.handle_merkle_root(block_hash, merkle_root).await;
                 }
-                ChoreographyEvent::StateRootComputed { block_hash, state_root, sender_id }
-                    if sender_id == SubsystemId::StateManagement =>
-                {
+                ChoreographyEvent::StateRootComputed {
+                    block_hash,
+                    state_root,
+                    sender_id,
+                } if sender_id == SubsystemId::StateManagement => {
                     self.handle_state_root(block_hash, state_root).await;
                 }
                 ChoreographyEvent::BlockValidated { sender_id, .. } => {
@@ -437,7 +463,13 @@ impl FinalityHandler {
                 }
             };
 
-            let ChoreographyEvent::BlockStored { block_hash, block_height, sender_id, .. } = event else {
+            let ChoreographyEvent::BlockStored {
+                block_hash,
+                block_height,
+                sender_id,
+                ..
+            } = event
+            else {
                 continue;
             };
 
@@ -502,20 +534,13 @@ impl TransactionOrderingHandler {
         // Process ordering
         let response = self
             .adapter
-            .process_order_transactions(
-                SubsystemId::Consensus,
-                request,
-                block_hash,
-                block_height,
-            )
+            .process_order_transactions(SubsystemId::Consensus, request, block_hash, block_height)
             .await;
 
         if response.success {
             info!(
                 "[qc-12] ✓ Block {} ordering complete: {} groups, max parallelism {}",
-                block_height,
-                response.metrics.parallel_groups,
-                response.metrics.max_parallelism
+                block_height, response.metrics.parallel_groups, response.metrics.max_parallelism
             );
         } else {
             error!(
@@ -542,7 +567,12 @@ impl TransactionOrderingHandler {
                 }
             };
 
-            let ChoreographyEvent::BlockValidated { block_hash, block_height, sender_id } = event else {
+            let ChoreographyEvent::BlockValidated {
+                block_hash,
+                block_height,
+                sender_id,
+            } = event
+            else {
                 continue;
             };
 

@@ -280,7 +280,11 @@ where
                     let bit_index = 8 * k + 7;
                     let bit = x.bit(bit_index);
                     let mask = (U256::one() << (bit_index + 1)) - 1;
-                    if bit { x | !mask } else { x & mask }
+                    if bit {
+                        x | !mask
+                    } else {
+                        x & mask
+                    }
                 };
                 self.stack.push(result)?;
             }
@@ -484,7 +488,11 @@ where
                 let mut result = [0u8; 32];
 
                 for (i, byte) in result.iter_mut().enumerate() {
-                    *byte = data.as_slice().get(offset.saturating_add(i)).copied().unwrap_or(0);
+                    *byte = data
+                        .as_slice()
+                        .get(offset.saturating_add(i))
+                        .copied()
+                        .unwrap_or(0);
                 }
 
                 self.stack.push(U256::from_big_endian(&result))?;

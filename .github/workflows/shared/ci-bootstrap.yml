@@ -1,0 +1,192 @@
+# ==============================================================================
+# CI BOOTSTRAP - Hardened Environment Setup
+# ==============================================================================
+# Purpose: Single source of truth for deterministic, tamper-proof CI environment
+# Security: Pinned versions, verified toolchains, reproducible builds
+# Reference: CLAUDE.md, Architecture.md V2.3
+# ==============================================================================
+
+name: "CI Bootstrap"
+
+on:
+  workflow_call:
+    inputs:
+      rust-toolchain:
+        description: "Pinned Rust version (NOT 'stable')"
+        type: string
+        default: "1.82.0"
+      components:
+        description: "Rust components to install"
+        type: string
+        default: "rustfmt,clippy"
+      enable-sccache:
+        description: "Enable sccache for faster builds"
+        type: boolean
+        default: true
+      enable-miri:
+        description: "Install Miri for memory safety"
+        type: boolean
+        default: false
+      generate-sbom:
+        description: "Generate Software Bill of Materials"
+        type: boolean
+        default: false
+    outputs:
+      rust-version:
+        description: "Installed Rust version"
+        value: ${{ jobs.bootstrap.outputs.rust-version }}
+      cache-hit:
+        description: "Whether cache was hit"
+        value: ${{ jobs.bootstrap.outputs.cache-hit }}
+      lockfile-hash:
+        description: "SHA256 of Cargo.lock"
+        value: ${{ jobs.bootstrap.outputs.lockfile-hash }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  bootstrap:
+    name: "Bootstrap Environment"
+    runs-on: ubuntu-latest
+    outputs:
+      rust-version: ${{ steps.rust.outputs.version }}
+      cache-hit: ${{ steps.cache.outputs.cache-hit }}
+      lockfile-hash: ${{ steps.lockfile.outputs.hash }}
+
+    steps:
+      # ========================================================================
+      # STEP 1: Checkout with integrity verification
+      # ========================================================================
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          fetch-depth: 0
+
+      # ========================================================================
+      # STEP 2: Compute Cargo.lock hash for integrity
+      # ========================================================================
+      - name: Compute lockfile hash
+        id: lockfile
+        run: |
+          if [ -f "Cargo.lock" ]; then
+            HASH=$(sha256sum Cargo.lock | cut -d' ' -f1)
+            echo "hash=$HASH" >> $GITHUB_OUTPUT
+            echo "Cargo.lock SHA256: $HASH"
+          else
+            echo "hash=none" >> $GITHUB_OUTPUT
+            echo "⚠️ No Cargo.lock found"
+          fi
+
+      # ========================================================================
+      # STEP 3: Install system dependencies
+      # ========================================================================
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libclang-dev \
+            llvm-dev \
+            pkg-config \
+            libssl-dev \
+            cmake \
+            build-essential
+
+      # ========================================================================
+      # STEP 4: Install Rust toolchain (pinned version)
+      # ========================================================================
+      - name: Install Rust ${{ inputs.rust-toolchain }}
+        id: rust
+        uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17 # pinned
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
+          components: ${{ inputs.components }}
+
+      - name: Output Rust version
+        run: |
+          echo "version=$(rustc --version)" >> $GITHUB_OUTPUT
+          rustc --version
+          cargo --version
+
+      # ========================================================================
+      # STEP 5: Install Miri (if requested)
+      # ========================================================================
+      - name: Install Miri
+        if: inputs.enable-miri
+        run: |
+          rustup +nightly component add miri
+          cargo +nightly miri setup
+
+      # ========================================================================
+      # STEP 6: Setup sccache (if enabled)
+      # ========================================================================
+      - name: Setup sccache
+        if: inputs.enable-sccache
+        uses: mozilla-actions/sccache-action@v0.0.4
+
+      - name: Configure sccache
+        if: inputs.enable-sccache
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+
+      # ========================================================================
+      # STEP 7: Cargo cache
+      # ========================================================================
+      - name: Cache Cargo registry
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-${{ inputs.rust-toolchain }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ inputs.rust-toolchain }}-
+            ${{ runner.os }}-cargo-
+
+      # ========================================================================
+      # STEP 8: Generate SBOM (if requested)
+      # ========================================================================
+      - name: Generate SBOM
+        if: inputs.generate-sbom
+        run: |
+          cargo install cargo-cyclonedx --locked 2>/dev/null || true
+          if command -v cargo-cyclonedx &> /dev/null; then
+            cargo cyclonedx --all --format json > sbom.json
+            echo "✅ SBOM generated: sbom.json"
+          else
+            echo "⚠️ cargo-cyclonedx not available"
+          fi
+
+      - name: Upload SBOM
+        if: inputs.generate-sbom
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.json
+          retention-days: 365
+
+      # ========================================================================
+      # STEP 9: Verify installation
+      # ========================================================================
+      - name: Verify installation
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║              CI Bootstrap Complete                         ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "Rust:     $(rustc --version)"
+          echo "Cargo:    $(cargo --version)"
+          echo "Clippy:   $(cargo clippy --version 2>/dev/null || echo 'not installed')"
+          echo "Rustfmt:  $(rustfmt --version 2>/dev/null || echo 'not installed')"
+          echo "sccache:  ${{ inputs.enable-sccache }}"
+          echo "Miri:     ${{ inputs.enable-miri }}"
+          echo "SBOM:     ${{ inputs.generate-sbom }}"
+          echo ""
+          echo "Cache hit: ${{ steps.cache.outputs.cache-hit }}"
+          echo "Lockfile:  ${{ steps.lockfile.outputs.hash }}"

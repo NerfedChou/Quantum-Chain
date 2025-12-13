@@ -345,14 +345,13 @@ impl TypeStatePool {
     ) -> Vec<TypeStateTx<Proposed>> {
         hashes
             .iter()
-            .filter_map(|hash| {
-                self.pending.remove(hash).map(|tx| {
-                    // Decrement sender count
-                    if let Some(count) = self.sender_counts.get_mut(&tx.sender) {
-                        *count = count.saturating_sub(1);
-                    }
-                    tx.propose(block_height, now)
-                })
+            .filter_map(|hash| self.pending.remove(hash))
+            .map(|tx| {
+                // Decrement sender count
+                self.sender_counts
+                    .entry(tx.sender)
+                    .and_modify(|c| *c = c.saturating_sub(1));
+                tx.propose(block_height, now)
             })
             .collect()
     }

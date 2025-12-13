@@ -183,18 +183,18 @@ impl TransactionOrderingHandler {
             // Add reads if available
             if let Some(read_set) = request.read_sets.get(i) {
                 access_pattern.reads.extend(
-                    read_set
-                        .iter()
-                        .map(|(addr, key)| StorageLocation::new(H160::from(*addr), H256::from(*key))),
+                    read_set.iter().map(|(addr, key)| {
+                        StorageLocation::new(H160::from(*addr), H256::from(*key))
+                    }),
                 );
             }
 
             // Add writes if available
             if let Some(write_set) = request.write_sets.get(i) {
                 access_pattern.writes.extend(
-                    write_set
-                        .iter()
-                        .map(|(addr, key)| StorageLocation::new(H160::from(*addr), H256::from(*key))),
+                    write_set.iter().map(|(addr, key)| {
+                        StorageLocation::new(H160::from(*addr), H256::from(*key))
+                    }),
                 );
             }
 

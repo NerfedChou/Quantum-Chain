@@ -91,8 +91,8 @@ fn generate_clustered_peers(target: &[u8; 32], count: usize, spread: u8) -> Vec<
         .map(|_| {
             let mut peer = *target;
             // Only modify last few bytes to create clustering
-            for i in (32 - spread as usize)..32 {
-                peer[i] = rng.gen();
+            for byte in peer.iter_mut().skip(32 - spread as usize) {
+                *byte = rng.gen();
             }
             peer
         })

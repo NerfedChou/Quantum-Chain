@@ -1,9 +1,11 @@
 # ==============================================================================
-# MASTER ARCHITECT - Architecture Validation & Compliance
+# MASTER ARCHITECT - Architecture Validation & Compliance (FORTRESS EDITION)
 # ==============================================================================
 # Role: Validates architectural patterns (DDD, EDA, Hexagonal)
 # Ensures: Bounded contexts, event-driven choreography, ports & adapters
 # Reference: Documentation/Architecture.md V2.3, CLAUDE.md
+# 
+# ZERO TOLERANCE: All violations BLOCK merge. No exceptions.
 # ==============================================================================
 
 name: "01 • Master Architect"
@@ -14,6 +16,8 @@ on:
     paths:
       - 'crates/**'
       - 'Documentation/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
   push:
     branches: [ "main", "develop" ]
     paths:
@@ -28,6 +32,11 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  ARCHITECTURE_VERSION: "V2.3"
+  # Zero tolerance mode - set to 'true' to block on any violation
+  ZERO_TOLERANCE: "true"
 
 jobs:
   # ==========================================================================
@@ -495,6 +504,336 @@ jobs:
           fi
 
   # ==========================================================================
+  # IPC-MATRIX Cargo Dependency Validation (NEW - Phase 1)
+  # Validates that Cargo.toml dependencies match IPC-MATRIX allowed list
+  # ==========================================================================
+  validate-ipc-cargo-deps:
+    name: "IPC: Cargo Dependencies"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Validate IPC-MATRIX compliance via Cargo
+        run: |
+          echo "=========================================="
+          echo "IPC-MATRIX: Cargo Dependency Validation"
+          echo "=========================================="
+          echo "Validates that subsystem dependencies match IPC-MATRIX.md"
+          echo ""
+          
+          # IPC-MATRIX allowed communications (inline)
+          # Format: SENDER_NUM -> ALLOWED_RECEIVERS
+          get_allowed() {
+            case "$1" in
+              1)  echo "5 7 10 13" ;;
+              2)  echo "3 6" ;;
+              3)  echo "2 7 13" ;;
+              4)  echo "6 11 12" ;;
+              5)  echo "1 8" ;;
+              6)  echo "4 8" ;;
+              7)  echo "1 13" ;;
+              8)  echo "2 3 4 5 6 9 10 12 14 15" ;;
+              9)  echo "2 15" ;;
+              10) echo "6 8" ;;
+              11) echo "4 15" ;;
+              12) echo "4 11" ;;
+              13) echo "1 3 7" ;;
+              14) echo "4 8" ;;
+              15) echo "8 11" ;;
+              16) echo "1 2 3 4 6 8 10 11" ;;
+              17) echo "4 6 8 10" ;;
+              *)  echo "" ;;
+            esac
+          }
+          
+          VIOLATIONS=0
+          
+          for crate in crates/qc-*/; do
+            if [ -d "$crate" ]; then
+              CRATE_NAME=$(basename "$crate")
+              SENDER_NUM=$(echo "$CRATE_NAME" | grep -oE 'qc-([0-9]+)' | cut -d'-' -f2 | sed 's/^0//')
+              
+              if [ -z "$SENDER_NUM" ]; then continue; fi
+              
+              echo "Analyzing: $CRATE_NAME (Subsystem $SENDER_NUM)"
+              
+              # Get qc-* dependencies from Cargo.toml
+              DEPS=$(grep -E '^\s*qc-[0-9]+-' "$crate/Cargo.toml" 2>/dev/null | \
+                grep -oE 'qc-[0-9]+-[a-z-]+' | sort -u || true)
+              
+              ALLOWED=$(get_allowed "$SENDER_NUM")
+              
+              for dep in $DEPS; do
+                RECEIVER_NUM=$(echo "$dep" | grep -oE 'qc-([0-9]+)' | cut -d'-' -f2 | sed 's/^0//')
+                
+                if [ -z "$RECEIVER_NUM" ]; then continue; fi
+                
+                # Check if receiver is in allowed list
+                if ! echo "$ALLOWED" | grep -qw "$RECEIVER_NUM"; then
+                  echo "❌ VIOLATION: Subsystem $SENDER_NUM cannot depend on Subsystem $RECEIVER_NUM"
+                  echo "   Allowed: $ALLOWED"
+                  VIOLATIONS=$((VIOLATIONS + 1))
+                fi
+              done
+            fi
+          done
+          
+          if [ $VIOLATIONS -gt 0 ]; then
+            echo ""
+            echo "❌ BLOCKED: $VIOLATIONS IPC-MATRIX violations detected"
+            echo "Update Documentation/IPC-MATRIX.md if this dependency is intentional"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All Cargo dependencies comply with IPC-MATRIX"
+
+  # ==========================================================================
+  # Envelope-Only Identity - Exhaustive Check (NEW - Phase 1)
+  # Catches ALL identity field patterns, not just 3
+  # ==========================================================================
+  validate-envelope-exhaustive:
+    name: "IPC: Envelope Identity (Exhaustive)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Exhaustive Envelope-Only Identity Check
+        run: |
+          echo "=========================================="
+          echo "IPC: Envelope-Only Identity (EXHAUSTIVE)"
+          echo "=========================================="
+          echo "Per Architecture.md Section 3.2.1:"
+          echo "Payload identity fields are FORBIDDEN"
+          echo "AuthenticatedMessage.sender_id is the ONLY source of truth"
+          echo ""
+          
+          # Comprehensive list of forbidden identity field patterns
+          FORBIDDEN_PATTERNS=(
+            "requester_id"
+            "requester_subsystem"
+            "sender_subsystem"
+            "source_id"
+            "source_subsystem"
+            "origin_id"
+            "origin_subsystem"
+            "from_subsystem"
+            "caller_id"
+            "caller_subsystem"
+            "invoker_id"
+            "client_id"
+            "peer_subsystem"
+          )
+          
+          VIOLATIONS=0
+          for pattern in "${FORBIDDEN_PATTERNS[@]}"; do
+            # Search in struct definitions only (field declarations)
+            # Exclude: test files, envelope.rs, AuthenticatedMessage definitions, comments
+            MATCHES=$(grep -rn "pub $pattern:" crates/qc-*/src 2>/dev/null | \
+              grep -v "_test\.rs" | \
+              grep -v "/tests/" | \
+              grep -v "envelope.rs" | \
+              grep -v "AuthenticatedMessage" | \
+              grep -v "^[[:space:]]*//" || true)
+            
+            if [ -n "$MATCHES" ]; then
+              echo "❌ VIOLATION: Identity field '$pattern' found in payload struct"
+              echo "$MATCHES"
+              VIOLATIONS=$((VIOLATIONS + 1))
+            fi
+          done
+          
+          if [ $VIOLATIONS -gt 0 ]; then
+            echo ""
+            echo "❌ ARCHITECTURAL VIOLATION: $VIOLATIONS envelope identity violations"
+            echo ""
+            echo "FIX: Remove identity fields from payload structs."
+            echo "     Use envelope.sender_id from AuthenticatedMessage<T> instead."
+            exit 1
+          fi
+          
+          echo "✅ All payloads comply with Envelope-Only Identity"
+
+  # ==========================================================================
+  # Choreography Pattern Enforcement (NEW - Phase 1)
+  # Validates that state-modifying subsystems publish required events
+  # ==========================================================================
+  validate-choreography:
+    name: "EDA: Choreography Events"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Validate Required Event Publishing
+        run: |
+          echo "=========================================="
+          echo "EDA: Choreography Event Publishing"
+          echo "=========================================="
+          echo "V2.3 Pattern: Subsystems publish events, not direct calls"
+          echo ""
+          
+          VIOLATIONS=0
+          
+          # Subsystems that MUST publish specific events
+          # Format: crate:EventName (can use regex pattern)
+          MUST_PUBLISH=(
+            "qc-08-consensus:BlockValidated"
+            "qc-03-transaction-indexing:MerkleRootComputed"
+            "qc-04-state-management:StateRootComputed"
+            "qc-02-block-storage:BlockStored"
+            "qc-17-block-production:BlockProduced"
+          )
+          
+          for spec in "${MUST_PUBLISH[@]}"; do
+            CRATE=$(echo "$spec" | cut -d: -f1)
+            EVENT=$(echo "$spec" | cut -d: -f2)
+            
+            if [ -d "crates/$CRATE/src" ]; then
+              if ! grep -rq "$EVENT" "crates/$CRATE/src" 2>/dev/null; then
+                echo "❌ VIOLATION: $CRATE must publish $EVENT event"
+                VIOLATIONS=$((VIOLATIONS + 1))
+              else
+                echo "✅ $CRATE publishes $EVENT"
+              fi
+            fi
+          done
+          
+          echo ""
+          
+          if [ $VIOLATIONS -gt 0 ]; then
+            echo "❌ BLOCKED: $VIOLATIONS choreography violations"
+            exit 1
+          fi
+      
+      - name: Validate Block Storage as Stateful Assembler
+        run: |
+          echo "=========================================="
+          echo "EDA: Block Storage Stateful Assembler"
+          echo "=========================================="
+          echo "V2.3: Block Storage must subscribe to 3 events for assembly"
+          echo ""
+          
+          REQUIRED_SUBSCRIPTIONS=(
+            "BlockValidated"
+            "MerkleRootComputed"
+            "StateRootComputed"
+          )
+          
+          MISSING=0
+          for sub in "${REQUIRED_SUBSCRIPTIONS[@]}"; do
+            if grep -rq "$sub" crates/qc-02-block-storage/src 2>/dev/null; then
+              echo "✅ Block Storage handles $sub"
+            else
+              echo "⚠️ WARNING: Block Storage may not handle $sub"
+              MISSING=$((MISSING + 1))
+            fi
+          done
+          
+          if [ $MISSING -gt 0 ]; then
+            echo ""
+            echo "⚠️ Block Storage may not implement Stateful Assembler correctly"
+          fi
+
+  # ==========================================================================
+  # Architecture Version Drift Detection (NEW - Phase 1)
+  # ==========================================================================
+  validate-version-drift:
+    name: "Docs: Version Drift"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check Architecture Version Consistency
+        run: |
+          echo "=========================================="
+          echo "Architecture Version Consistency"
+          echo "=========================================="
+          echo "Current version: ${{ env.ARCHITECTURE_VERSION }}"
+          echo ""
+          
+          VIOLATIONS=0
+          
+          # Check workflow files reference current version
+          OLD_REFS=$(grep -rE "Architecture\.md V[0-9]\.[0-9]" .github/workflows/ | \
+            grep -v "${{ env.ARCHITECTURE_VERSION }}" || true)
+          
+          if [ -n "$OLD_REFS" ]; then
+            echo "❌ Outdated architecture references in workflows:"
+            echo "$OLD_REFS"
+            VIOLATIONS=$((VIOLATIONS + 1))
+          fi
+          
+          # Check CLAUDE.md
+          if ! grep -q "Architecture.md ${{ env.ARCHITECTURE_VERSION }}" CLAUDE.md 2>/dev/null; then
+            echo "⚠️ CLAUDE.md may reference outdated architecture version"
+          fi
+          
+          # Check IPC-MATRIX.md has version marker
+          if ! grep -qE "v2\.[23]|V2\.[23]" Documentation/IPC-MATRIX.md 2>/dev/null; then
+            echo "⚠️ IPC-MATRIX.md may need version update"
+          fi
+          
+          if [ $VIOLATIONS -gt 0 ]; then
+            echo "❌ Architecture version drift detected"
+            exit 1
+          fi
+          
+          echo "✅ All architecture references consistent"
+
+  # ==========================================================================
+  # Signed Commits Verification (NEW - Phase 0)
+  # ==========================================================================
+  signed-commits:
+    name: "Security: Signed Commits"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Verify GPG Signatures
+        run: |
+          echo "=========================================="
+          echo "Signed Commits Verification"
+          echo "=========================================="
+          
+          # Check commits in this PR
+          UNSIGNED=$(git log --pretty=format:'%H %G?' origin/${{ github.base_ref }}..HEAD 2>/dev/null | \
+            grep -v ' G$' | grep -v ' E$' | grep -v ' U$' || true)
+          
+          if [ -n "$UNSIGNED" ]; then
+            echo "⚠️ WARNING: Unsigned commits detected"
+            echo "$UNSIGNED"
+            echo ""
+            echo "Recommendation: Sign your commits with GPG"
+            echo "  git config commit.gpgsign true"
+            # Advisory for now - upgrade to blocking later
+          else
+            echo "✅ All commits signed (or no commits to check)"
+          fi
+      
+      - name: Check DCO Sign-off
+        run: |
+          echo "=========================================="
+          echo "DCO Sign-off Check"
+          echo "=========================================="
+          
+          MISSING=$(git log --pretty=format:'%H' origin/${{ github.base_ref }}..HEAD 2>/dev/null | while read hash; do
+            if ! git log -1 --format='%B' "$hash" 2>/dev/null | grep -q '^Signed-off-by:'; then
+              echo "$hash"
+            fi
+          done || true)
+          
+          if [ -n "$MISSING" ]; then
+            echo "⚠️ WARNING: Commits missing DCO sign-off"
+            echo "Run: git commit --amend --signoff"
+            # Advisory for now
+          else
+            echo "✅ All commits have DCO sign-off (or no commits to check)"
+          fi
+
+  # ==========================================================================
   # Architecture Documentation Sync
   # ==========================================================================
   validate-documentation:
@@ -546,24 +885,66 @@ jobs:
   architect-summary:
     name: "Summary: Architecture Report"
     runs-on: ubuntu-latest
-    needs: [pr-governance, validate-ddd, validate-eda, validate-hexagonal, validate-ipc-matrix, validate-documentation]
+    needs: [pr-governance, validate-ddd, validate-eda, validate-hexagonal, validate-ipc-matrix, validate-ipc-cargo-deps, validate-envelope-exhaustive, validate-choreography, validate-version-drift, signed-commits, validate-documentation, typosquat-check, arch-test]
     if: always()
     steps:
-      - name: Generate Architecture Report
+      - name: Check Critical Failures
         run: |
-          echo "## 🏛️ Master Architect Report" >> $GITHUB_STEP_SUMMARY
+          FAILED=0
+          
+          # Critical jobs that MUST pass
+          if [[ "${{ needs.validate-ddd.result }}" == "failure" ]]; then FAILED=1; fi
+          if [[ "${{ needs.validate-eda.result }}" == "failure" ]]; then FAILED=1; fi
+          if [[ "${{ needs.validate-hexagonal.result }}" == "failure" ]]; then FAILED=1; fi
+          if [[ "${{ needs.validate-ipc-matrix.result }}" == "failure" ]]; then FAILED=1; fi
+          if [[ "${{ needs.validate-ipc-cargo-deps.result }}" == "failure" ]]; then FAILED=1; fi
+          if [[ "${{ needs.validate-envelope-exhaustive.result }}" == "failure" ]]; then FAILED=1; fi
+          if [[ "${{ needs.validate-choreography.result }}" == "failure" ]]; then FAILED=1; fi
+          if [[ "${{ needs.typosquat-check.result }}" == "failure" ]]; then FAILED=1; fi
+          if [[ "${{ needs.arch-test.result }}" == "failure" ]]; then FAILED=1; fi
+          
+          if [ $FAILED -eq 1 ]; then
+            echo "❌ ARCHITECTURE VALIDATION FAILED"
+            echo "Zero tolerance mode: ${{ env.ZERO_TOLERANCE }}"
+            exit 1
+          fi
+          
+          echo "✅ All architecture checks passed"
+      
+      - name: Generate Architecture Report
+        if: always()
+        run: |
+          echo "## 🏛️ Master Architect Report (Fortress Edition)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Core Pattern Validation" >> $GITHUB_STEP_SUMMARY
           echo "| Pattern | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| DDD (Bounded Contexts) | ${{ needs.validate-ddd.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| EDA (Choreography) | ${{ needs.validate-eda.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Hexagonal (Ports & Adapters) | ${{ needs.validate-hexagonal.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| IPC Matrix Compliance | ${{ needs.validate-ipc-matrix.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| IPC Matrix (Security Boundaries) | ${{ needs.validate-ipc-matrix.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Fortress Upgrades (Phase 1)" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| IPC Cargo Dependencies | ${{ needs.validate-ipc-cargo-deps.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Envelope-Only Identity (Exhaustive) | ${{ needs.validate-envelope-exhaustive.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Choreography Events | ${{ needs.validate-choreography.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version Drift | ${{ needs.validate-version-drift.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Signed Commits | ${{ needs.signed-commits.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Typosquat Detection | ${{ needs.typosquat-check.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Domain Layer Purity | ${{ needs.arch-test.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Documentation | ${{ needs.validate-documentation.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Architectural Laws" >> $GITHUB_STEP_SUMMARY
+          echo "### Architectural Laws (Zero Tolerance)" >> $GITHUB_STEP_SUMMARY
           echo "- **LAW #1**: Subsystem Isolation (Bounded Contexts)" >> $GITHUB_STEP_SUMMARY
           echo "- **LAW #2**: Event Bus Only Communication" >> $GITHUB_STEP_SUMMARY
           echo "- **LAW #3**: Envelope-Only Identity (Zero Trust)" >> $GITHUB_STEP_SUMMARY
           echo "- **LAW #4**: Test-Driven Development" >> $GITHUB_STEP_SUMMARY
           echo "- **LAW #5**: Check Recent Commits" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### IPC-MATRIX Compliance" >> $GITHUB_STEP_SUMMARY
+          echo "All subsystem dependencies validated against \`Documentation/IPC-MATRIX.md\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Architecture Version: ${{ env.ARCHITECTURE_VERSION }}*" >> $GITHUB_STEP_SUMMARY

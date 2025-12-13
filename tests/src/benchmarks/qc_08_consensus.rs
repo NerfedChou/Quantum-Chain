@@ -42,12 +42,12 @@ impl BrutalBlockHeader {
         rng.fill(&mut tx_root);
 
         let mut hasher = Keccak256::new();
-        hasher.update(&parent_hash);
-        hasher.update(&height.to_le_bytes());
-        hasher.update(&slot.to_le_bytes());
-        hasher.update(&proposer.to_le_bytes());
-        hasher.update(&state_root);
-        hasher.update(&tx_root);
+        hasher.update(parent_hash);
+        hasher.update(height.to_le_bytes());
+        hasher.update(slot.to_le_bytes());
+        hasher.update(proposer.to_le_bytes());
+        hasher.update(state_root);
+        hasher.update(tx_root);
 
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&hasher.finalize());
@@ -66,12 +66,12 @@ impl BrutalBlockHeader {
 
     fn compute_hash(&self) -> [u8; 32] {
         let mut hasher = Keccak256::new();
-        hasher.update(&self.parent_hash);
-        hasher.update(&self.height.to_le_bytes());
-        hasher.update(&self.slot.to_le_bytes());
-        hasher.update(&self.proposer.to_le_bytes());
-        hasher.update(&self.state_root);
-        hasher.update(&self.tx_root);
+        hasher.update(self.parent_hash);
+        hasher.update(self.height.to_le_bytes());
+        hasher.update(self.slot.to_le_bytes());
+        hasher.update(self.proposer.to_le_bytes());
+        hasher.update(self.state_root);
+        hasher.update(self.tx_root);
 
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&hasher.finalize());
@@ -92,8 +92,8 @@ impl BrutalAttestation {
     fn new(validator_id: u64, block_hash: [u8; 32], slot: u64) -> Self {
         let mut rng = rand::thread_rng();
         let mut signature = [0u8; 96];
-        for i in 0..96 {
-            signature[i] = rng.gen();
+        for byte in &mut signature {
+            *byte = rng.gen();
         }
 
         Self {

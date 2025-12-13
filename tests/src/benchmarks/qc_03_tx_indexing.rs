@@ -53,8 +53,8 @@ impl BrutalMerkleTree {
         // Build internal nodes bottom-up
         for i in (1..padded_size).rev() {
             let mut hasher = Keccak256::new();
-            hasher.update(&tree[2 * i]);
-            hasher.update(&tree[2 * i + 1]);
+            hasher.update(tree[2 * i]);
+            hasher.update(tree[2 * i + 1]);
             tree[i].copy_from_slice(&hasher.finalize());
         }
 
@@ -99,9 +99,9 @@ impl BrutalMerkleTree {
             let mut hasher = Keccak256::new();
             if *is_left {
                 hasher.update(sibling);
-                hasher.update(&current);
+                hasher.update(current);
             } else {
-                hasher.update(&current);
+                hasher.update(current);
                 hasher.update(sibling);
             }
             current.copy_from_slice(&hasher.finalize());

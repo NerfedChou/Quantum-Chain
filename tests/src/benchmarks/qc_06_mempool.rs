@@ -43,9 +43,9 @@ struct BrutalTransaction {
 impl BrutalTransaction {
     fn new(sender: [u8; 20], nonce: u64, gas_price: u64) -> Self {
         let mut hasher = Keccak256::new();
-        hasher.update(&sender);
-        hasher.update(&nonce.to_le_bytes());
-        hasher.update(&gas_price.to_le_bytes());
+        hasher.update(sender);
+        hasher.update(nonce.to_le_bytes());
+        hasher.update(gas_price.to_le_bytes());
 
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&hasher.finalize());
