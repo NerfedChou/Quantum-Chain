@@ -298,23 +298,25 @@ mod tests {
             }
         }
 
+        /// Adds a single test peer to the routing table.
+        fn add_test_peer(&mut self, index: u8, now: Timestamp) {
+            let mut id_bytes = [0u8; 32];
+            id_bytes[0] = index;
+            let peer = PeerInfo::new(
+                NodeId::new(id_bytes),
+                SocketAddr::new(IpAddr::v4(192, 168, 1, index), 30303),
+                now,
+            );
+            if self.table.stage_peer(peer.clone(), now) == Ok(true) {
+                let _ = self.table.on_verification_result(&peer.node_id, true, now);
+            }
+        }
+
         fn with_peers(count: usize) -> Self {
             let mut service = Self::new();
             let now = Timestamp::new(1000);
-
             for i in 1..=count {
-                let mut id_bytes = [0u8; 32];
-                id_bytes[0] = i as u8;
-                let peer = PeerInfo::new(
-                    NodeId::new(id_bytes),
-                    SocketAddr::new(IpAddr::v4(192, 168, 1, i as u8), 30303),
-                    now,
-                );
-                if let Ok(true) = service.table.stage_peer(peer.clone(), now) {
-                    let _ = service
-                        .table
-                        .on_verification_result(&peer.node_id, true, now);
-                }
+                service.add_test_peer(i as u8, now);
             }
             service
         }

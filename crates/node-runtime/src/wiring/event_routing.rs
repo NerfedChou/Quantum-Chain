@@ -279,7 +279,10 @@ impl EventRouter {
         // Publish to all subscribers
         match &event {
             ChoreographyEvent::BlockProduced { block_height, .. } => {
-                info!("[qc-17] 📦 BlockProduced #{} via choreography", block_height);
+                info!(
+                    "[qc-17] 📦 BlockProduced #{} via choreography",
+                    block_height
+                );
             }
             ChoreographyEvent::BlockValidated { block_height, .. } => {
                 debug!("Publishing BlockValidated for height {}", block_height);

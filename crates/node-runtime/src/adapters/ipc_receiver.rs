@@ -136,7 +136,6 @@ impl EventBusIpcReceiver {
 mod tests {
     use super::*;
     use std::time::Duration;
-    use tokio::time::timeout;
 
     #[tokio::test]
     async fn test_receiver_creation() {

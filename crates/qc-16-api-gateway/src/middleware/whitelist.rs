@@ -3,8 +3,8 @@
 //! Rejects unknown methods at the gate - don't bother internal subsystems with invalid requests.
 //! Also extracts method name into header for downstream middleware.
 
-use crate::ApiError;
 use crate::domain::methods::{get_method_info, is_method_supported};
+use crate::ApiError;
 use axum::{
     body::Body,
     http::{HeaderValue, Request, StatusCode},

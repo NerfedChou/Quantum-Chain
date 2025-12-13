@@ -35,8 +35,137 @@ use crate::adapters::TransactionIndexingAdapter;
 #[cfg(feature = "qc-04")]
 use crate::adapters::StateAdapter;
 
+#[cfg(feature = "qc-08")]
+use crate::adapters::{consensus::BlockProducedParams, ConsensusAdapter};
+
 #[cfg(feature = "qc-12")]
 use crate::adapters::TransactionOrderingAdapter;
+
+/// Handler for Consensus choreography events.
+///
+/// ## V2.3 Choreography (EDA Pattern)
+///
+/// - Subscribes to: BlockProduced (from Block Production 17)
+/// - Publishes: BlockValidated (triggers TxIndexing 3, StateMgmt 4, BlockStorage 2)
+///
+/// This handler bridges the BlockProduced event to the validation flow,
+/// replacing the orchestration pattern where node-runtime directly stored blocks.
+#[cfg(feature = "qc-08")]
+pub struct ConsensusHandler {
+    /// Subscriber for events.
+    receiver: broadcast::Receiver<ChoreographyEvent>,
+    /// Adapter wrapping qc-08 domain logic.
+    adapter: Arc<ConsensusAdapter>,
+}
+
+#[cfg(feature = "qc-08")]
+impl ConsensusHandler {
+    /// Create a new handler with adapter.
+    pub fn new(
+        receiver: broadcast::Receiver<ChoreographyEvent>,
+        adapter: Arc<ConsensusAdapter>,
+    ) -> Self {
+        Self { receiver, adapter }
+    }
+
+    /// Handle a BlockProduced event - validate and publish BlockValidated.
+    fn handle_block_produced(&self, params: &BlockProducedParams) {
+        info!(
+            "[qc-08] 📥 Received BlockProduced #{} (nonce: {})",
+            params.block_height, params.nonce
+        );
+
+        // JSON EVENT LOG
+        info!(
+            "EVENT_FLOW_JSON {}",
+            serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                "subsystem_id": "qc-08",
+                "event_type": "BlockProducedReceived",
+                "correlation_id": format!("{:x}", params.block_hash[0]),
+                "block_hash": hex::encode(params.block_hash),
+                "block_height": params.block_height,
+                "metadata": {
+                    "source": "qc-17",
+                    "nonce": params.nonce,
+                    "choreography_step": "1/5"
+                }
+            })
+        );
+
+        // Validate and publish BlockValidated
+        if let Err(e) = self.adapter.process_block_produced(params) {
+            error!("[qc-08] ❌ Block validation failed: {}", e);
+            return;
+        }
+
+        info!(
+            "EVENT_FLOW_JSON {}",
+            serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                "subsystem_id": "qc-08",
+                "event_type": "BlockValidatedPublished",
+                "correlation_id": format!("{:x}", params.block_hash[0]),
+                "block_hash": hex::encode(params.block_hash),
+                "block_height": params.block_height,
+                "metadata": {
+                    "targets": ["qc-02", "qc-03", "qc-04"],
+                    "choreography_step": "2/5"
+                }
+            })
+        );
+    }
+
+    /// Run the handler loop.
+    pub async fn run(mut self) {
+        info!("[qc-08] Consensus handler started (V2.3 Choreography)");
+        info!("[qc-08]   Subscribes to: BlockProduced (from qc-17)");
+        info!("[qc-08]   Publishes: BlockValidated (to qc-02, qc-03, qc-04)");
+
+        loop {
+            let event = match self.receiver.recv().await {
+                Ok(e) => e,
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    warn!("[qc-08] Lagged by {} messages", n);
+                    continue;
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    info!("[qc-08] Channel closed, exiting");
+                    break;
+                }
+            };
+
+            // Only process BlockProduced events from BlockProduction
+            let ChoreographyEvent::BlockProduced {
+                block_hash,
+                block_height,
+                difficulty,
+                nonce,
+                timestamp,
+                parent_hash,
+                sender_id,
+            } = event
+            else {
+                continue;
+            };
+
+            if sender_id != SubsystemId::BlockProduction {
+                warn!("[qc-08] Ignoring BlockProduced from {:?}", sender_id);
+                continue;
+            }
+
+            let params = BlockProducedParams {
+                block_hash,
+                block_height,
+                difficulty,
+                nonce,
+                timestamp,
+                parent_hash,
+            };
+            self.handle_block_produced(&params);
+        }
+    }
+}
 
 /// Handler for Transaction Indexing choreography events.
 #[cfg(feature = "qc-03")]

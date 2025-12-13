@@ -3,7 +3,6 @@
 //! Provides HTTP (JSON-RPC), WebSocket, and Admin API servers.
 
 use crate::adapters::pending::{cleanup_task, PendingRequestStore};
-use crate::GatewayConfig;
 use crate::domain::error::GatewayError;
 use crate::ipc::handler::{IpcHandler, IpcSender};
 use crate::middleware::{
@@ -11,6 +10,7 @@ use crate::middleware::{
 };
 use crate::rpc::RpcHandlers;
 use crate::ws::{SubscriptionManager, WebSocketHandler};
+use crate::GatewayConfig;
 use axum::{
     extract::{ws::WebSocketUpgrade, State},
     http::StatusCode,

@@ -438,7 +438,7 @@ mod tests {
 
         // New inbound should be rejected (not evict outbound)
         let new = make_node_id(200);
-        let result = slots.try_accept_inbound(new, 100.0, now); // High score
+        let _result = slots.try_accept_inbound(new, 100.0, now); // High score
 
         // Should not have affected outbound count
         assert_eq!(slots.outbound_count(), config.max_outbound);
@@ -548,7 +548,7 @@ mod tests {
 
         // New peer should NOT evict the now-protected victim
         let new = make_node_id(100);
-        let result = slots.try_accept_inbound(new, 3.0, now);
+        let _result = slots.try_accept_inbound(new, 3.0, now);
 
         // Should still be connected (was protected by score update)
         assert!(slots.is_connected(&victim));

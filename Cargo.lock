@@ -2813,9 +2813,11 @@ name = "qc-14-sharding"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "parking_lot",
  "rand 0.8.5",
  "serde",
  "sha3",
+ "shared-bus",
  "shared-types",
  "thiserror 1.0.69",
  "tokio",
@@ -2830,6 +2832,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "hex",
+ "parking_lot",
  "rand 0.8.5",
  "serde",
  "sha2",

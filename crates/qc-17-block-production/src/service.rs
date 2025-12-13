@@ -10,10 +10,7 @@ use crate::{
         BlockHeader, BlockTemplate, ConsensusMode, DifficultyAdjuster, DifficultyConfig, PoWMiner,
     },
     error::{BlockProductionError, Result},
-    ports::{
-        BlockProducerService, BlockStorageReader, ProductionConfig,
-        ProductionStatus,
-    },
+    ports::{BlockProducerService, BlockStorageReader, ProductionConfig, ProductionStatus},
     security::SecurityValidator,
 };
 use async_trait::async_trait;
@@ -583,9 +580,9 @@ impl BlockProducerService for ConcreteBlockProducer {
 
                                 // V2.3 CHOREOGRAPHY: Publish BlockProduced event directly
                                 // This triggers qc-08 (Consensus) to validate the block
-                                use shared_bus::EventPublisher;
                                 use shared_bus::BlockchainEvent;
-                                let block_hash_event: [u8; 32] = block_hash.clone().try_into().unwrap_or_default();
+                                use shared_bus::EventPublisher;
+                                let block_hash_event: [u8; 32] = block_hash;
                                 let difficulty_bytes: [u8; 32] = {
                                     let mut bytes = [0u8; 32];
                                     difficulty.to_big_endian(&mut bytes);

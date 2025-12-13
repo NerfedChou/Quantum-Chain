@@ -14,6 +14,10 @@ pub use api_query::ApiQueryHandler;
 pub mod choreography;
 pub use choreography::*;
 
+// Re-export ConsensusHandler for easy access
+#[cfg(feature = "qc-08")]
+pub use choreography::ConsensusHandler;
+
 #[cfg(feature = "qc-10")]
 pub mod signature_verification;
 #[cfg(feature = "qc-10")]

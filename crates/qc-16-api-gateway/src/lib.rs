@@ -143,7 +143,8 @@
 
 // Crate-level lints
 #![warn(missing_docs)]
-#![allow(missing_docs)] // TODO: Add documentation for all public items
+#![allow(missing_docs)]
+// TODO: Add documentation for all public items
 // Phase 4 Exception: 37 excessive_nesting violations in middleware chain patterns
 // These require architectural refactoring of RPC dispatch layers (middleware/*.rs)
 // Reference: implementation_plan.md Phase 4 timeline estimates 4+ hours for this crate
@@ -164,9 +165,7 @@ pub mod service;
 pub mod ws;
 
 // Re-exports for public API (reduces cascade - use crate::X instead of crate::domain::X)
-pub use domain::config::{
-    CorsConfig, GatewayConfig, LimitsConfig, RateLimitConfig, TimeoutConfig,
-};
+pub use domain::config::{CorsConfig, GatewayConfig, LimitsConfig, RateLimitConfig, TimeoutConfig};
 pub use domain::correlation::CorrelationId;
 pub use domain::error::{ApiError, ApiResult, GatewayError};
 pub use domain::methods::{

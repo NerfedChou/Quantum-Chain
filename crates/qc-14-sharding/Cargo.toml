@@ -10,6 +10,7 @@ description = "Sharding Subsystem (Subsystem 14) - Horizontal scaling via state 
 [dependencies]
 # Shared types from the project
 shared-types = { path = "../shared-types" }
+shared-bus = { path = "../shared-bus" }
 
 # Async runtime
 async-trait = "0.1"
@@ -29,6 +30,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 # Logging
 tracing = "0.1"
+
+# Concurrency
+parking_lot = "0.12"
 
 [dev-dependencies]
 tokio-test = "0.4"

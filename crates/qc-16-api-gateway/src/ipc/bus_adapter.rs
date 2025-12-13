@@ -4,10 +4,10 @@
 //! Per SPEC-16 Section 6, the API Gateway communicates with subsystems
 //! via the event bus, not direct function calls.
 
-use crate::CorrelationId;
 use crate::ipc::handler::{IpcError, IpcReceiver, IpcSender};
 use crate::ipc::requests::{IpcRequest, RequestPayload};
 use crate::ipc::responses::IpcResponse;
+use crate::CorrelationId;
 use async_trait::async_trait;
 use futures::StreamExt;
 use shared_bus::{BlockchainEvent, EventFilter, EventPublisher, InMemoryEventBus};

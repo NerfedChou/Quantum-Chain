@@ -134,7 +134,6 @@ impl ParticipationAnalysis {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::Validator;
 
     fn make_validator_set(count: usize) -> ValidatorSet {
         let mut set = ValidatorSet::new(0);

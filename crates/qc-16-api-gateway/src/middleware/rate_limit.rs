@@ -3,9 +3,9 @@
 //! Implements per-IP rate limiting with configurable limits for reads and writes.
 //! Write detection uses method registry for accuracy.
 
-use crate::RateLimitConfig;
-use crate::ApiError;
 use crate::is_write_method;
+use crate::ApiError;
+use crate::RateLimitConfig;
 use axum::{
     body::Body,
     extract::ConnectInfo,

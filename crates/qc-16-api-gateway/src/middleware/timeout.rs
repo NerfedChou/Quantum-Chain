@@ -2,9 +2,9 @@
 //!
 //! Applies per-method timeouts to prevent long-running requests.
 
-use crate::TimeoutConfig;
-use crate::ApiError;
 use crate::get_method_timeout;
+use crate::ApiError;
+use crate::TimeoutConfig;
 use axum::{
     body::Body,
     http::{Request, StatusCode},

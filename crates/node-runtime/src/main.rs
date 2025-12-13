@@ -97,27 +97,6 @@ fn difficulty_desc(difficulty: &U256) -> String {
     format!("~{} zero bytes", leading_zero_bytes)
 }
 
-/// Compute block hash (must match qc-02 logic)
-fn compute_block_hash(block: &shared_types::ValidatedBlock) -> [u8; 32] {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(block.header.parent_hash);
-    hasher.update(block.header.height.to_le_bytes());
-    hasher.update(block.header.merkle_root);
-    hasher.update(block.header.state_root);
-    hasher.update(block.header.timestamp.to_le_bytes());
-    hasher.finalize().into()
-}
-
-/// Resolve difficulty from stored block, using fallback if block has zero difficulty
-fn resolve_difficulty(stored: &qc_02_block_storage::StoredBlock, fallback: U256) -> U256 {
-    if stored.block.header.difficulty.is_zero() {
-        fallback
-    } else {
-        stored.block.header.difficulty
-    }
-}
-
 /// Load a single block's info for historical tracking
 fn load_block_info(
     storage: &impl qc_02_block_storage::BlockStorageApi,
@@ -139,115 +118,72 @@ fn load_block_info(
     })
 }
 
-/// Parameters for creating a validated block from mined data
-#[derive(Debug, Clone, Copy)]
-struct MinedBlockParams {
-    height: u64,
-    difficulty: U256,
-    nonce: u64,
-    timestamp: u64,
-    parent_hash: [u8; 32],
-}
+/// Run the BlockProduced event subscription loop (EDA choreography).
+/// This bridges shared-bus events to the internal EventRouter.
+/// The ConsensusHandler then processes the event and publishes BlockValidated.
+async fn run_block_produced_subscription(
+    mut subscription: shared_bus::Subscription,
+    router: std::sync::Arc<crate::wiring::EventRouter>,
+) {
+    info!("[Bridge] 🎧 Listening for BlockProduced events via subscription...");
+    info!("[Bridge]   → Republishes to internal EventRouter for ConsensusHandler");
 
-/// Create a ValidatedBlock from mined block parameters
-fn create_validated_block(params: MinedBlockParams) -> shared_types::ValidatedBlock {
-    use shared_types::{BlockHeader, ConsensusProof, Hash, PublicKey, ValidatedBlock};
-    ValidatedBlock {
-        header: BlockHeader {
-            version: 1,
-            height: params.height,
-            parent_hash: params.parent_hash,
-            merkle_root: Hash::default(),
-            state_root: Hash::default(),
-            timestamp: params.timestamp,
-            proposer: PublicKey::default(),
-            difficulty: params.difficulty,
-            nonce: params.nonce,
-        },
-        transactions: vec![],
-        consensus_proof: ConsensusProof::default(),
+    while let Some(event) = subscription.recv().await {
+        bridge_block_produced_event(event, &router);
     }
+
+    warn!("[Bridge] Subscription ended - event bus closed");
 }
 
-/// Result of storing and publishing a block
-struct BlockProcessingResult {
-    stored_hash: [u8; 32],
-}
-
-/// Store a mined block and publish the BlockValidated event
-/// Returns the stored block hash on success
-fn store_and_publish_block(
-    block: shared_types::ValidatedBlock,
-    block_height: u64,
-    storage: &mut impl qc_02_block_storage::ports::inbound::BlockStorageApi,
+/// Bridge a BlockProduced event from shared-bus to internal EventRouter.
+/// This follows EDA choreography - we don't directly store blocks here.
+/// The ConsensusHandler validates and publishes BlockValidated.
+fn bridge_block_produced_event(
+    event: shared_bus::BlockchainEvent,
     router: &std::sync::Arc<crate::wiring::EventRouter>,
-) -> Option<BlockProcessingResult> {
-    // Store block to qc-02
-    let stored_hash = match storage.write_block(
-        block,
-        shared_types::Hash::default(),
-        shared_types::Hash::default(),
-    ) {
-        Ok(hash) => hash,
-        Err(e) => {
-            error!("[Bridge] ❌ Failed to store block #{}: {}", block_height, e);
-            return None;
-        }
+) {
+    let shared_bus::BlockchainEvent::BlockProduced {
+        block_height,
+        block_hash,
+        difficulty,
+        nonce,
+        timestamp,
+        parent_hash,
+    } = event
+    else {
+        return;
     };
 
     info!(
-        "[Bridge] 💾 Block #{} stored successfully (hash: {:02x}{:02x}...)",
-        block_height, stored_hash[0], stored_hash[1]
+        "[Bridge] 📥 Received BlockProduced #{} via subscription (nonce: {})",
+        block_height, nonce
     );
 
-    // Publish BlockValidated event
-    let event = crate::wiring::ChoreographyEvent::BlockValidated {
-        block_hash: stored_hash,
+    // Republish to internal EventRouter for ConsensusHandler to process
+    let internal_event = crate::wiring::ChoreographyEvent::BlockProduced {
+        block_hash,
         block_height,
-        sender_id: shared_types::SubsystemId::Consensus,
+        difficulty,
+        nonce,
+        timestamp,
+        parent_hash,
+        sender_id: shared_types::SubsystemId::BlockProduction,
     };
-    
-    if let Err(e) = router.publish(event) {
-        error!("[Bridge] ❌ Failed to publish BlockValidated: {}", e);
+
+    if let Err(e) = router.publish(internal_event) {
+        error!(
+            "[Bridge] ❌ Failed to republish BlockProduced to internal router: {}",
+            e
+        );
     } else {
-        info!("[Bridge] ✅ Published BlockValidated for block #{}", block_height);
-    }
-
-    Some(BlockProcessingResult { stored_hash })
-}
-
-/// Load last block hash and difficulty for bridge initialization
-///
-/// If `chain_height > 0`, attempts to load the last block at that height.
-/// If `chain_height == 0`, loads the genesis block (height 0).
-/// Returns a tuple of (block_hash, difficulty), using zeros and `fallback_difficulty` on error.
-fn load_last_block_for_bridge(
-    storage: &impl qc_02_block_storage::BlockStorageApi,
-    chain_height: u64,
-    fallback_difficulty: U256,
-) -> ([u8; 32], U256) {
-    let target_height = if chain_height > 0 { chain_height } else { 0 };
-
-    match storage.read_block_by_height(target_height) {
-        Err(_) => {
-            let label = if chain_height > 0 { "last block" } else { "genesis" };
-            info!("[Bridge] ⚠️ Could not load {}, using zeros", label);
-            ([0u8; 32], fallback_difficulty)
-        }
-        Ok(stored) => {
-            let hash = compute_block_hash(&stored.block);
-            let diff = resolve_difficulty(&stored, fallback_difficulty);
-            let label = if target_height == 0 { "genesis" } else { "last" };
-            info!(
-                "[Bridge] 📖 Loaded {} block hash ({:02x}{:02x}..., diff: {})",
-                label, hash[0], hash[1], crate::difficulty_desc(&diff)
-            );
-            (hash, diff)
-        }
+        info!(
+            "[Bridge] ✅ Republished BlockProduced #{} to internal EventRouter",
+            block_height
+        );
     }
 }
 
-/// The main node runtime orchestrating all subsystems.
+/// The main node runtime coordinating all subsystems via choreography.
 pub struct NodeRuntime {
     /// Subsystem container with all initialized services.
     container: Arc<SubsystemContainer>,
@@ -725,80 +661,45 @@ impl NodeRuntime {
         info!("  [17] Block Production Miner started (PoW auto-mining enabled)");
 
         // V2.4 CHOREOGRAPHY: Subscribe to BlockProduced events from shared-bus
-        // Instead of polling qc-17's internal queue, we react to events it publishes.
+        // The bridge republishes to internal EventRouter, then ConsensusHandler processes.
         // This is the proper EDA pattern per Architecture.md Section 2.3.
         let choreography_router = self.choreography.router();
-        let block_storage_for_bridge = Arc::clone(&container.block_storage);
-        let mut last_block_height = chain_height;
 
-        // Track the last block hash for parent linking
-        let (mut last_block_hash, _last_stored_difficulty): ([u8; 32], primitive_types::U256) = {
-            let storage = block_storage_for_bridge.read();
-            load_last_block_for_bridge(&*storage, chain_height, last_known_difficulty)
-        };
+        // Start Consensus handler (qc-08) - validates blocks and publishes BlockValidated
+        let consensus_adapter = Arc::new(crate::adapters::ConsensusAdapter::new(Arc::clone(
+            &choreography_router,
+        )));
+        // Set initial chain height for validation
+        consensus_adapter.set_chain_height(chain_height);
+
+        let consensus_handler = crate::handlers::ConsensusHandler::new(
+            choreography_router.subscribe(),
+            Arc::clone(&consensus_adapter),
+        );
+        let mut consensus_shutdown = self.shutdown_rx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = consensus_handler.run() => {}
+                _ = consensus_shutdown.changed() => {
+                    info!("[qc-08] Shutdown signal received");
+                }
+            }
+        });
+        info!(
+            "  [08] Consensus handler started (validates BlockProduced → publishes BlockValidated)"
+        );
 
         // Subscribe to BlockProduced events from shared-bus (EDA pattern)
         let event_bus_for_bridge = Arc::clone(&container.event_bus);
         let filter = shared_bus::EventFilter::topics(vec![shared_bus::EventTopic::BlockProduction]);
-        let mut subscription = event_bus_for_bridge.subscribe(filter);
+        let subscription = event_bus_for_bridge.subscribe(filter);
 
         info!("[Bridge] 🎧 Starting choreography subscription (EDA pattern - no polling)...");
 
-        tokio::spawn(async move {
-            info!("[Bridge] 🎧 Listening for BlockProduced events via subscription...");
-
-            // EDA: React to events instead of polling
-            while let Some(event) = subscription.recv().await {
-                if let shared_bus::BlockchainEvent::BlockProduced {
-                    block_height,
-                    block_hash,
-                    difficulty,
-                    nonce,
-                    timestamp,
-                    parent_hash,
-                } = event
-                {
-                    info!(
-                        "[Bridge] 📥 Received BlockProduced #{} via subscription (nonce: {})",
-                        block_height, nonce
-                    );
-
-                    // Convert difficulty format
-                    let difficulty_u256 = primitive_types::U256::from_big_endian(&difficulty);
-
-                    let block = create_validated_block(MinedBlockParams {
-                        height: block_height,
-                        difficulty: difficulty_u256,
-                        nonce,
-                        timestamp,
-                        parent_hash: if parent_hash != [0u8; 32] {
-                            parent_hash
-                        } else {
-                            last_block_hash
-                        },
-                    });
-
-                    info!(
-                        "[Bridge] 🌉 Storing block #{} (EDA subscription path)",
-                        block_height
-                    );
-
-                    // Store and publish BlockValidated
-                    let mut storage = block_storage_for_bridge.write();
-                    if let Some(result) = store_and_publish_block(
-                        block,
-                        block_height,
-                        &mut *storage,
-                        &choreography_router,
-                    ) {
-                        last_block_hash = result.stored_hash;
-                        last_block_height = block_height;
-                    }
-                }
-            }
-
-            warn!("[Bridge] Subscription ended - event bus closed");
-        });
+        tokio::spawn(run_block_produced_subscription(
+            subscription,
+            choreography_router,
+        ));
 
         info!("  [Bridge] Choreography subscription started (EDA - no polling)");
 
