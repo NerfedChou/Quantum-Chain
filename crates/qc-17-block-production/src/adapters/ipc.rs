@@ -79,7 +79,6 @@ pub struct StatePrefetchRequest {
     /// Reply topic name
     pub reply_to: String,
     /// Parent state root hash (used for state simulation)
-    #[allow(dead_code)]
     pub parent_state_root: H256,
     /// Serialized transactions to simulate
     pub transactions: Vec<Vec<u8>>,
@@ -306,7 +305,6 @@ pub enum IpcError {
 /// IPC adapter for Mempool (Subsystem 6)
 pub struct IpcMempoolReader {
     /// Subsystem ID for IPC routing
-    #[allow(dead_code)]
     subsystem_id: u8,
 }
 
@@ -320,6 +318,11 @@ impl IpcMempoolReader {
     /// Creates a new IPC mempool reader
     pub fn new() -> Self {
         Self { subsystem_id: 17 }
+    }
+
+    /// Get the subsystem ID
+    pub fn subsystem_id(&self) -> u8 {
+        self.subsystem_id
     }
 
     /// Generate correlation ID for request tracking
@@ -364,7 +367,6 @@ impl MempoolReader for IpcMempoolReader {
 
 /// IPC adapter for State Management (Subsystem 4)
 pub struct IpcStateReader {
-    #[allow(dead_code)]
     subsystem_id: u8,
 }
 
@@ -378,6 +380,11 @@ impl IpcStateReader {
     /// Creates a new IPC state reader
     pub fn new() -> Self {
         Self { subsystem_id: 17 }
+    }
+
+    /// Get the subsystem ID
+    pub fn subsystem_id(&self) -> u8 {
+        self.subsystem_id
     }
 
     fn generate_correlation_id() -> [u8; 16] {
@@ -443,7 +450,6 @@ impl StateReader for IpcStateReader {
 
 /// IPC adapter for Consensus (Subsystem 8)
 pub struct IpcConsensusSubmitter {
-    #[allow(dead_code)]
     subsystem_id: u8,
 }
 
@@ -457,6 +463,11 @@ impl IpcConsensusSubmitter {
     /// Creates a new IPC consensus submitter
     pub fn new() -> Self {
         Self { subsystem_id: 17 }
+    }
+
+    /// Get the subsystem ID
+    pub fn subsystem_id(&self) -> u8 {
+        self.subsystem_id
     }
 
     fn generate_correlation_id() -> [u8; 16] {
@@ -585,7 +596,6 @@ use crate::ports::outbound::{BlockStorageReader, ChainInfo};
 /// adjustment continuity across restarts.
 pub struct IpcBlockStorageReader {
     /// Subsystem ID for IPC routing
-    #[allow(dead_code)]
     subsystem_id: u8,
 }
 
@@ -599,6 +609,11 @@ impl IpcBlockStorageReader {
     /// Creates a new IPC block storage reader
     pub fn new() -> Self {
         Self { subsystem_id: 17 }
+    }
+
+    /// Get the subsystem ID
+    pub fn subsystem_id(&self) -> u8 {
+        self.subsystem_id
     }
 
     /// Generate correlation ID for request tracking

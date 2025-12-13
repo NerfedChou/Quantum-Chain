@@ -145,7 +145,7 @@ pub enum BlockStorageEventPayload {
     /// Block was marked as finalized
     BlockFinalized(BlockFinalizedPayload),
     /// Response to ReadBlock request
-    ReadBlockResponse(ReadBlockResponsePayload),
+    ReadBlockResponse(Box<ReadBlockResponsePayload>),
     /// Response to ReadBlockRange request
     ReadBlockRangeResponse(ReadBlockRangeResponsePayload),
     /// Response to GetChainInfo request (V2.4)

@@ -272,18 +272,15 @@ where
                 let k = self.stack.pop()?;
                 let x = self.stack.pop()?;
 
-                let result = if k < U256::from(32) {
+                // k >= 32 means no extension needed
+                let result = if k >= U256::from(32) {
+                    x
+                } else {
                     let k = k.as_usize();
                     let bit_index = 8 * k + 7;
                     let bit = x.bit(bit_index);
                     let mask = (U256::one() << (bit_index + 1)) - 1;
-                    if bit {
-                        x | !mask
-                    } else {
-                        x & mask
-                    }
-                } else {
-                    x
+                    if bit { x | !mask } else { x & mask }
                 };
                 self.stack.push(result)?;
             }
@@ -487,10 +484,7 @@ where
                 let mut result = [0u8; 32];
 
                 for (i, byte) in result.iter_mut().enumerate() {
-                    let pos = offset.saturating_add(i);
-                    if pos < data.len() {
-                        *byte = data.as_slice()[pos];
-                    }
+                    *byte = data.as_slice().get(offset.saturating_add(i)).copied().unwrap_or(0);
                 }
 
                 self.stack.push(U256::from_big_endian(&result))?;
@@ -524,11 +518,7 @@ where
                 // Copy data with zero padding
                 let data = &self.context.data;
                 for i in 0..size {
-                    let byte = if data_offset + i < data.len() {
-                        data.as_slice()[data_offset + i]
-                    } else {
-                        0
-                    };
+                    let byte = data.as_slice().get(data_offset + i).copied().unwrap_or(0);
                     self.memory.write_byte(dest_offset + i, byte)?;
                 }
             }
@@ -560,11 +550,7 @@ where
 
                 // Copy code with zero padding
                 for i in 0..size {
-                    let byte = if code_offset + i < self.code.len() {
-                        self.code[code_offset + i]
-                    } else {
-                        0
-                    };
+                    let byte = self.code.get(code_offset + i).copied().unwrap_or(0);
                     self.memory.write_byte(dest_offset + i, byte)?;
                 }
             }

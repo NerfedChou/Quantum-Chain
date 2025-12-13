@@ -11,6 +11,9 @@
 //! | qc-08 Consensus | Block validation | < 100ms |
 //! | qc-10 Signature Verification | ECDSA verify | < 1ms |
 
+// Allow excessive nesting in benchmark code
+#![allow(clippy::excessive_nesting)]
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use rand::Rng;
 use sha3::{Digest, Keccak256};

@@ -1,0 +1,204 @@
+name: Code Hygiene Check
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # =========================================================================
+  # SILENCED CODE DETECTION
+  # Enforces: No #[allow(dead_code)] or #[allow(unused)] in production code
+  # Exception: Test code (#[cfg(test)]) is allowed
+  # =========================================================================
+  silenced-code-check:
+    name: Silenced Code Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for #[allow(dead_code)] in production code
+        run: |
+          echo "🔍 Scanning for silenced dead_code in production..."
+          
+          # Find all #[allow(dead_code)] NOT in test modules
+          # Excludes: lines in #[cfg(test)] modules, test files
+          VIOLATIONS=$(grep -rn '#\[allow(dead_code)\]' crates/ \
+            --include='*.rs' \
+            | grep -v '_test\.rs' \
+            | grep -v 'tests/' \
+            | grep -v '#\[cfg(test)\]' \
+            | grep -v 'mod tests' \
+            || true)
+          
+          if [ -n "$VIOLATIONS" ]; then
+            echo "❌ Found silenced dead_code in production code:"
+            echo "$VIOLATIONS"
+            echo ""
+            echo "⚠️  Policy: #[allow(dead_code)] is only allowed in test code."
+            echo "   Either implement the code or remove it."
+            exit 1
+          fi
+          
+          echo "✅ No silenced dead_code in production code"
+
+      - name: Check for #[allow(unused)] in production code
+        run: |
+          echo "🔍 Scanning for silenced unused warnings in production..."
+          
+          VIOLATIONS=$(grep -rn '#\[allow(unused' crates/ \
+            --include='*.rs' \
+            | grep -v '_test\.rs' \
+            | grep -v 'tests/' \
+            | grep -v '#\[cfg(test)\]' \
+            | grep -v 'mod tests' \
+            || true)
+          
+          if [ -n "$VIOLATIONS" ]; then
+            echo "❌ Found silenced unused warnings in production code:"
+            echo "$VIOLATIONS"
+            echo ""
+            echo "⚠️  Policy: #[allow(unused*)] is only allowed in test code."
+            exit 1
+          fi
+          
+          echo "✅ No silenced unused warnings in production code"
+
+      - name: Check for underscore-prefixed struct fields
+        run: |
+          echo "🔍 Scanning for _field patterns in structs (indicates unused fields)..."
+          
+          # Match: "pub _fieldname:" or "_fieldname:" at start of line (struct fields)
+          VIOLATIONS=$(grep -rn '^\s*\(pub \)\?_[a-z_]*:' crates/ \
+            --include='*.rs' \
+            | grep -v 'tests/' \
+            | grep -v '#\[cfg(test)\]' \
+            | grep -v 'fn ' \
+            || true)
+          
+          if [ -n "$VIOLATIONS" ]; then
+            echo "⚠️  Found underscore-prefixed struct fields:"
+            echo "$VIOLATIONS"
+            echo ""
+            echo "📋 These fields may be unused. Review and either:"
+            echo "   1. Use the field (remove underscore)"
+            echo "   2. Document why it's stored (e.g., RAII guard)"
+            echo "   3. Remove if truly dead"
+            # Warning only, not blocking
+          fi
+
+  # =========================================================================
+  # TODO TRACKING
+  # Counts and reports TODOs - doesn't block, just tracks
+  # =========================================================================
+  todo-tracker:
+    name: TODO Tracker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Count TODOs
+        run: |
+          echo "📝 Scanning for TODO comments..."
+          
+          TODO_COUNT=$(grep -rn 'TODO' crates/ --include='*.rs' | wc -l || echo "0")
+          FIXME_COUNT=$(grep -rn 'FIXME' crates/ --include='*.rs' | wc -l || echo "0")
+          HACK_COUNT=$(grep -rn 'HACK' crates/ --include='*.rs' | wc -l || echo "0")
+          
+          echo "📊 Technical Debt Summary:"
+          echo "   TODOs:  $TODO_COUNT"
+          echo "   FIXMEs: $FIXME_COUNT"
+          echo "   HACKs:  $HACK_COUNT"
+          echo ""
+          
+          if [ "$TODO_COUNT" -gt 0 ]; then
+            echo "📋 TODO locations:"
+            grep -rn 'TODO' crates/ --include='*.rs' | head -20
+            if [ "$TODO_COUNT" -gt 20 ]; then
+              echo "... and $((TODO_COUNT - 20)) more"
+            fi
+          fi
+
+      - name: Check for critical TODOs
+        run: |
+          echo "🚨 Checking for critical TODOs..."
+          
+          # CRITICAL TODOs that should block
+          CRITICAL=$(grep -rn 'TODO.*CRITICAL\|TODO.*SECURITY\|TODO.*BLOCKER' crates/ \
+            --include='*.rs' \
+            || true)
+          
+          if [ -n "$CRITICAL" ]; then
+            echo "❌ Found critical TODOs that must be addressed:"
+            echo "$CRITICAL"
+            exit 1
+          fi
+          
+          echo "✅ No critical TODOs"
+
+  # =========================================================================
+  # CLIPPY STRICT MODE
+  # Production-grade linting with no allowances
+  # =========================================================================
+  clippy-strict:
+    name: Clippy Strict
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run Clippy (deny warnings)
+        run: |
+          cargo clippy --all-targets --all-features -- \
+            -D warnings \
+            -D clippy::unwrap_used \
+            -D clippy::expect_used \
+            -A clippy::too_many_arguments
+
+  # =========================================================================
+  # FULL TEST SUITE
+  # =========================================================================
+  test-suite:
+    name: Full Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run all tests
+        run: cargo test --all-features --workspace
+
+      - name: Test with all feature combinations
+        run: |
+          cargo test -p node-runtime --features qc-15
+          cargo test -p qc-11-smart-contracts
+          cargo test -p qc-17-block-production

@@ -79,11 +79,14 @@ impl PruningService {
         // Check if height is a multiple of anchor_base * 2^k
         let mut interval = self.config.anchor_base;
         while interval <= height {
-            if height % interval == 0 {
-                // Check if it's the largest power that divides evenly
-                if height % (interval * 2) != 0 {
-                    return true;
-                }
+            // Not a multiple at this interval, try next
+            if height % interval != 0 {
+                interval *= 2;
+                continue;
+            }
+            // Check if it's the largest power that divides evenly
+            if height % (interval * 2) != 0 {
+                return true;
             }
             interval *= 2;
         }

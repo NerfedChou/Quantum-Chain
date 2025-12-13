@@ -15,7 +15,7 @@
 //!
 //! Reference: SPEC-08-CONSENSUS.md Phase 3
 
-use crate::domain::{BlsPublicKey, ValidatorId, ValidatorInfo, ValidatorSet};
+use crate::domain::{BlsPublicKey, ValidatorId, ValidatorSet};
 use std::collections::HashMap;
 
 /// Committee size for BLS aggregation optimization.
@@ -218,6 +218,7 @@ pub struct CommitteeCacheStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::ValidatorInfo;
 
     fn make_validator_set(count: usize) -> ValidatorSet {
         let validators: Vec<ValidatorInfo> = (0..count)

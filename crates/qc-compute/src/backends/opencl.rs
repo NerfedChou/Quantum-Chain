@@ -169,7 +169,6 @@ __kernel void pow_mine(
 /// that are not Sync. This ensures thread-safe access.
 pub struct OpenCLEngine {
     device_info: DeviceInfo,
-    #[allow(dead_code)]
     context: ocl::Context,
     queue: ocl::Queue,
     /// Kernel wrapped in Mutex for thread safety (ocl::Kernel is not Sync)
@@ -271,6 +270,13 @@ impl OpenCLEngine {
             queue,
             pow_kernel: Mutex::new(pow_kernel),
         })
+    }
+
+    /// Get reference to the OpenCL context.
+    ///
+    /// Useful for creating additional buffers or programs.
+    pub fn context(&self) -> &ocl::Context {
+        &self.context
     }
 }
 

@@ -687,11 +687,13 @@ impl SubsystemContainer {
         use primitive_types::U256;
         use qc_17_block_production::{BlockProductionConfig, ConsensusMode};
 
-        let mut block_config = BlockProductionConfig::default();
-        block_config.mode = ConsensusMode::ProofOfStake;
-        block_config.gas_limit = 30_000_000;
-        block_config.min_gas_price = U256::from(1_000_000_000u64);
-        block_config.fair_ordering = true;
+        let mut block_config = BlockProductionConfig {
+            mode: ConsensusMode::ProofOfStake,
+            gas_limit: 30_000_000,
+            min_gas_price: U256::from(1_000_000_000u64),
+            fair_ordering: true,
+            ..Default::default()
+        };
 
         if config.mining.enabled {
             block_config.mode = ConsensusMode::ProofOfWork;
@@ -701,6 +703,7 @@ impl SubsystemContainer {
                 target_block_time: Some(10),
                 use_dgw: Some(true),
                 dgw_window: Some(24),
+                batch_size: Some(10_000_000),
             });
         }
 

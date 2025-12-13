@@ -62,21 +62,14 @@ impl<S: SignatureVerificationApi + Clone + Send + Sync + 'static> SignatureVerif
         let msg_correlation_id = match Uuid::parse_str(&correlation_id) {
             Ok(uuid) => uuid,
             Err(_) => {
-                // Try from bytes if it was raw bytes hex encoded?
-                // VerifyNodeIdentity payload uses String correlation_id.
-                // Usually it's Uuid hex.
-                // Fallback to zeros (but this breaks correlation)
+                // Try to recover from hex-encoded 16-byte format
                 warn!("Invalid correlation ID format: {}", correlation_id);
-                // Try to recover if it's 32 hex chars = 16 bytes
-                if let Ok(bytes) = hex::decode(&correlation_id) {
-                    if bytes.len() == 16 {
-                        Uuid::from_bytes(bytes.try_into().unwrap())
-                    } else {
-                        Uuid::nil()
-                    }
-                } else {
-                    Uuid::nil()
-                }
+                hex::decode(&correlation_id)
+                    .ok()
+                    .filter(|bytes| bytes.len() == 16)
+                    .and_then(|bytes| bytes.try_into().ok())
+                    .map(Uuid::from_bytes)
+                    .unwrap_or(Uuid::nil())
             }
         };
 

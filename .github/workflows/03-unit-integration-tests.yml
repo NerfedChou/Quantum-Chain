@@ -432,6 +432,95 @@ jobs:
           echo "✅ Flaky test check complete"
 
   # ==========================================================================
+  # ZTAC Pillar 4: Semantic Verification (Mutation Testing)
+  # Expose the "Green Build Illusion" - tests that pass for broken code
+  # ==========================================================================
+  mutation-testing:
+    name: "ZTAC: Mutation Testing"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90  # Mutation testing is time-intensive
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mutants-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Install cargo-mutants
+        run: |
+          cargo install cargo-mutants || echo "cargo-mutants installation failed"
+        continue-on-error: true
+      
+      - name: Run Mutation Testing (Full Workspace)
+        run: |
+          echo "=========================================="
+          echo "ZTAC: Mutation Testing (Semantic Verification)"
+          echo "=========================================="
+          echo "Goal: Expose tests that pass for broken code"
+          echo ""
+          
+          if ! command -v cargo-mutants &> /dev/null; then
+            echo "⚠️ cargo-mutants not installed - skipping"
+            exit 0
+          fi
+          
+          # Run mutation testing on critical crates
+          # Using --timeout to limit long-running mutants
+          mkdir -p mutants-out
+          
+          cargo mutants --workspace \
+            --timeout 120 \
+            --jobs 2 \
+            --output mutants-out \
+            || true  # Don't fail on first run
+          
+          # Check for surviving mutants
+          if [ -f mutants-out/caught.txt ]; then
+            SURVIVED=$(grep -c "SURVIVED" mutants-out/caught.txt 2>/dev/null || echo "0")
+            KILLED=$(grep -c "KILLED" mutants-out/caught.txt 2>/dev/null || echo "0")
+            TIMEOUT=$(grep -c "TIMEOUT" mutants-out/caught.txt 2>/dev/null || echo "0")
+            
+            echo ""
+            echo "=========================================="
+            echo "Mutation Testing Results"
+            echo "=========================================="
+            echo "Killed: $KILLED (good - tests caught mutations)"
+            echo "Survived: $SURVIVED (bad - tests missed mutations)"
+            echo "Timeout: $TIMEOUT (slow tests)"
+            
+            if [ "$SURVIVED" -gt 10 ]; then
+              echo ""
+              echo "⚠️ WARNING: $SURVIVED mutants survived - tests may be superficial"
+              echo "Review surviving mutants in mutants-out/"
+              # Advisory warning for now, will become blocking later
+            fi
+          fi
+          
+          echo ""
+          echo "✅ Mutation testing complete"
+      
+      - name: Upload Mutation Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: mutants-out/
+          retention-days: 7
+
+  # ==========================================================================
   # TDD Compliance Check
   # ==========================================================================
   tdd-compliance:

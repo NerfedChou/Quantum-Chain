@@ -243,8 +243,8 @@ mod tests {
         let target = NodeId::new([0u8; 32]);
 
         // Create peers at different distances
-        let mut far = [0u8; 32];
-        far[0] = 0b1000_0000; // Bucket 0 (farthest)
+        let mut _far = [0u8; 32];
+        _far[0] = 0b1000_0000; // Bucket 0 (farthest)
         let peer_far = make_peer(0b1000_0000);
 
         let mut mid = [0u8; 32];

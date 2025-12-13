@@ -16,7 +16,7 @@
 //!
 //! ## Reference
 //!
-//! Based on: https://github.com/mimblewimble/grin/blob/master/doc/mmr.md
+//! Based on: <https://github.com/mimblewimble/grin/blob/master/doc/mmr.md>
 
 use shared_types::Hash;
 use std::collections::HashMap;

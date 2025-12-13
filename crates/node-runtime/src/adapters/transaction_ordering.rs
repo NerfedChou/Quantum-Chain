@@ -72,6 +72,14 @@ impl TransactionOrderingAdapter {
             sender_id
         );
 
+        // Query State Management for conflicts (currently returns empty - WIP)
+        if let Err(e) = self
+            .query_state_for_conflicts(&request.transaction_hashes)
+            .await
+        {
+            error!("[qc-12] Failed to query state for conflicts: {}", e);
+        }
+
         // Delegate to IPC handler (which validates sender and calls domain)
         let response = self
             .handler
@@ -114,18 +122,21 @@ impl TransactionOrderingAdapter {
     /// Query State Management (4) for conflict detection.
     ///
     /// This is an outbound call to Subsystem 4.
-    /// Currently a stub - would use event bus request/response pattern.
-    #[allow(dead_code)]
+    ///
+    /// # TODO
+    ///
+    /// Implement full conflict detection flow:
+    /// 1. Send ConflictDetectionRequest to State Management (4) via event bus
+    /// 2. Wait for ConflictDetectionResponse with timeout
+    /// 3. Return the detected conflicts (tx_index_a, tx_index_b, conflict_type)
+    ///
+    /// Currently returns empty conflicts (no conflict detection).
+    #[allow(clippy::unused_async)] // Will be async when implemented
     async fn query_state_for_conflicts(
         &self,
         _tx_hashes: &[[u8; 32]],
     ) -> Result<Vec<(usize, usize, u8)>, TransactionOrderingAdapterError> {
-        // In a full implementation, this would:
-        // 1. Send ConflictDetectionRequest to State Management (4)
-        // 2. Wait for ConflictDetectionResponse
-        // 3. Return the conflicts
-
-        debug!("[qc-12] Querying State Management for conflicts (stub)");
+        debug!("[qc-12] Querying State Management for conflicts (stub - returns empty)");
         Ok(vec![])
     }
 

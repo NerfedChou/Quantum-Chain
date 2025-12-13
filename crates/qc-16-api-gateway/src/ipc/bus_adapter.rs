@@ -21,7 +21,6 @@ use tracing::{debug, warn};
 /// them to the shared event bus.
 pub struct EventBusSender {
     /// Reference to the event bus
-    #[allow(dead_code)]
     bus: Arc<InMemoryEventBus>,
     /// Subsystem ID for this gateway instance
     pub subsystem_id: u8,

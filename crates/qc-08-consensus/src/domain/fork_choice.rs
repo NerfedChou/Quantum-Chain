@@ -123,15 +123,16 @@ impl LMDGhostStore {
             let mut current = *target;
             let mut visited = HashSet::new();
 
-            while let Some(header) = self.blocks.get(&current) {
-                if !visited.insert(current) {
-                    break; // Prevent infinite loops
-                }
+            while visited.insert(current) {
+                let Some(header) = self.blocks.get(&current) else {
+                    break;
+                };
 
                 *self.weight_cache.entry(current).or_insert(0) += stake;
 
+                // Genesis or same as parent means stop
                 if current == header.parent_hash {
-                    break; // Genesis
+                    break;
                 }
                 current = header.parent_hash;
             }

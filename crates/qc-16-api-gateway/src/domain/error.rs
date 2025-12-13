@@ -201,7 +201,6 @@ impl ApiError {
     }
 
     /// Convert to jsonrpsee error (when jsonrpsee feature is enabled in Cargo.toml)
-    #[allow(dead_code)]
     pub fn into_jsonrpsee_error(self) -> (i32, String, Option<serde_json::Value>) {
         (self.code, self.message, self.data)
     }
@@ -341,5 +340,14 @@ mod tests {
         let json_err: Result<serde_json::Value, _> = serde_json::from_str("invalid json");
         let api_err: ApiError = json_err.unwrap_err().into();
         assert_eq!(api_err.code, codes::PARSE_ERROR);
+    }
+
+    #[test]
+    fn test_into_jsonrpsee_error() {
+        let err = ApiError::internal("test");
+        let (code, message, data) = err.into_jsonrpsee_error();
+        assert_eq!(code, codes::INTERNAL_ERROR);
+        assert!(message.contains("test"));
+        assert!(data.is_none());
     }
 }

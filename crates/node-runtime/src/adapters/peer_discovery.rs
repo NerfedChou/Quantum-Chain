@@ -15,7 +15,7 @@ use shared_types::ipc::VerifyNodeIdentityPayload;
 
 /// Wrapper around Shared PeerDiscoveryService to implement PeerDiscoveryApi.
 /// Allows usage in handlers (like BootstrapHandler) that require ownership or mutable reference,
-/// while maintaining shared state via Arc<RwLock>.
+/// while maintaining shared state via `Arc<RwLock>`.
 pub struct SharedPeerDiscovery {
     pub inner: Arc<RwLock<PeerDiscoveryService>>,
 }

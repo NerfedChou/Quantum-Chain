@@ -50,14 +50,16 @@ pub fn kahns_topological_sort(graph: &DependencyGraph) -> Result<ExecutionSchedu
         let mut next_queue: Vec<Hash> = Vec::new();
 
         for node in &current_group {
-            if let Some(neighbors) = graph.adjacency.get(node) {
-                for neighbor in neighbors {
-                    if let Some(degree) = in_degree.get_mut(neighbor) {
-                        *degree = degree.saturating_sub(1);
-                        if *degree == 0 {
-                            next_queue.push(*neighbor);
-                        }
-                    }
+            let Some(neighbors) = graph.adjacency.get(node) else {
+                continue;
+            };
+            for neighbor in neighbors {
+                let Some(degree) = in_degree.get_mut(neighbor) else {
+                    continue;
+                };
+                *degree = degree.saturating_sub(1);
+                if *degree == 0 {
+                    next_queue.push(*neighbor);
                 }
             }
         }

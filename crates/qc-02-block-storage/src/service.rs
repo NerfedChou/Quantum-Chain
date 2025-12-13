@@ -321,18 +321,22 @@ where
             // Always update in-memory index for fast lookups
             self.tx_index.insert(tx.tx_hash, location.clone());
 
-            // Optionally persist to KV store
-            if self.config.persist_transaction_index {
-                let key = KeyPrefix::transaction_key(&tx.tx_hash);
-                if let Ok(value) = bincode::serialize(&location) {
-                    if let Err(e) = self.kv_store.put(&key, &value) {
-                        tracing::warn!(
-                            "[qc-02] Failed to persist tx index for {:x?}: {:?}",
-                            &tx.tx_hash[..4],
-                            e
-                        );
-                    }
-                }
+            // Skip persistence if disabled
+            if !self.config.persist_transaction_index {
+                continue;
+            }
+
+            let key = KeyPrefix::transaction_key(&tx.tx_hash);
+            let Ok(value) = bincode::serialize(&location) else {
+                continue;
+            };
+
+            if let Err(e) = self.kv_store.put(&key, &value) {
+                tracing::warn!(
+                    "[qc-02] Failed to persist tx index for {:x?}: {:?}",
+                    &tx.tx_hash[..4],
+                    e
+                );
             }
         }
     }

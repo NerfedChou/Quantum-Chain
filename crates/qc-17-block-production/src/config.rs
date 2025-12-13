@@ -18,7 +18,6 @@ pub struct BlockProductionConfig {
     pub min_gas_price: U256,
 
     /// Enable MEV protection (fair ordering)
-    #[allow(dead_code)]
     pub fair_ordering: bool,
 
     /// Minimum transactions per block (0 = allow empty blocks)
@@ -83,9 +82,9 @@ impl Default for PoWConfig {
         Self {
             threads: num_cpus::get() as u8,
             algorithm: HashAlgorithm::Keccak256,
-            target_block_time: Some(10), // 10 seconds per block
-            use_dgw: Some(true),         // Enable Dark Gravity Wave
-            dgw_window: Some(24),        // Look at last 24 blocks
+            target_block_time: Some(10),  // 10 seconds per block
+            use_dgw: Some(true),          // Enable Dark Gravity Wave
+            dgw_window: Some(24),         // Look at last 24 blocks
             batch_size: Some(10_000_000), // Default mining batch size
         }
     }

@@ -143,19 +143,20 @@ impl TransactionFamily {
             }
             seen.insert(current);
 
+            // Skip original hash but count descendants
             if current != *hash {
                 info.descendant_count += 1;
                 info.descendant_hashes.insert(current);
-
-                if info.descendant_count >= MAX_DESCENDANTS {
-                    break;
-                }
             }
 
+            // Early break at limit
+            if info.descendant_count >= MAX_DESCENDANTS {
+                break;
+            }
+
+            // Queue children for traversal
             if let Some(children) = self.children.get(&current) {
-                for child in children {
-                    stack.push(*child);
-                }
+                stack.extend(children.iter().copied());
             }
         }
 
@@ -255,7 +256,7 @@ mod tests {
             family.register(hash_from_nonce(i), SENDER_A, i);
         }
 
-        let get_fee = |hash: &Hash| -> Option<(U256, usize)> { Some((U256::from(1000), 100)) };
+        let get_fee = |_hash: &Hash| -> Option<(U256, usize)> { Some((U256::from(1000), 100)) };
 
         let ancestors = family.get_ancestors(&hash_from_nonce(2), get_fee);
         assert_eq!(ancestors.ancestor_count, 2);

@@ -17,7 +17,6 @@ pub struct TransactionSelector {
     min_gas_price: U256,
 
     /// MEV protection enabled
-    #[allow(dead_code)]
     fair_ordering: bool,
 }
 
@@ -29,6 +28,11 @@ impl TransactionSelector {
             min_gas_price,
             fair_ordering,
         }
+    }
+
+    /// Check if fair ordering (MEV protection) is enabled.
+    pub fn is_fair_ordering(&self) -> bool {
+        self.fair_ordering
     }
 
     /// Select optimal transaction set using greedy knapsack
@@ -168,8 +172,7 @@ impl TransactionSelector {
     ///
     /// Validates that transaction nonces are sequential per sender.
     /// Returns Ok if nonces are valid, Err otherwise.
-    #[allow(unused_variables)]
-    pub fn validate_nonce_ordering(&self, transactions: &[TransactionCandidate]) -> Result<()> {
+    pub fn validate_nonce_ordering(&self, _transactions: &[TransactionCandidate]) -> Result<()> {
         // Nonce validation is handled by the mempool (qc-06)
         // This is a passthrough for block production
         Ok(())
@@ -179,8 +182,7 @@ impl TransactionSelector {
     ///
     /// Detects potential MEV patterns like front-running, back-running, and sandwiches.
     /// Returns empty vec when no MEV detection is configured.
-    #[allow(unused_variables)]
-    pub fn detect_mev_bundles(&self, transactions: &[Vec<u8>]) -> Vec<TransactionBundle> {
+    pub fn detect_mev_bundles(&self, _transactions: &[Vec<u8>]) -> Vec<TransactionBundle> {
         // MEV detection is an advanced feature - returns empty for now
         // Production deployments should implement MEV protection strategies
         Vec::new()
@@ -193,7 +195,6 @@ impl TransactionSelector {
 /// transaction simulation.
 pub struct StatePrefetchCache {
     /// Parent state root (used for cache invalidation)
-    #[allow(dead_code)]
     parent_state_root: primitive_types::H256,
 
     /// Cached account states
@@ -224,6 +225,13 @@ impl StatePrefetchCache {
             accounts: HashMap::new(),
             storage: HashMap::new(),
         }
+    }
+
+    /// Get the parent state root this cache was created for.
+    ///
+    /// Used for cache invalidation when state changes.
+    pub fn parent_state_root(&self) -> primitive_types::H256 {
+        self.parent_state_root
     }
 
     /// Simulate transaction execution
@@ -404,12 +412,12 @@ impl PoWMiner {
     }
 
     /// Get the compute engine for service layer to use in async mining
-    /// 
+    ///
     /// Note: Async mining logic lives in service layer to maintain domain purity.
     /// This getter allows the service layer to access the compute engine.
     ///
     /// # Returns
-    /// 
+    ///
     /// - `Some(Arc)` if a compute engine was successfully initialized.
     /// - `None` if no compute engine is available.
     pub fn get_compute_engine(&self) -> Option<std::sync::Arc<dyn qc_compute::ComputeEngine>> {

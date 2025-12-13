@@ -8,7 +8,7 @@ use super::{CompactBlock, PeerPropagationState, PrefilledTx, PropagationConfig, 
 
 /// Calculate short transaction ID using SipHash.
 ///
-/// Formula: short_id = SipHash-1-3(nonce, tx_hash)[0:6]
+/// Formula: short_id = SipHash-1-3(nonce, tx_hash)\[0:6\]
 ///
 /// Reference: BIP152 (Bitcoin Improvement Proposal 152)
 pub fn calculate_short_id(tx_hash: &Hash, nonce: u64) -> ShortTxId {

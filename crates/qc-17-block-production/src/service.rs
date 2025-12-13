@@ -37,7 +37,6 @@ pub struct ConcreteBlockProducer {
     config: std::sync::RwLock<BlockProductionConfig>,
 
     /// Security validator (used for transaction validation)
-    #[allow(dead_code)]
     security: SecurityValidator,
 
     /// Current production status
@@ -47,7 +46,6 @@ pub struct ConcreteBlockProducer {
     is_active: std::sync::atomic::AtomicBool,
 
     /// PoW miner instance (used in mining task)
-    #[allow(dead_code)]
     pow_miner: PoWMiner,
 
     /// Mining thread handle
@@ -205,6 +203,22 @@ impl ConcreteBlockProducer {
     /// Get the event bus
     pub fn event_bus(&self) -> Arc<InMemoryEventBus> {
         Arc::clone(&self.event_bus)
+    }
+
+    /// Get reference to security validator for transaction validation.
+    ///
+    /// Used by external systems (e.g., transaction ordering) to validate
+    /// transactions before including them in blocks.
+    pub fn security_validator(&self) -> &SecurityValidator {
+        &self.security
+    }
+
+    /// Get reference to PoW miner for hash rate queries.
+    ///
+    /// The miner is primarily used internally during block production,
+    /// but exposed for monitoring and metrics collection.
+    pub fn pow_miner(&self) -> &PoWMiner {
+        &self.pow_miner
     }
 }
 
@@ -441,7 +455,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                                     template.header.gas_used,
                                     None,
                                 );
-                                
+
                                 // Get batch size from config, with fallback to default
                                 let batch_size = block_config
                                     .pow
@@ -450,9 +464,17 @@ impl BlockProducerService for ConcreteBlockProducer {
                                     .unwrap_or(10_000_000);
                                 let mut nonce_start = 0u64;
                                 let mut result = None;
-                                
+
                                 loop {
-                                    match engine.pow_mine(&header_bytes, difficulty, nonce_start, batch_size).await {
+                                    match engine
+                                        .pow_mine(
+                                            &header_bytes,
+                                            difficulty,
+                                            nonce_start,
+                                            batch_size,
+                                        )
+                                        .await
+                                    {
                                         Ok(Some((nonce, hash))) => {
                                             result = Some((nonce, hash));
                                             break;
@@ -471,7 +493,7 @@ impl BlockProducerService for ConcreteBlockProducer {
                                 None
                             }
                         };
-                        
+
                         // Fallback to CPU mining if compute engine unavailable or failed
                         let mining_result = mining_result.or_else(|| {
                             let template_for_hash = template.clone();
