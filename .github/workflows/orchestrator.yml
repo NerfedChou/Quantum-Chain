@@ -60,6 +60,11 @@ jobs:
     uses: ./.github/workflows/12-architectural-gates.yml
     secrets: inherit
 
+  ai-guard:
+    name: "13 • AI Guard"
+    uses: ./.github/workflows/13-ai-guard-rails.yml
+    secrets: inherit
+
   # ==========================================================================
   # PHASE 2: Core Testing (< 15 minutes)
   # Runs after Phase 1 passes
