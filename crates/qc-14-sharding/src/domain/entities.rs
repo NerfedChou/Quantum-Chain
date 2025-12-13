@@ -78,7 +78,7 @@ pub struct CrossShardTransaction {
 }
 
 /// Parameters for creating a cross-shard transaction.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CrossShardTxParams {
     /// Transaction hash (unique identifier).
     pub tx_hash: Hash,
