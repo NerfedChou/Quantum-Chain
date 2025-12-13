@@ -24,6 +24,7 @@ pub fn calculate_short_id(tx_hash: &Hash, nonce: u64) -> ShortTxId {
 /// Parameters for creating a compact block.
 ///
 /// Groups the arguments needed for `create_compact_block` to reduce parameter count.
+#[derive(Clone, Copy)]
 pub struct CompactBlockParams<'a> {
     /// Block header hash
     pub header_hash: Hash,
