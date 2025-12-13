@@ -10,7 +10,6 @@ repository.workspace = true
 # Core
 bitvec = "1"
 murmur3 = "0.5"
-siphasher = "1"
 rand = "0.8"
 
 # Serialization

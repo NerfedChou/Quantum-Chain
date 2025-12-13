@@ -25,4 +25,3 @@ primitive-types.workspace = true
 async-trait.workspace = true
 parking_lot = "0.12"
 tracing.workspace = true
-bincode.workspace = true

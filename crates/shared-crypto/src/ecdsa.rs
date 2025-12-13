@@ -99,11 +99,18 @@ impl Secp256k1KeyPair {
     }
 
     /// Get public key (compressed, 33 bytes).
+    ///
+    /// # Panics
+    ///
+    /// This function will not panic - the conversion from verifying key to SEC1
+    /// compressed format always produces exactly 33 bytes.
     pub fn public_key(&self) -> Secp256k1PublicKey {
         let verifying_key = self.signing_key.verifying_key();
-        let bytes: [u8; 33] = verifying_key.to_sec1_bytes()[..33]
-            .try_into()
-            .expect("compressed key is 33 bytes");
+        let sec1_bytes = verifying_key.to_sec1_bytes();
+        // SAFETY: SEC1 compressed public key is always exactly 33 bytes
+        // The first byte is 0x02 or 0x03, followed by the 32-byte x-coordinate
+        let mut bytes = [0u8; 33];
+        bytes.copy_from_slice(&sec1_bytes[..33]);
         Secp256k1PublicKey(bytes)
     }
 

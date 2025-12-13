@@ -9,13 +9,8 @@ description = "Smart Contract Execution (Subsystem 11) - EVM implementation"
 
 [features]
 default = []
-metrics = ["prometheus"]
 
 [dependencies]
-# Shared types from the project
-shared-types = { path = "../shared-types" }
-shared-bus = { path = "../shared-bus" }
-
 # Async runtime
 async-trait = "0.1"
 tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
@@ -37,12 +32,6 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 # Logging
 tracing = "0.1"
-
-# Zero-Knowledge Proofs (for private transactions)
-qc-zkp = { path = "../qc-zkp" }
-
-# Metrics (optional)
-prometheus = { version = "0.13", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

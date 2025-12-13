@@ -8,9 +8,6 @@ repository.workspace = true
 description = "Light Client SPV Sync (Subsystem 13) - Merkle proofs, multi-node consensus"
 
 [dependencies]
-# Shared types from the project
-shared-types = { path = "../shared-types" }
-
 # Async runtime
 async-trait = "0.1"
 tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
@@ -23,9 +20,6 @@ sha2 = "0.10"
 
 # Error handling
 thiserror = "1"
-
-# UUID for correlation IDs
-uuid = { version = "1", features = ["v4", "serde"] }
 
 # Logging
 tracing = "0.1"

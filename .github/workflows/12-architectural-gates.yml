@@ -104,7 +104,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -617,12 +617,287 @@ jobs:
           fi
 
   # ==========================================================================
+  # GATE 14: Layer Violation Check
+  # Adapters must only import from ports, NOT domain internals
+  # ==========================================================================
+  layer-violations:
+    name: "🚧 Layer Violations"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check adapter layer violations
+        run: |
+          echo "## Layer Violation Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Ensuring adapters don't import domain internals directly..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          violations=""
+          
+          # Check node-runtime adapters importing domain internals (should use ports)
+          adapters_importing_domain=$(grep -rn "use qc_.*::domain::" \
+            crates/node-runtime/src/adapters --include='*.rs' 2>/dev/null | \
+            grep -v "// allowed" || true)
+          
+          if [ -n "$adapters_importing_domain" ]; then
+            violations=$(printf "%s\n%s" "$violations" "$adapters_importing_domain")
+          fi
+          
+          # Check subsystem adapters importing other subsystem domains
+          cross_domain=$(grep -rn "use qc_[0-9]*_.*::domain::" \
+            crates/qc-*/src/adapters --include='*.rs' 2>/dev/null | \
+            grep -v "// allowed" || true)
+          
+          if [ -n "$cross_domain" ]; then
+            violations=$(printf "%s\n%s" "$violations" "$cross_domain")
+          fi
+          
+          if [ -n "$violations" ]; then
+            echo "❌ **Layer violations detected:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$violations" | head -10 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!CAUTION]" >> $GITHUB_STEP_SUMMARY
+            echo "> Adapters must import from **ports** not domain internals." >> $GITHUB_STEP_SUMMARY
+            echo "> Pattern: \`use qc_XX::SomePort\` NOT \`use qc_XX::domain::SomeStruct\`" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          
+          echo "✅ All adapters respect layer boundaries" >> $GITHUB_STEP_SUMMARY
+
+  # ==========================================================================
+  # GATE 15: Module Size Limit
+  # No single module should exceed 500 lines (encourages decomposition)
+  # ==========================================================================
+  module-size:
+    name: "📏 Module Size"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check module sizes
+        run: |
+          echo "## Module Size Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Modules over 500 lines indicate need for decomposition..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          MAX_LINES=500
+          oversized=""
+          
+          while IFS= read -r file; do
+            lines=$(wc -l < "$file")
+            if [ "$lines" -gt "$MAX_LINES" ]; then
+              oversized=$(printf "%s\n%s: %s lines" "$oversized" "$file" "$lines")
+            fi
+          done < <(find crates -name "*.rs" -path "*/src/*" ! -name "mod.rs" ! -path "*/tests/*")
+          
+          if [ -n "$oversized" ]; then
+            echo "| File | Lines | Status |" >> $GITHUB_STEP_SUMMARY
+            echo "|------|-------|--------|" >> $GITHUB_STEP_SUMMARY
+            echo "$oversized" | while read -r line; do
+              if [ -n "$line" ]; then
+                file=$(echo "$line" | cut -d: -f1)
+                count=$(echo "$line" | cut -d: -f2 | tr -d ' lines')
+                echo "| \`$file\` | $count | ❌ Over $MAX_LINES |" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!WARNING]" >> $GITHUB_STEP_SUMMARY
+            echo "> Large modules should be decomposed. Extract types/functions to submodules." >> $GITHUB_STEP_SUMMARY
+            # Warning only - not blocking (can be promoted later)
+          else
+            echo "✅ All modules under $MAX_LINES lines" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 16: Orphan TODO Prevention
+  # TODOs must reference issue numbers to prevent abandoned comments
+  # ==========================================================================
+  orphan-todos:
+    name: "📝 Orphan TODOs"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for orphan TODOs
+        run: |
+          echo "## Orphan TODO Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Find TODOs without issue references
+          orphans=$(grep -rn "TODO" crates --include='*.rs' | \
+            grep -v "TODO(#" | \
+            grep -v "TODO:" | \
+            grep -v "// TODO -" | \
+            head -20 || true)
+          
+          if [ -n "$orphans" ]; then
+            count=$(echo "$orphans" | wc -l)
+            echo "⚠️ **$count orphan TODOs found** (no issue reference)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$orphans" | head -10 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
+            echo "> Use \`TODO(#123)\` format to link to GitHub issues." >> $GITHUB_STEP_SUMMARY
+            echo "> This prevents abandoned TODOs and enables tracking." >> $GITHUB_STEP_SUMMARY
+            # Warning only
+          else
+            echo "✅ All TODOs have issue references" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 17: Public API Documentation
+  # All public items in lib.rs must be documented
+  # ==========================================================================
+  public-api-docs:
+    name: "📚 API Documentation"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Check public API documentation
+        run: |
+          echo "## Public API Documentation Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check lib.rs files for undocumented public items
+          undocumented=""
+          
+          for lib in crates/*/src/lib.rs; do
+            crate=$(dirname "$lib" | xargs dirname | xargs basename)
+            # Look for pub items without preceding /// or //!
+            missing=$(grep -n "^pub " "$lib" | \
+              while read -r line; do
+                linenum=$(echo "$line" | cut -d: -f1)
+                prevline=$((linenum - 1))
+                if ! sed -n "${prevline}p" "$lib" | grep -q "^///\|^//!"; then
+                  echo "$crate:$line"
+                fi
+              done)
+            
+            if [ -n "$missing" ]; then
+              undocumented=$(printf "%s\n%s" "$undocumented" "$missing")
+            fi
+          done
+          
+          if [ -n "$undocumented" ]; then
+            echo "⚠️ **Undocumented public items:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$undocumented" | head -15 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> Public APIs should have documentation comments." >> $GITHUB_STEP_SUMMARY
+            # Warning for now
+          else
+            echo "✅ All public APIs are documented" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
+  # GATE 18: AI Discipline Check
+  # Prevents common AI mistakes: unwrap(), panic!(), magic strings
+  # ==========================================================================
+  ai-discipline:
+    name: "🤖 AI Discipline"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for AI anti-patterns
+        run: |
+          echo "## AI Discipline Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Checking for common AI-generated anti-patterns..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          issues=0
+          
+          # Check 1: unwrap() in production code (not tests)
+          unwraps=$(grep -rn "\.unwrap()" crates --include='*.rs' | \
+            grep -v "#\[cfg(test)\]" | \
+            grep -v "mod tests" | \
+            grep -v "_test.rs" | \
+            grep -v "/tests/" | \
+            head -10 || true)
+          if [ -n "$unwraps" ]; then
+            count=$(echo "$unwraps" | wc -l)
+            echo "### 🔴 .unwrap() in production ($count occurrences)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$unwraps" | head -5 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            issues=$((issues + 1))
+          fi
+          
+          # Check 2: panic!() in production code
+          panics=$(grep -rn "panic!(" crates --include='*.rs' | \
+            grep -v "#\[cfg(test)\]" | \
+            grep -v "mod tests" | \
+            grep -v "_test.rs" | \
+            head -10 || true)
+          if [ -n "$panics" ]; then
+            count=$(echo "$panics" | wc -l)
+            echo "### 🔴 panic!() in production ($count occurrences)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$panics" | head -5 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            issues=$((issues + 1))
+          fi
+          
+          # Check 3: Hardcoded localhost/ports
+          hardcoded=$(grep -rn "127\.0\.0\.1\|localhost\|:8080\|:3000\|:5000" \
+            crates --include='*.rs' | \
+            grep -v "#\[cfg(test)\]" | \
+            grep -v "mod tests" | \
+            head -5 || true)
+          if [ -n "$hardcoded" ]; then
+            echo "### 🟡 Hardcoded network addresses" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$hardcoded" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            issues=$((issues + 1))
+          fi
+          
+          # Check 4: Clone abuse (excessive .clone() calls)
+          clone_abuse=$(grep -rn "\.clone().*\.clone()" crates --include='*.rs' | head -5 || true)
+          if [ -n "$clone_abuse" ]; then
+            echo "### 🟡 Double .clone() on same line" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$clone_abuse" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            issues=$((issues + 1))
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$issues" -gt 0 ]; then
+            echo "⚠️ **$issues AI anti-pattern categories detected**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
+            echo "> Use \`?\` operator instead of \`.unwrap()\`" >> $GITHUB_STEP_SUMMARY
+            echo "> Return \`Result\` instead of \`panic!()\`" >> $GITHUB_STEP_SUMMARY
+            echo "> Use config structs instead of hardcoded values" >> $GITHUB_STEP_SUMMARY
+            # Warning only
+          else
+            echo "✅ No AI anti-patterns detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==========================================================================
   # SUMMARY GATE
   # ==========================================================================
   arch-summary:
     name: "📋 Architecture Summary"
     runs-on: ubuntu-latest
-    needs: [domain-isolation, adapter-boundary, parameter-objects, import-budget, subsystem-structure, request-objects, cascade-risk, choreography-compliance, magic-numbers, field-access, domain-purity, red-flags]
+    needs: [domain-isolation, adapter-boundary, parameter-objects, import-budget, subsystem-structure, request-objects, cascade-risk, choreography-compliance, magic-numbers, field-access, domain-purity, red-flags, layer-violations, module-size, orphan-todos, public-api-docs, ai-discipline]
     if: always()
     steps:
       - name: Check gate results
@@ -643,6 +918,11 @@ jobs:
           field="${{ needs.field-access.result }}"
           purity="${{ needs.domain-purity.result }}"
           redflags="${{ needs.red-flags.result }}"
+          layers="${{ needs.layer-violations.result }}"
+          modsize="${{ needs.module-size.result }}"
+          todos="${{ needs.orphan-todos.result }}"
+          docs="${{ needs.public-api-docs.result }}"
+          ai="${{ needs.ai-discipline.result }}"
           
           echo "### Core Gates" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -665,9 +945,19 @@ jobs:
           echo "| 🔍 Field Access | $field | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
           echo "| 🧪 Domain Purity | $purity | ✅ Yes |" >> $GITHUB_STEP_SUMMARY
           echo "| 🚩 Red Flags | $redflags | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Code Quality Gates (NEW)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Gate | Status | Blocking |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🚧 Layer Violations | $layers | ✅ Yes |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📏 Module Size | $modsize | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📝 Orphan TODOs | $todos | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📚 API Docs | $docs | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🤖 AI Discipline | $ai | ⚠️ No |" >> $GITHUB_STEP_SUMMARY
           
           # Fail if critical gates failed
-          if [ "$domain" = "failure" ] || [ "$budget" = "failure" ] || [ "$choreography" = "failure" ] || [ "$purity" = "failure" ]; then
+          if [ "$domain" = "failure" ] || [ "$budget" = "failure" ] || [ "$choreography" = "failure" ] || [ "$purity" = "failure" ] || [ "$layers" = "failure" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "❌ **Critical architectural violations detected. Merge blocked.**" >> $GITHUB_STEP_SUMMARY
             exit 1

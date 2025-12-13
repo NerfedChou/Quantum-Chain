@@ -316,14 +316,12 @@ mod tests {
 
     /// Test-only implementation of PeerDiscoveryApi for IPC handler unit tests.
     /// Uses a real RoutingTable with deterministic timestamps (epoch 1000).
-    #[allow(dead_code)] // Test helper - preserved for future test expansion
     struct TestPeerDiscoveryService {
         routing_table: RoutingTable,
     }
 
     impl TestPeerDiscoveryService {
         /// Creates an empty service with zero-initialized local NodeId.
-        #[allow(dead_code)] // Test helper - preserved for future test expansion
         fn new() -> Self {
             let local_id = NodeId::new([0u8; 32]);
             let config = KademliaConfig::for_testing();
