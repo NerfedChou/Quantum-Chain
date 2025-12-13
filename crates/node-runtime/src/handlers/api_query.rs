@@ -195,10 +195,9 @@ impl ApiQueryHandler {
                         match tag {
                             "latest" | "pending" => storage.get_latest_height().unwrap_or(0),
                             "earliest" => 0,
-                            hex if hex.starts_with("0x") => hex
-                                .get(2..)
-                                .and_then(|s| u64::from_str_radix(s, 16).ok())
-                                .unwrap_or(0),
+                            hex if hex.starts_with("0x") => {
+                                u64::from_str_radix(&hex[2..], 16).unwrap_or(0)
+                            }
                             _ => 0,
                         }
                     } else if let Some(num) = id.as_u64() {

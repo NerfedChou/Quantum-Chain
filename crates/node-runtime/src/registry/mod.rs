@@ -284,15 +284,14 @@ impl SubsystemConfig {
         let mut errors = Vec::new();
 
         for id in SubsystemId::all() {
-            if !self.is_enabled(id) {
-                continue;
-            }
-            for dep in id.dependencies() {
-                if !self.is_enabled(dep) {
-                    errors.push(SubsystemError {
-                        subsystem: id,
-                        message: format!("Requires {} but it is disabled", dep.name()),
-                    });
+            if self.is_enabled(id) {
+                for dep in id.dependencies() {
+                    if !self.is_enabled(dep) {
+                        errors.push(SubsystemError {
+                            subsystem: id,
+                            message: format!("Requires {} but it is disabled", dep.name()),
+                        });
+                    }
                 }
             }
         }
