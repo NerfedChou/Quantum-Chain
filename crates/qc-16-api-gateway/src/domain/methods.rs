@@ -55,35 +55,93 @@ pub struct MethodInfo {
     pub tier: MethodTier,
     /// Category
     pub category: MethodCategory,
+    /// Method behavior configuration
+    pub behavior: MethodBehavior,
+    /// Brief description
+    pub description: &'static str,
+}
+
+/// Method behavior configuration.
+#[derive(Debug, Clone, Copy)]
+pub struct MethodBehavior {
     /// Recommended timeout
     pub timeout: Duration,
     /// Is this a write operation?
     pub is_write: bool,
     /// Target subsystem
     pub target_subsystem: Option<&'static str>,
-    /// Brief description
-    pub description: &'static str,
+}
+
+impl MethodBehavior {
+    /// Create a read-only behavior with default timeout.
+    const fn read_only(timeout_secs: u64, target: Option<&'static str>) -> Self {
+        Self {
+            timeout: Duration::from_secs(timeout_secs),
+            is_write: false,
+            target_subsystem: target,
+        }
+    }
+
+    /// Create a write behavior with default timeout.
+    const fn write(timeout_secs: u64, target: Option<&'static str>) -> Self {
+        Self {
+            timeout: Duration::from_secs(timeout_secs),
+            is_write: true,
+            target_subsystem: target,
+        }
+    }
 }
 
 impl MethodInfo {
-    const fn new(
+    /// Create a read-only method.
+    const fn read(
         name: &'static str,
         tier: MethodTier,
         category: MethodCategory,
         timeout_secs: u64,
-        is_write: bool,
-        target_subsystem: Option<&'static str>,
+        target: Option<&'static str>,
         description: &'static str,
     ) -> Self {
         Self {
             name,
             tier,
             category,
-            timeout: Duration::from_secs(timeout_secs),
-            is_write,
-            target_subsystem,
+            behavior: MethodBehavior::read_only(timeout_secs, target),
             description,
         }
+    }
+
+    /// Create a write method.
+    const fn write(
+        name: &'static str,
+        tier: MethodTier,
+        category: MethodCategory,
+        timeout_secs: u64,
+        target: Option<&'static str>,
+        description: &'static str,
+    ) -> Self {
+        Self {
+            name,
+            tier,
+            category,
+            behavior: MethodBehavior::write(timeout_secs, target),
+            description,
+        }
+    }
+
+    /// Get timeout duration.
+    pub const fn timeout(&self) -> Duration {
+        self.behavior.timeout
+    }
+
+    /// Check if this is a write operation.
+    pub const fn is_write(&self) -> bool {
+        self.behavior.is_write
+    }
+
+    /// Get target subsystem.
+    pub const fn target_subsystem(&self) -> Option<&'static str> {
+        self.behavior.target_subsystem
     }
 }
 
@@ -95,354 +153,316 @@ pub static METHOD_REGISTRY: LazyLock<HashMap<&'static str, MethodInfo>> = LazyLo
         // ═══════════════════════════════════════════════════════════════════════
 
         // --- Chain Info ---
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_chainId",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             None,
             "Returns the chain ID",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_blockNumber",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             Some("qc-02-block-storage"),
             "Returns current block number",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_gasPrice",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             Some("qc-06-mempool"),
             "Returns current gas price",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_maxPriorityFeePerGas",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             Some("qc-06-mempool"),
             "Returns max priority fee suggestion",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_feeHistory",
             MethodTier::Public,
             MethodCategory::Eth,
             10,
-            false,
             Some("qc-02-block-storage"),
             "Returns fee history",
         ),
         // --- Account State ---
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getBalance",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             Some("qc-04-state-management"),
             "Returns account balance",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getCode",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             Some("qc-04-state-management"),
             "Returns contract code",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getStorageAt",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             Some("qc-04-state-management"),
             "Returns storage value at position",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getTransactionCount",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             Some("qc-04-state-management"),
             "Returns account nonce",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_accounts",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             None,
             "Returns empty list (no managed accounts)",
         ),
         // --- Block Data ---
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getBlockByHash",
             MethodTier::Public,
             MethodCategory::Eth,
             10,
-            false,
             Some("qc-02-block-storage"),
             "Returns block by hash",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getBlockByNumber",
             MethodTier::Public,
             MethodCategory::Eth,
             10,
-            false,
             Some("qc-02-block-storage"),
             "Returns block by number",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getBlockTransactionCountByHash",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             Some("qc-02-block-storage"),
             "Returns tx count in block by hash",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getBlockTransactionCountByNumber",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             Some("qc-02-block-storage"),
             "Returns tx count in block by number",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getUncleCountByBlockHash",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             None,
             "Returns 0 (no uncles in PoS)",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getUncleCountByBlockNumber",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             None,
             "Returns 0 (no uncles in PoS)",
         ),
         // --- Transaction Data ---
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getTransactionByHash",
             MethodTier::Public,
             MethodCategory::Eth,
             10,
-            false,
             Some("qc-03-transaction-indexing"),
             "Returns transaction by hash",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getTransactionByBlockHashAndIndex",
             MethodTier::Public,
             MethodCategory::Eth,
             10,
-            false,
             Some("qc-03-transaction-indexing"),
             "Returns tx by block hash and index",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getTransactionByBlockNumberAndIndex",
             MethodTier::Public,
             MethodCategory::Eth,
             10,
-            false,
             Some("qc-03-transaction-indexing"),
             "Returns tx by block number and index",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getTransactionReceipt",
             MethodTier::Public,
             MethodCategory::Eth,
             10,
-            false,
             Some("qc-03-transaction-indexing"),
             "Returns transaction receipt",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getBlockReceipts",
             MethodTier::Public,
             MethodCategory::Eth,
             30,
-            false,
             Some("qc-03-transaction-indexing"),
             "Returns all receipts for a block",
         ),
         // --- Execution ---
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_call",
             MethodTier::Public,
             MethodCategory::Eth,
             30,
-            false,
             Some("qc-11-smart-contracts"),
             "Executes call without creating transaction",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_estimateGas",
             MethodTier::Public,
             MethodCategory::Eth,
             30,
-            false,
             Some("qc-11-smart-contracts"),
             "Estimates gas for transaction",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_createAccessList",
             MethodTier::Public,
             MethodCategory::Eth,
             30,
-            false,
             Some("qc-11-smart-contracts"),
             "Creates access list for transaction",
         ),
         // --- Transaction Submission ---
-        MethodInfo::new(
+        MethodInfo::write(
             "eth_sendRawTransaction",
             MethodTier::Public,
             MethodCategory::Eth,
             10,
-            true,
             Some("qc-06-mempool"),
             "Submits pre-signed transaction",
         ),
         // --- Logs & Events ---
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getLogs",
             MethodTier::Public,
             MethodCategory::Eth,
             60,
-            false,
             Some("qc-03-transaction-indexing"),
             "Returns logs matching filter",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getFilterChanges",
             MethodTier::Public,
             MethodCategory::Eth,
             10,
-            false,
             Some("qc-03-transaction-indexing"),
             "Returns filter changes since last poll",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_getFilterLogs",
             MethodTier::Public,
             MethodCategory::Eth,
             60,
-            false,
             Some("qc-03-transaction-indexing"),
             "Returns all logs for filter",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_newFilter",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             None,
             "Creates log filter",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_newBlockFilter",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             None,
             "Creates block filter",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_newPendingTransactionFilter",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             None,
             "Creates pending tx filter",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_uninstallFilter",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             None,
             "Removes filter",
         ),
         // --- Sync Status ---
-        MethodInfo::new(
+        MethodInfo::read(
             "eth_syncing",
             MethodTier::Public,
             MethodCategory::Eth,
             5,
-            false,
             Some("node-runtime"),
             "Returns sync status",
         ),
         // --- Web3 ---
-        MethodInfo::new(
+        MethodInfo::read(
             "web3_clientVersion",
             MethodTier::Public,
             MethodCategory::Web3,
             5,
-            false,
             None,
             "Returns client version",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "web3_sha3",
             MethodTier::Public,
             MethodCategory::Web3,
             5,
-            false,
             None,
             "Returns Keccak-256 hash",
         ),
         // --- Net ---
-        MethodInfo::new(
+        MethodInfo::read(
             "net_version",
             MethodTier::Public,
             MethodCategory::Net,
             5,
-            false,
             None,
             "Returns network ID",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "net_listening",
             MethodTier::Public,
             MethodCategory::Net,
             5,
-            false,
             Some("qc-01-peer-discovery"),
             "Returns true if listening",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "net_peerCount",
             MethodTier::Public,
             MethodCategory::Net,
             5,
-            false,
             Some("qc-01-peer-discovery"),
             "Returns peer count",
         ),
@@ -451,67 +471,60 @@ pub static METHOD_REGISTRY: LazyLock<HashMap<&'static str, MethodInfo>> = LazyLo
         // ═══════════════════════════════════════════════════════════════════════
 
         // --- TxPool ---
-        MethodInfo::new(
+        MethodInfo::read(
             "txpool_status",
             MethodTier::Protected,
             MethodCategory::TxPool,
             5,
-            false,
             Some("qc-06-mempool"),
             "Returns txpool status",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "txpool_content",
             MethodTier::Protected,
             MethodCategory::TxPool,
             30,
-            false,
             Some("qc-06-mempool"),
             "Returns full txpool content",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "txpool_contentFrom",
             MethodTier::Protected,
             MethodCategory::TxPool,
             10,
-            false,
             Some("qc-06-mempool"),
             "Returns txpool content for address",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "txpool_inspect",
             MethodTier::Protected,
             MethodCategory::TxPool,
             30,
-            false,
             Some("qc-06-mempool"),
             "Returns txpool summary",
         ),
         // --- Admin Info (read-only) ---
-        MethodInfo::new(
+        MethodInfo::read(
             "admin_nodeInfo",
             MethodTier::Protected,
             MethodCategory::Admin,
             5,
-            false,
             Some("qc-01-peer-discovery"),
             "Returns node info",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "admin_peers",
             MethodTier::Protected,
             MethodCategory::Admin,
             5,
-            false,
             Some("qc-01-peer-discovery"),
             "Returns connected peers",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "admin_datadir",
             MethodTier::Protected,
             MethodCategory::Admin,
             5,
-            false,
             None,
             "Returns data directory path",
         ),
@@ -520,221 +533,197 @@ pub static METHOD_REGISTRY: LazyLock<HashMap<&'static str, MethodInfo>> = LazyLo
         // ═══════════════════════════════════════════════════════════════════════
 
         // --- Admin Control ---
-        MethodInfo::new(
+        MethodInfo::write(
             "admin_addPeer",
             MethodTier::Admin,
             MethodCategory::Admin,
             10,
-            true,
             Some("qc-01-peer-discovery"),
             "Adds a peer",
         ),
-        MethodInfo::new(
+        MethodInfo::write(
             "admin_removePeer",
             MethodTier::Admin,
             MethodCategory::Admin,
             10,
-            true,
             Some("qc-01-peer-discovery"),
             "Removes a peer",
         ),
-        MethodInfo::new(
+        MethodInfo::write(
             "admin_addTrustedPeer",
             MethodTier::Admin,
             MethodCategory::Admin,
             10,
-            true,
             Some("qc-01-peer-discovery"),
             "Adds trusted peer",
         ),
-        MethodInfo::new(
+        MethodInfo::write(
             "admin_removeTrustedPeer",
             MethodTier::Admin,
             MethodCategory::Admin,
             10,
-            true,
             Some("qc-01-peer-discovery"),
             "Removes trusted peer",
         ),
         // --- Debug ---
-        MethodInfo::new(
+        MethodInfo::read(
             "debug_traceTransaction",
             MethodTier::Admin,
             MethodCategory::Debug,
             120,
-            false,
             Some("qc-11-smart-contracts"),
             "Traces transaction execution",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "debug_traceBlockByHash",
             MethodTier::Admin,
             MethodCategory::Debug,
             300,
-            false,
             Some("qc-11-smart-contracts"),
             "Traces all txs in block",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "debug_traceBlockByNumber",
             MethodTier::Admin,
             MethodCategory::Debug,
             300,
-            false,
             Some("qc-11-smart-contracts"),
             "Traces all txs in block",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "debug_traceCall",
             MethodTier::Admin,
             MethodCategory::Debug,
             120,
-            false,
             Some("qc-11-smart-contracts"),
             "Traces call without tx",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "debug_storageRangeAt",
             MethodTier::Admin,
             MethodCategory::Debug,
             30,
-            false,
             Some("qc-04-state-management"),
             "Returns storage range",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "debug_accountRange",
             MethodTier::Admin,
             MethodCategory::Debug,
             30,
-            false,
             Some("qc-04-state-management"),
             "Returns account range",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "debug_getHeaderRlp",
             MethodTier::Admin,
             MethodCategory::Debug,
             5,
-            false,
             Some("qc-02-block-storage"),
             "Returns header RLP",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "debug_getBlockRlp",
             MethodTier::Admin,
             MethodCategory::Debug,
             10,
-            false,
             Some("qc-02-block-storage"),
             "Returns block RLP",
         ),
-        MethodInfo::new(
+        MethodInfo::write(
             "debug_setHead",
             MethodTier::Admin,
             MethodCategory::Debug,
             60,
-            true,
             Some("qc-02-block-storage"),
             "Sets chain head (DANGEROUS)",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "debug_getRawBlock",
             MethodTier::Admin,
             MethodCategory::Debug,
             10,
-            false,
             Some("qc-02-block-storage"),
             "Returns raw block bytes",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "debug_getRawHeader",
             MethodTier::Admin,
             MethodCategory::Debug,
             5,
-            false,
             Some("qc-02-block-storage"),
             "Returns raw header bytes",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "debug_getRawReceipts",
             MethodTier::Admin,
             MethodCategory::Debug,
             10,
-            false,
             Some("qc-03-transaction-indexing"),
             "Returns raw receipts",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "debug_getRawTransaction",
             MethodTier::Admin,
             MethodCategory::Debug,
             5,
-            false,
             Some("qc-03-transaction-indexing"),
             "Returns raw tx bytes",
         ),
         // --- Trace (for advanced debugging) ---
-        MethodInfo::new(
+        MethodInfo::read(
             "trace_block",
             MethodTier::Admin,
             MethodCategory::Trace,
             300,
-            false,
             Some("qc-11-smart-contracts"),
             "Returns traces for block",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "trace_transaction",
             MethodTier::Admin,
             MethodCategory::Trace,
             120,
-            false,
             Some("qc-11-smart-contracts"),
             "Returns traces for tx",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "trace_call",
             MethodTier::Admin,
             MethodCategory::Trace,
             120,
-            false,
             Some("qc-11-smart-contracts"),
             "Traces call",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "trace_callMany",
             MethodTier::Admin,
             MethodCategory::Trace,
             300,
-            false,
             Some("qc-11-smart-contracts"),
             "Traces multiple calls",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "trace_rawTransaction",
             MethodTier::Admin,
             MethodCategory::Trace,
             120,
-            false,
             Some("qc-11-smart-contracts"),
             "Traces raw tx",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "trace_replayBlockTransactions",
             MethodTier::Admin,
             MethodCategory::Trace,
             300,
-            false,
             Some("qc-11-smart-contracts"),
             "Replays block txs with trace",
         ),
-        MethodInfo::new(
+        MethodInfo::read(
             "trace_replayTransaction",
             MethodTier::Admin,
             MethodCategory::Trace,
             120,
-            false,
             Some("qc-11-smart-contracts"),
             "Replays tx with trace",
         ),
@@ -762,7 +751,7 @@ pub fn get_method_tier(method: &str) -> Option<MethodTier> {
 pub fn get_method_timeout(method: &str) -> Duration {
     METHOD_REGISTRY
         .get(method)
-        .map(|m| m.timeout)
+        .map(|m| m.timeout())
         .unwrap_or(Duration::from_secs(10))
 }
 
@@ -770,7 +759,7 @@ pub fn get_method_timeout(method: &str) -> Duration {
 pub fn is_write_method(method: &str) -> bool {
     METHOD_REGISTRY
         .get(method)
-        .map(|m| m.is_write)
+        .map(|m| m.is_write())
         .unwrap_or(false)
 }
 

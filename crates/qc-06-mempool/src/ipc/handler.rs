@@ -25,6 +25,51 @@ use shared_types::security::{DerivedKeyProvider, KeyProvider, NonceCache};
 use std::sync::Arc;
 use uuid::Uuid;
 
+/// Security context for IPC message validation.
+///
+/// Groups the common security parameters required for all IPC handlers,
+/// reducing function argument count from 7 to 2 (context + request).
+///
+/// # Architecture
+/// Per IPC-MATRIX.md v2.3, all IPC messages require:
+/// - Sender ID validation (per message type)
+/// - Timestamp bounds checking
+/// - HMAC signature verification
+/// - Nonce replay prevention
+#[derive(Debug)]
+pub struct IpcSecurityContext<'a> {
+    /// Subsystem ID of the message sender (from envelope)
+    pub sender_id: u8,
+    /// Message timestamp (for freshness validation)
+    pub timestamp: u64,
+    /// Unique message nonce (for replay prevention)
+    pub nonce: Uuid,
+    /// HMAC signature over message bytes
+    pub signature: &'a [u8; 64],
+    /// Raw message bytes (for signature verification)
+    pub message_bytes: &'a [u8],
+}
+
+impl<'a> IpcSecurityContext<'a> {
+    /// Creates a new security context from IPC message envelope fields.
+    #[inline]
+    pub fn new(
+        sender_id: u8,
+        timestamp: u64,
+        nonce: Uuid,
+        signature: &'a [u8; 64],
+        message_bytes: &'a [u8],
+    ) -> Self {
+        Self {
+            sender_id,
+            timestamp,
+            nonce,
+            signature,
+            message_bytes,
+        }
+    }
+}
+
 /// IPC message handler for the Mempool.
 ///
 /// Uses the centralized security module from `shared-types` for all
@@ -81,37 +126,30 @@ impl<T: TimeSource> IpcHandler<T> {
     /// Validates security for an incoming IPC message.
     ///
     /// Uses the centralized security module from `shared-types`.
-    fn validate_security(
-        &self,
-        sender_id: u8,
-        timestamp: u64,
-        nonce: Uuid,
-        signature: &[u8; 64],
-        message_bytes: &[u8],
-    ) -> Result<(), MempoolError> {
+    fn validate_security(&self, ctx: &IpcSecurityContext<'_>) -> Result<(), MempoolError> {
         let now = self.time_source.now();
 
         // Step 1: Validate timestamp
-        self.validate_timestamp(timestamp, now)?;
+        self.validate_timestamp(ctx.timestamp, now)?;
 
         // Step 2: Validate HMAC signature using centralized module
         let shared_secret = self
             .key_provider
-            .get_shared_secret(sender_id)
+            .get_shared_secret(ctx.sender_id)
             .ok_or(MempoolError::InvalidSignature)?;
 
         if !shared_types::security::validate_hmac_signature(
-            message_bytes,
-            signature,
+            ctx.message_bytes,
+            ctx.signature,
             &shared_secret,
         ) {
             return Err(MempoolError::InvalidSignature);
         }
 
         // Step 3: Validate nonce using centralized NonceCache
-        if !self.nonce_cache.check_and_insert(nonce) {
+        if !self.nonce_cache.check_and_insert(ctx.nonce) {
             return Err(MempoolError::ReplayDetected {
-                nonce: nonce.as_u128() as u64,
+                nonce: ctx.nonce.as_u128() as u64,
             });
         }
 
@@ -146,18 +184,14 @@ impl<T: TimeSource> IpcHandler<T> {
     /// - Validates signature_verified is true
     pub fn handle_add_transaction(
         &mut self,
-        sender_id: u8,
-        timestamp: u64,
-        nonce: Uuid,
-        signature: &[u8; 64],
-        message_bytes: &[u8],
+        ctx: &IpcSecurityContext<'_>,
         request: AddTransactionRequest,
     ) -> Result<AddTransactionResponse, MempoolError> {
         // Security Step 1: Validate sender authorization
-        AuthorizationRules::validate_add_transaction(sender_id)?;
+        AuthorizationRules::validate_add_transaction(ctx.sender_id)?;
 
         // Security Step 2-4: Validate timestamp, signature, nonce
-        self.validate_security(sender_id, timestamp, nonce, signature, message_bytes)?;
+        self.validate_security(ctx)?;
 
         // Security Step 5: Validate signature was verified
         if !request.signature_verified {
@@ -191,16 +225,12 @@ impl<T: TimeSource> IpcHandler<T> {
     /// - Validates timestamp, HMAC signature, nonce
     pub fn handle_get_transactions(
         &mut self,
-        sender_id: u8,
-        timestamp: u64,
-        nonce: Uuid,
-        signature: &[u8; 64],
-        message_bytes: &[u8],
+        ctx: &IpcSecurityContext<'_>,
         request: GetTransactionsRequest,
     ) -> Result<GetTransactionsResponse, MempoolError> {
         // Security validations
-        AuthorizationRules::validate_get_transactions(sender_id)?;
-        self.validate_security(sender_id, timestamp, nonce, signature, message_bytes)?;
+        AuthorizationRules::validate_get_transactions(ctx.sender_id)?;
+        self.validate_security(ctx)?;
 
         let txs = self
             .pool
@@ -227,16 +257,12 @@ impl<T: TimeSource> IpcHandler<T> {
     /// - Validates timestamp, HMAC signature, nonce
     pub fn handle_storage_confirmation(
         &mut self,
-        sender_id: u8,
-        timestamp: u64,
-        nonce: Uuid,
-        signature: &[u8; 64],
-        message_bytes: &[u8],
+        ctx: &IpcSecurityContext<'_>,
         confirmation: BlockStorageConfirmation,
     ) -> Result<Vec<Hash>, MempoolError> {
         // Security validations
-        AuthorizationRules::validate_storage_confirmation(sender_id)?;
-        self.validate_security(sender_id, timestamp, nonce, signature, message_bytes)?;
+        AuthorizationRules::validate_storage_confirmation(ctx.sender_id)?;
+        self.validate_security(ctx)?;
 
         // Confirm the transactions (permanently delete them)
         let confirmed = self.pool.confirm(&confirmation.included_transactions);
@@ -250,16 +276,12 @@ impl<T: TimeSource> IpcHandler<T> {
     /// - Validates timestamp, HMAC signature, nonce
     pub fn handle_block_rejected(
         &mut self,
-        sender_id: u8,
-        timestamp: u64,
-        nonce: Uuid,
-        signature: &[u8; 64],
-        message_bytes: &[u8],
+        ctx: &IpcSecurityContext<'_>,
         notification: BlockRejectedNotification,
     ) -> Result<Vec<Hash>, MempoolError> {
         // Security validations
-        AuthorizationRules::validate_block_rejected(sender_id)?;
-        self.validate_security(sender_id, timestamp, nonce, signature, message_bytes)?;
+        AuthorizationRules::validate_block_rejected(ctx.sender_id)?;
+        self.validate_security(ctx)?;
 
         // Rollback the transactions (return to pending)
         let rolled_back = self.pool.rollback(&notification.affected_transactions);
@@ -273,16 +295,12 @@ impl<T: TimeSource> IpcHandler<T> {
     /// - Validates timestamp, HMAC signature, nonce
     pub fn handle_remove_transactions(
         &mut self,
-        sender_id: u8,
-        timestamp: u64,
-        nonce: Uuid,
-        signature: &[u8; 64],
-        message_bytes: &[u8],
+        ctx: &IpcSecurityContext<'_>,
         request: RemoveTransactionsRequest,
     ) -> Result<RemoveTransactionsResponse, MempoolError> {
         // Security validations
-        AuthorizationRules::validate_remove_transactions(sender_id)?;
-        self.validate_security(sender_id, timestamp, nonce, signature, message_bytes)?;
+        AuthorizationRules::validate_remove_transactions(ctx.sender_id)?;
+        self.validate_security(ctx)?;
 
         let mut removed = Vec::new();
         for hash in &request.tx_hashes {
@@ -358,6 +376,17 @@ mod tests {
         }
     }
 
+    /// Helper to create security context for tests
+    fn create_test_ctx<'a>(
+        sender_id: u8,
+        timestamp: u64,
+        nonce: Uuid,
+        signature: &'a [u8; 64],
+        message_bytes: &'a [u8],
+    ) -> IpcSecurityContext<'a> {
+        IpcSecurityContext::new(sender_id, timestamp, nonce, signature, message_bytes)
+    }
+
     // =========================================================================
     // ADD TRANSACTION TESTS
     // =========================================================================
@@ -375,17 +404,15 @@ mod tests {
             subsystem_id::SIGNATURE_VERIFICATION,
             &master_secret,
         );
+        let ctx = create_test_ctx(
+            subsystem_id::SIGNATURE_VERIFICATION,
+            now,
+            nonce,
+            &signature,
+            message_bytes,
+        );
 
-        let response = handler
-            .handle_add_transaction(
-                subsystem_id::SIGNATURE_VERIFICATION,
-                now,
-                nonce,
-                &signature,
-                message_bytes,
-                request,
-            )
-            .unwrap();
+        let response = handler.handle_add_transaction(&ctx, request).unwrap();
 
         assert!(response.accepted);
         assert!(response.tx_hash.is_some());
@@ -401,16 +428,10 @@ mod tests {
         let message_bytes = b"test message";
         let signature =
             create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
+        let ctx = create_test_ctx(subsystem_id::CONSENSUS, now, nonce, &signature, message_bytes);
 
         // From Consensus (wrong sender)
-        let result = handler.handle_add_transaction(
-            subsystem_id::CONSENSUS,
-            now,
-            nonce,
-            &signature,
-            message_bytes,
-            request,
-        );
+        let result = handler.handle_add_transaction(&ctx, request);
         assert!(matches!(
             result,
             Err(MempoolError::UnauthorizedSender { .. })
@@ -431,15 +452,15 @@ mod tests {
             subsystem_id::SIGNATURE_VERIFICATION,
             &master_secret,
         );
-
-        let result = handler.handle_add_transaction(
+        let ctx = create_test_ctx(
             subsystem_id::SIGNATURE_VERIFICATION,
             now,
             nonce,
             &signature,
             message_bytes,
-            request,
         );
+
+        let result = handler.handle_add_transaction(&ctx, request);
         assert!(matches!(result, Err(MempoolError::SignatureNotVerified)));
     }
 
@@ -452,15 +473,15 @@ mod tests {
         let nonce = Uuid::new_v4();
         let message_bytes = b"test message";
         let bad_signature = [0xFFu8; 64]; // Invalid signature
-
-        let result = handler.handle_add_transaction(
+        let ctx = create_test_ctx(
             subsystem_id::SIGNATURE_VERIFICATION,
             now,
             nonce,
             &bad_signature,
             message_bytes,
-            request,
         );
+
+        let result = handler.handle_add_transaction(&ctx, request);
         assert!(matches!(result, Err(MempoolError::InvalidSignature)));
     }
 
@@ -479,26 +500,26 @@ mod tests {
 
         // First request should succeed
         let request1 = create_add_request();
-        let result1 = handler.handle_add_transaction(
+        let ctx1 = create_test_ctx(
             subsystem_id::SIGNATURE_VERIFICATION,
             now,
             nonce,
             &signature,
             message_bytes,
-            request1,
         );
+        let result1 = handler.handle_add_transaction(&ctx1, request1);
         assert!(result1.is_ok());
 
         // Same nonce should fail (replay attack)
         let request2 = create_add_request();
-        let result2 = handler.handle_add_transaction(
+        let ctx2 = create_test_ctx(
             subsystem_id::SIGNATURE_VERIFICATION,
             now,
             nonce,
             &signature,
             message_bytes,
-            request2,
         );
+        let result2 = handler.handle_add_transaction(&ctx2, request2);
         assert!(matches!(result2, Err(MempoolError::ReplayDetected { .. })));
     }
 
@@ -516,15 +537,15 @@ mod tests {
             subsystem_id::SIGNATURE_VERIFICATION,
             &master_secret,
         );
-
-        let result = handler.handle_add_transaction(
+        let ctx = create_test_ctx(
             subsystem_id::SIGNATURE_VERIFICATION,
             old_timestamp,
             nonce,
             &signature,
             message_bytes,
-            request,
         );
+
+        let result = handler.handle_add_transaction(&ctx, request);
         assert!(matches!(result, Err(MempoolError::TimestampTooOld { .. })));
     }
 
@@ -546,16 +567,14 @@ mod tests {
             subsystem_id::SIGNATURE_VERIFICATION,
             &master_secret,
         );
-        handler
-            .handle_add_transaction(
-                subsystem_id::SIGNATURE_VERIFICATION,
-                now,
-                Uuid::new_v4(),
-                &add_sig,
-                message_bytes,
-                add_req,
-            )
-            .unwrap();
+        let add_ctx = create_test_ctx(
+            subsystem_id::SIGNATURE_VERIFICATION,
+            now,
+            Uuid::new_v4(),
+            &add_sig,
+            message_bytes,
+        );
+        handler.handle_add_transaction(&add_ctx, add_req).unwrap();
 
         let get_req = GetTransactionsRequest {
             correlation_id: Uuid::new_v4(),
@@ -565,16 +584,14 @@ mod tests {
         };
 
         let get_sig = create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
-        let response = handler
-            .handle_get_transactions(
-                subsystem_id::CONSENSUS,
-                now,
-                Uuid::new_v4(),
-                &get_sig,
-                message_bytes,
-                get_req,
-            )
-            .unwrap();
+        let get_ctx = create_test_ctx(
+            subsystem_id::CONSENSUS,
+            now,
+            Uuid::new_v4(),
+            &get_sig,
+            message_bytes,
+        );
+        let response = handler.handle_get_transactions(&get_ctx, get_req).unwrap();
 
         assert_eq!(response.tx_hashes.len(), 1);
     }
@@ -600,14 +617,14 @@ mod tests {
         };
 
         // From Signature Verification (wrong sender)
-        let result = handler.handle_get_transactions(
+        let ctx = create_test_ctx(
             subsystem_id::SIGNATURE_VERIFICATION,
             now,
             nonce,
             &signature,
             message_bytes,
-            request,
         );
+        let result = handler.handle_get_transactions(&ctx, request);
         assert!(matches!(
             result,
             Err(MempoolError::UnauthorizedSender { .. })
@@ -632,16 +649,14 @@ mod tests {
             subsystem_id::SIGNATURE_VERIFICATION,
             &master_secret,
         );
-        let response = handler
-            .handle_add_transaction(
-                subsystem_id::SIGNATURE_VERIFICATION,
-                now,
-                Uuid::new_v4(),
-                &add_sig,
-                message_bytes,
-                add_req,
-            )
-            .unwrap();
+        let add_ctx = create_test_ctx(
+            subsystem_id::SIGNATURE_VERIFICATION,
+            now,
+            Uuid::new_v4(),
+            &add_sig,
+            message_bytes,
+        );
+        let response = handler.handle_add_transaction(&add_ctx, add_req).unwrap();
         let tx_hash = response.tx_hash.unwrap();
 
         let get_req = GetTransactionsRequest {
@@ -651,16 +666,14 @@ mod tests {
             target_block_height: 1,
         };
         let get_sig = create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
-        handler
-            .handle_get_transactions(
-                subsystem_id::CONSENSUS,
-                now,
-                Uuid::new_v4(),
-                &get_sig,
-                message_bytes,
-                get_req,
-            )
-            .unwrap();
+        let get_ctx = create_test_ctx(
+            subsystem_id::CONSENSUS,
+            now,
+            Uuid::new_v4(),
+            &get_sig,
+            message_bytes,
+        );
+        handler.handle_get_transactions(&get_ctx, get_req).unwrap();
 
         // Confirm storage
         let confirmation = BlockStorageConfirmation {
@@ -673,15 +686,15 @@ mod tests {
 
         let confirm_sig =
             create_test_signature(message_bytes, subsystem_id::BLOCK_STORAGE, &master_secret);
+        let confirm_ctx = create_test_ctx(
+            subsystem_id::BLOCK_STORAGE,
+            now,
+            Uuid::new_v4(),
+            &confirm_sig,
+            message_bytes,
+        );
         let confirmed = handler
-            .handle_storage_confirmation(
-                subsystem_id::BLOCK_STORAGE,
-                now,
-                Uuid::new_v4(),
-                &confirm_sig,
-                message_bytes,
-                confirmation,
-            )
+            .handle_storage_confirmation(&confirm_ctx, confirmation)
             .unwrap();
 
         assert_eq!(confirmed, vec![tx_hash]);
@@ -707,14 +720,8 @@ mod tests {
         };
 
         // From Consensus (wrong sender)
-        let result = handler.handle_storage_confirmation(
-            subsystem_id::CONSENSUS,
-            now,
-            nonce,
-            &signature,
-            message_bytes,
-            confirmation,
-        );
+        let ctx = create_test_ctx(subsystem_id::CONSENSUS, now, nonce, &signature, message_bytes);
+        let result = handler.handle_storage_confirmation(&ctx, confirmation);
         assert!(matches!(
             result,
             Err(MempoolError::UnauthorizedSender { .. })
@@ -743,14 +750,9 @@ mod tests {
             rejection_reason: BlockRejectionReason::StorageFailure,
         };
 
-        let result = handler.handle_block_rejected(
-            subsystem_id::BLOCK_STORAGE,
-            now,
-            nonce,
-            &signature,
-            message_bytes,
-            notification,
-        );
+        let ctx =
+            create_test_ctx(subsystem_id::BLOCK_STORAGE, now, nonce, &signature, message_bytes);
+        let result = handler.handle_block_rejected(&ctx, notification);
         assert!(result.is_ok());
     }
 
@@ -772,14 +774,8 @@ mod tests {
             rejection_reason: BlockRejectionReason::ConsensusRejected,
         };
 
-        let result = handler.handle_block_rejected(
-            subsystem_id::CONSENSUS,
-            now,
-            nonce,
-            &signature,
-            message_bytes,
-            notification,
-        );
+        let ctx = create_test_ctx(subsystem_id::CONSENSUS, now, nonce, &signature, message_bytes);
+        let result = handler.handle_block_rejected(&ctx, notification);
         assert!(result.is_ok());
     }
 
@@ -805,14 +801,14 @@ mod tests {
         };
 
         // From Signature Verification (wrong sender)
-        let result = handler.handle_block_rejected(
+        let ctx = create_test_ctx(
             subsystem_id::SIGNATURE_VERIFICATION,
             now,
             nonce,
             &signature,
             message_bytes,
-            notification,
         );
+        let result = handler.handle_block_rejected(&ctx, notification);
         assert!(matches!(
             result,
             Err(MempoolError::UnauthorizedSender { .. })
@@ -837,16 +833,14 @@ mod tests {
             subsystem_id::SIGNATURE_VERIFICATION,
             &master_secret,
         );
-        let add_response = handler
-            .handle_add_transaction(
-                subsystem_id::SIGNATURE_VERIFICATION,
-                now,
-                Uuid::new_v4(),
-                &add_sig,
-                message_bytes,
-                add_req,
-            )
-            .unwrap();
+        let add_ctx = create_test_ctx(
+            subsystem_id::SIGNATURE_VERIFICATION,
+            now,
+            Uuid::new_v4(),
+            &add_sig,
+            message_bytes,
+        );
+        let add_response = handler.handle_add_transaction(&add_ctx, add_req).unwrap();
         let tx_hash = add_response.tx_hash.unwrap();
 
         assert!(handler.pool().get(&tx_hash).unwrap().is_pending());
@@ -859,16 +853,14 @@ mod tests {
             target_block_height: 1,
         };
         let get_sig = create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
-        let response = handler
-            .handle_get_transactions(
-                subsystem_id::CONSENSUS,
-                now,
-                Uuid::new_v4(),
-                &get_sig,
-                message_bytes,
-                get_req,
-            )
-            .unwrap();
+        let get_ctx = create_test_ctx(
+            subsystem_id::CONSENSUS,
+            now,
+            Uuid::new_v4(),
+            &get_sig,
+            message_bytes,
+        );
+        let response = handler.handle_get_transactions(&get_ctx, get_req).unwrap();
 
         assert_eq!(response.tx_hashes, vec![tx_hash]);
         assert!(handler.pool().get(&tx_hash).unwrap().is_pending_inclusion());
@@ -883,15 +875,15 @@ mod tests {
         };
         let confirm_sig =
             create_test_signature(message_bytes, subsystem_id::BLOCK_STORAGE, &master_secret);
+        let confirm_ctx = create_test_ctx(
+            subsystem_id::BLOCK_STORAGE,
+            now,
+            Uuid::new_v4(),
+            &confirm_sig,
+            message_bytes,
+        );
         handler
-            .handle_storage_confirmation(
-                subsystem_id::BLOCK_STORAGE,
-                now,
-                Uuid::new_v4(),
-                &confirm_sig,
-                message_bytes,
-                confirmation,
-            )
+            .handle_storage_confirmation(&confirm_ctx, confirmation)
             .unwrap();
 
         // Transaction should be deleted
@@ -912,16 +904,14 @@ mod tests {
             subsystem_id::SIGNATURE_VERIFICATION,
             &master_secret,
         );
-        let add_response = handler
-            .handle_add_transaction(
-                subsystem_id::SIGNATURE_VERIFICATION,
-                now,
-                Uuid::new_v4(),
-                &add_sig,
-                message_bytes,
-                add_req,
-            )
-            .unwrap();
+        let add_ctx = create_test_ctx(
+            subsystem_id::SIGNATURE_VERIFICATION,
+            now,
+            Uuid::new_v4(),
+            &add_sig,
+            message_bytes,
+        );
+        let add_response = handler.handle_add_transaction(&add_ctx, add_req).unwrap();
         let tx_hash = add_response.tx_hash.unwrap();
 
         let get_req = GetTransactionsRequest {
@@ -931,16 +921,14 @@ mod tests {
             target_block_height: 1,
         };
         let get_sig = create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
-        handler
-            .handle_get_transactions(
-                subsystem_id::CONSENSUS,
-                now,
-                Uuid::new_v4(),
-                &get_sig,
-                message_bytes,
-                get_req,
-            )
-            .unwrap();
+        let get_ctx = create_test_ctx(
+            subsystem_id::CONSENSUS,
+            now,
+            Uuid::new_v4(),
+            &get_sig,
+            message_bytes,
+        );
+        handler.handle_get_transactions(&get_ctx, get_req).unwrap();
 
         assert!(handler.pool().get(&tx_hash).unwrap().is_pending_inclusion());
 
@@ -954,15 +942,15 @@ mod tests {
         };
         let reject_sig =
             create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
+        let reject_ctx = create_test_ctx(
+            subsystem_id::CONSENSUS,
+            now,
+            Uuid::new_v4(),
+            &reject_sig,
+            message_bytes,
+        );
         handler
-            .handle_block_rejected(
-                subsystem_id::CONSENSUS,
-                now,
-                Uuid::new_v4(),
-                &reject_sig,
-                message_bytes,
-                notification,
-            )
+            .handle_block_rejected(&reject_ctx, notification)
             .unwrap();
 
         // Transaction should be back to pending

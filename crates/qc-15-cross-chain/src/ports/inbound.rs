@@ -9,6 +9,23 @@ use crate::domain::{
 };
 use async_trait::async_trait;
 
+/// Parameters for initiating an atomic swap.
+#[derive(Clone, Debug)]
+pub struct InitiateSwapParams {
+    /// Source chain identifier.
+    pub source_chain: ChainId,
+    /// Target chain identifier.
+    pub target_chain: ChainId,
+    /// Initiator address.
+    pub initiator: Address,
+    /// Counterparty address.
+    pub counterparty: Address,
+    /// Amount on source chain.
+    pub source_amount: u64,
+    /// Amount on target chain.
+    pub target_amount: u64,
+}
+
 /// Cross-chain API - inbound port.
 ///
 /// Reference: SPEC-15 Lines 219-250
@@ -17,12 +34,7 @@ pub trait CrossChainApi: Send + Sync {
     /// Initiate an atomic swap.
     async fn initiate_swap(
         &mut self,
-        source_chain: ChainId,
-        target_chain: ChainId,
-        initiator: Address,
-        counterparty: Address,
-        source_amount: u64,
-        target_amount: u64,
+        params: InitiateSwapParams,
     ) -> Result<(AtomicSwap, Secret), CrossChainError>;
 
     /// Lock source HTLC.

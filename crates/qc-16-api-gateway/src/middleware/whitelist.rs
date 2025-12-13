@@ -138,12 +138,13 @@ where
             // Add method info to headers for timeout layer
             if methods.len() == 1 {
                 if let Some(info) = get_method_info(&methods[0]) {
-                    if let Ok(timeout) = HeaderValue::from_str(&info.timeout.as_secs().to_string())
+                    if let Ok(timeout) =
+                        HeaderValue::from_str(&info.timeout().as_secs().to_string())
                     {
                         parts.headers.insert("x-rpc-timeout", timeout);
                     }
                     if let Ok(is_write) =
-                        HeaderValue::from_str(if info.is_write { "true" } else { "false" })
+                        HeaderValue::from_str(if info.is_write() { "true" } else { "false" })
                     {
                         parts.headers.insert("x-rpc-write", is_write);
                     }

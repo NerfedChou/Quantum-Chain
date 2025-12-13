@@ -108,6 +108,19 @@ pub struct SlashableOffenseDetectedEvent {
     pub recommended_slash_percent: u8,
 }
 
+/// Evidence of conflicting attestations for a slashable offense.
+#[derive(Clone, Debug)]
+pub struct SlashingEvidence {
+    /// First attestation source checkpoint
+    pub att1_source: CheckpointId,
+    /// First attestation target checkpoint
+    pub att1_target: CheckpointId,
+    /// Second attestation source checkpoint
+    pub att2_source: CheckpointId,
+    /// Second attestation target checkpoint
+    pub att2_target: CheckpointId,
+}
+
 impl SlashableOffenseDetectedEvent {
     /// Create a new slashing event
     ///
@@ -117,10 +130,7 @@ impl SlashableOffenseDetectedEvent {
     pub fn new(
         validator_id: ValidatorId,
         offense_type: SlashableOffenseType,
-        att1_source: CheckpointId,
-        att1_target: CheckpointId,
-        att2_source: CheckpointId,
-        att2_target: CheckpointId,
+        evidence: SlashingEvidence,
         detected_epoch: u64,
     ) -> Self {
         // Both offense types warrant full slashing per Casper FFG
@@ -129,10 +139,10 @@ impl SlashableOffenseDetectedEvent {
         Self {
             validator_id,
             offense_type,
-            attestation1_source: att1_source,
-            attestation1_target: att1_target,
-            attestation2_source: att2_source,
-            attestation2_target: att2_target,
+            attestation1_source: evidence.att1_source,
+            attestation1_target: evidence.att1_target,
+            attestation2_source: evidence.att2_source,
+            attestation2_target: evidence.att2_target,
             detected_epoch,
             recommended_slash_percent,
         }

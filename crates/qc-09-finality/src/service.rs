@@ -9,7 +9,7 @@ use crate::domain::{
 };
 use crate::error::{FinalityError, FinalityResult};
 use crate::events::outgoing::{
-    InactivityLeakTriggeredEvent, SlashableOffenseDetectedEvent,
+    InactivityLeakTriggeredEvent, SlashableOffenseDetectedEvent, SlashingEvidence,
     SlashableOffenseType as EventSlashableOffenseType,
 };
 use crate::ports::inbound::{AttestationResult, FinalityApi};
@@ -362,10 +362,12 @@ where
         let slashing_event = SlashableOffenseDetectedEvent::new(
             attestation.validator_id,
             event_offense_type,
-            attestation.source_checkpoint,
-            attestation.target_checkpoint,
-            conflicting.source_checkpoint,
-            conflicting.target_checkpoint,
+            SlashingEvidence {
+                att1_source: attestation.source_checkpoint,
+                att1_target: attestation.target_checkpoint,
+                att2_source: conflicting.source_checkpoint,
+                att2_target: conflicting.target_checkpoint,
+            },
             current_epoch,
         );
 

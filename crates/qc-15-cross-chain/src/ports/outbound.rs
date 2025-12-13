@@ -44,21 +44,30 @@ pub struct BlockHeader {
     pub timestamp: u64,
 }
 
+/// HTLC deployment parameters.
+#[derive(Clone, Debug)]
+pub struct HTLCDeployParams {
+    /// Target chain.
+    pub chain: ChainId,
+    /// Cryptographic hash of secret.
+    pub hash_lock: Hash,
+    /// Expiration timestamp.
+    pub time_lock: u64,
+    /// Amount to lock.
+    pub amount: u64,
+    /// Sender address.
+    pub sender: Address,
+    /// Recipient address.
+    pub recipient: Address,
+}
+
 /// HTLC contract interface - outbound port.
 ///
 /// Reference: SPEC-15 Lines 257-270
 #[async_trait]
 pub trait HTLCContract: Send + Sync {
     /// Deploy a new HTLC.
-    async fn deploy(
-        &self,
-        chain: ChainId,
-        hash_lock: Hash,
-        time_lock: u64,
-        amount: u64,
-        sender: Address,
-        recipient: Address,
-    ) -> Result<Hash, CrossChainError>;
+    async fn deploy(&self, params: HTLCDeployParams) -> Result<Hash, CrossChainError>;
 
     /// Claim with secret.
     async fn claim(

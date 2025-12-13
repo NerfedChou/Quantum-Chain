@@ -9,18 +9,29 @@ use crate::domain::{
     Address, AtomicSwap, ChainId, CrossChainError, SwapState, MIN_TIMELOCK_MARGIN_SECS,
 };
 
+/// Parameters for creating an atomic swap.
+#[derive(Clone, Debug)]
+pub struct AtomicSwapParams {
+    /// Source chain identifier.
+    pub source_chain: ChainId,
+    /// Target chain identifier.
+    pub target_chain: ChainId,
+    /// Initiator address.
+    pub initiator: Address,
+    /// Counterparty address.
+    pub counterparty: Address,
+    /// Amount on source chain.
+    pub source_amount: u64,
+    /// Amount on target chain.
+    pub target_amount: u64,
+    /// Current timestamp.
+    pub current_time: u64,
+}
+
 /// Create a new atomic swap with generated secret.
 ///
 /// Returns (swap, secret) - secret must be kept safe by initiator.
-pub fn create_atomic_swap(
-    source_chain: ChainId,
-    target_chain: ChainId,
-    initiator: Address,
-    counterparty: Address,
-    source_amount: u64,
-    target_amount: u64,
-    current_time: u64,
-) -> (AtomicSwap, [u8; 32]) {
+pub fn create_atomic_swap(params: AtomicSwapParams) -> (AtomicSwap, [u8; 32]) {
     let secret = generate_random_secret();
     let hash_lock = create_hash_lock(&secret);
 
@@ -31,14 +42,14 @@ pub fn create_atomic_swap(
 
     let swap = AtomicSwap::new(
         swap_id,
-        source_chain,
-        target_chain,
-        initiator,
-        counterparty,
+        params.source_chain,
+        params.target_chain,
+        params.initiator,
+        params.counterparty,
         hash_lock,
-        source_amount,
-        target_amount,
-        current_time,
+        params.source_amount,
+        params.target_amount,
+        params.current_time,
     );
 
     (swap, secret)
@@ -93,15 +104,15 @@ mod tests {
 
     #[test]
     fn test_create_atomic_swap() {
-        let (swap, secret) = create_atomic_swap(
-            ChainId::QuantumChain,
-            ChainId::Ethereum,
-            [1u8; 20],
-            [2u8; 20],
-            1000,
-            2000,
-            1000,
-        );
+        let (swap, secret) = create_atomic_swap(AtomicSwapParams {
+            source_chain: ChainId::QuantumChain,
+            target_chain: ChainId::Ethereum,
+            initiator: [1u8; 20],
+            counterparty: [2u8; 20],
+            source_amount: 1000,
+            target_amount: 2000,
+            current_time: 1000,
+        });
 
         assert_eq!(swap.state, SwapState::Initiated);
         assert_eq!(swap.source_amount, 1000);
@@ -138,15 +149,15 @@ mod tests {
 
     #[test]
     fn test_is_swap_complete() {
-        let (mut swap, _) = create_atomic_swap(
-            ChainId::QuantumChain,
-            ChainId::Ethereum,
-            [1u8; 20],
-            [2u8; 20],
-            1000,
-            2000,
-            1000,
-        );
+        let (mut swap, _) = create_atomic_swap(AtomicSwapParams {
+            source_chain: ChainId::QuantumChain,
+            target_chain: ChainId::Ethereum,
+            initiator: [1u8; 20],
+            counterparty: [2u8; 20],
+            source_amount: 1000,
+            target_amount: 2000,
+            current_time: 1000,
+        });
 
         assert!(!is_swap_complete(&swap));
 
