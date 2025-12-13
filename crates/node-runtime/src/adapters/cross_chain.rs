@@ -11,8 +11,8 @@
 
 #[cfg(feature = "qc-15")]
 use qc_15_cross_chain::{
-    calculate_timelocks, create_atomic_swap, AtomicSwap, ChainId, CrossChainConfig, Hash, Secret,
-    HTLC,
+    calculate_timelocks, create_atomic_swap, AtomicSwap, AtomicSwapParams, ChainId,
+    CrossChainConfig, Hash, Secret, HTLC,
 };
 
 #[cfg(feature = "qc-15")]
@@ -54,29 +54,8 @@ impl CrossChainAdapter {
     }
 
     /// Initiate a new atomic swap.
-    pub fn initiate_swap(
-        &mut self,
-        source_chain: ChainId,
-        target_chain: ChainId,
-        initiator: [u8; 20],
-        counterparty: [u8; 20],
-        source_amount: u64,
-        target_amount: u64,
-    ) -> (AtomicSwap, Secret) {
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        let (swap, secret) = create_atomic_swap(
-            source_chain,
-            target_chain,
-            initiator,
-            counterparty,
-            source_amount,
-            target_amount,
-            current_time,
-        );
+    pub fn initiate_swap(&mut self, params: AtomicSwapParams) -> (AtomicSwap, Secret) {
+        let (swap, secret) = create_atomic_swap(params);
 
         self.swaps.insert(swap.id, swap.clone());
         (swap, secret)
@@ -138,7 +117,8 @@ impl Default for CrossChainAdapter {
 mod tests {
     use super::*;
     use qc_15_cross_chain::{
-        create_hash_lock, generate_random_secret, verify_secret, ChainAddress, HTLCState,
+        create_hash_lock, generate_random_secret, verify_secret, ChainAddress, HTLCParams,
+        HTLCState,
     };
 
     #[test]
@@ -150,14 +130,19 @@ mod tests {
     #[test]
     fn test_adapter_initiate_swap() {
         let mut adapter = CrossChainAdapter::with_defaults();
-        let (swap, secret) = adapter.initiate_swap(
-            ChainId::QuantumChain,
-            ChainId::Ethereum,
-            [1u8; 20],
-            [2u8; 20],
-            1000,
-            2000,
-        );
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let (swap, secret) = adapter.initiate_swap(AtomicSwapParams {
+            source_chain: ChainId::QuantumChain,
+            target_chain: ChainId::Ethereum,
+            initiator: [1u8; 20],
+            counterparty: [2u8; 20],
+            source_amount: 1000,
+            target_amount: 2000,
+            current_time,
+        });
 
         assert_eq!(adapter.swap_count(), 1);
         assert_eq!(swap.source_amount, 1000);
@@ -192,15 +177,15 @@ mod tests {
             .unwrap()
             .as_secs();
 
-        HTLC::new(
-            [0xAA; 32],                                          // id
-            hash_lock,                                           // hash_lock
-            current_time + 86400,                                // time_lock (24h from now)
-            1000,                                                // amount
-            ChainAddress::new(ChainId::QuantumChain, [1u8; 20]), // sender
-            ChainAddress::new(ChainId::Ethereum, [2u8; 20]),     // recipient
-            current_time,                                        // created_at
-        )
+        HTLC::new(HTLCParams {
+            id: [0xAA; 32],
+            hash_lock,
+            time_lock: current_time + 86400, // 24h from now
+            amount: 1000,
+            sender: ChainAddress::new(ChainId::QuantumChain, [1u8; 20]),
+            recipient: ChainAddress::new(ChainId::Ethereum, [2u8; 20]),
+            created_at: current_time,
+        })
     }
 
     #[test]
@@ -235,15 +220,15 @@ mod tests {
             .unwrap()
             .as_secs();
 
-        let htlc = HTLC::new(
-            [0xBB; 32],
+        let htlc = HTLC::new(HTLCParams {
+            id: [0xBB; 32],
             hash_lock,
-            current_time + 86400, // expires in 24h
-            2000,
-            ChainAddress::new(ChainId::QuantumChain, [1u8; 20]),
-            ChainAddress::new(ChainId::Ethereum, [2u8; 20]),
-            current_time,
-        );
+            time_lock: current_time + 86400, // expires in 24h
+            amount: 2000,
+            sender: ChainAddress::new(ChainId::QuantumChain, [1u8; 20]),
+            recipient: ChainAddress::new(ChainId::Ethereum, [2u8; 20]),
+            created_at: current_time,
+        });
         let htlc_id = htlc.id;
 
         adapter.register_htlc(htlc);
@@ -273,15 +258,15 @@ mod tests {
             .unwrap()
             .as_secs();
 
-        let htlc = HTLC::new(
-            [0xCC; 32],
+        let htlc = HTLC::new(HTLCParams {
+            id: [0xCC; 32],
             hash_lock,
-            current_time - 1, // Already expired
-            3000,
-            ChainAddress::new(ChainId::QuantumChain, [1u8; 20]),
-            ChainAddress::new(ChainId::Ethereum, [2u8; 20]),
-            current_time - 86400, // Created yesterday
-        );
+            time_lock: current_time - 1, // Already expired
+            amount: 3000,
+            sender: ChainAddress::new(ChainId::QuantumChain, [1u8; 20]),
+            recipient: ChainAddress::new(ChainId::Ethereum, [2u8; 20]),
+            created_at: current_time - 86400, // Created yesterday
+        });
         let htlc_id = htlc.id;
 
         adapter.register_htlc(htlc);

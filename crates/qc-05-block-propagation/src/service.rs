@@ -30,8 +30,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::domain::{
     check_all_invariants, check_rate_limit, create_compact_block, select_peers_for_propagation,
-    validate_block_size, InvariantViolation, PeerId, PeerPropagationState, PropagationConfig,
-    PropagationMetrics, PropagationState, PropagationStats, SeenBlockCache, ShortTxId,
+    validate_block_size, CompactBlockParams, InvariantViolation, PeerId, PeerPropagationState,
+    PropagationConfig, PropagationMetrics, PropagationState, PropagationStats, SeenBlockCache,
+    ShortTxId,
 };
 use crate::events::PropagationError;
 use crate::ports::inbound::{BlockPropagationApi, BlockReceiver};
@@ -206,15 +207,15 @@ where
         // Create compact block if enabled
         let message = if self.config.enable_compact_blocks {
             let nonce = rand_nonce();
-            let compact = create_compact_block(
-                block_hash,
-                0,         // Height extracted from block header in production
-                [0u8; 32], // Parent hash extracted from block header in production
-                Self::now_ms(),
-                &tx_hashes,
+            let compact = create_compact_block(CompactBlockParams {
+                header_hash: block_hash,
+                block_height: 0, // Height extracted from block header in production
+                parent_hash: [0u8; 32], // Parent hash extracted from block header in production
+                timestamp: Self::now_ms(),
+                tx_hashes: &tx_hashes,
                 nonce,
-                &[0], // Prefill coinbase (index 0)
-            );
+                prefill_indices: &[0], // Prefill coinbase (index 0)
+            });
 
             NetworkMessage::CompactBlock {
                 data: serialize_compact_block(&compact),

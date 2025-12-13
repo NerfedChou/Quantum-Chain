@@ -43,16 +43,17 @@ pub mod ports;
 pub use algorithms::{
     calculate_timelocks, create_atomic_swap, create_hash_lock, generate_random_secret,
     is_swap_complete, is_swap_refunded, validate_swap_timelocks, verify_claim, verify_refund,
-    verify_secret,
+    verify_secret, AtomicSwapParams,
 };
 pub use domain::{
     invariant_authorized_claimer, invariant_hashlock_match, invariant_secret_matches,
     invariant_sufficient_confirmations, invariant_timelock_ordering, Address, AtomicSwap,
-    ChainAddress, ChainId, CrossChainConfig, CrossChainError, CrossChainProof, HTLCState, Hash,
-    Secret, SwapState, HTLC, MIN_TIMELOCK_MARGIN_SECS,
+    ChainAddress, ChainId, CrossChainConfig, CrossChainError, CrossChainProof, HTLCParams,
+    HTLCState, Hash, Secret, SwapState, HTLC, MIN_TIMELOCK_MARGIN_SECS,
 };
 pub use ports::{
-    BlockHeader, CrossChainApi, ExternalChainClient, FinalityChecker, HTLCContract, MockChainClient,
+    BlockHeader, CrossChainApi, ExternalChainClient, FinalityChecker, HTLCContract,
+    HTLCDeployParams, InitiateSwapParams, MockChainClient,
 };
 
 /// Crate version

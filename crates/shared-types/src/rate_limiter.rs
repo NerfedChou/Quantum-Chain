@@ -70,7 +70,6 @@ impl RateLimiter {
     }
 
     /// Refill tokens based on elapsed time.
-    #[allow(clippy::excessive_nesting)]
     fn refill(&self) {
         // Handle poisoned mutex gracefully - if poisoned, skip refill
         let Ok(mut last) = self.last_refill.lock() else {
@@ -82,20 +81,26 @@ impl RateLimiter {
         // Calculate tokens to add
         let tokens_to_add = (elapsed.as_secs_f64() * self.refill_rate as f64) as u64;
 
-        if tokens_to_add > 0 {
-            *last = now;
+        if tokens_to_add == 0 {
+            return;
+        }
 
-            loop {
-                let current = self.tokens.load(Ordering::Relaxed);
-                let new_value = (current + tokens_to_add).min(self.capacity);
+        *last = now;
+        self.add_tokens(tokens_to_add);
+    }
 
-                if self
-                    .tokens
-                    .compare_exchange(current, new_value, Ordering::SeqCst, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    break;
-                }
+    /// Atomically add tokens up to capacity using CAS loop.
+    fn add_tokens(&self, tokens_to_add: u64) {
+        loop {
+            let current = self.tokens.load(Ordering::Relaxed);
+            let new_value = (current + tokens_to_add).min(self.capacity);
+
+            if self
+                .tokens
+                .compare_exchange(current, new_value, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
+                break;
             }
         }
     }

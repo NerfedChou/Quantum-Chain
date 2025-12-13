@@ -150,7 +150,6 @@ impl SubsystemRegistry {
     }
 
     /// Start all registered subsystems in dependency order.
-    #[allow(clippy::excessive_nesting)]
     pub async fn start_all(&self) -> Result<(), SubsystemError> {
         info!(
             "[Registry] Starting {} subsystems in dependency order",
@@ -162,70 +161,87 @@ impl SubsystemRegistry {
 
         // Start in computed order
         for id in &self.init_order {
-            let Some(entry) = self.subsystems.get(id) else {
-                continue;
-            };
-
-            // Check dependencies before starting
-            self.check_dependencies(id, &entry.read().info.dependencies)?;
-
-            // Start the subsystem
-            let mut entry = entry.write();
-            info!("[Registry] Starting {:?} ({})", id, entry.info.name);
-            entry.status = SubsystemStatus::Starting;
-
-            if let Err(e) = entry.subsystem.start().await {
-                entry.status = SubsystemStatus::Error;
-                // Required subsystems fail hard, optional ones just warn
-                if self.required.contains(id) {
-                    error!("[Registry] ✗ Required {:?} failed: {}", id, e);
-                    return Err(e);
-                }
-                warn!("[Registry] ✗ Optional {:?} failed: {}", id, e);
-                continue;
-            }
-
-            entry.status = SubsystemStatus::Healthy;
-            info!("[Registry] ✓ {:?} started successfully", id);
+            self.start_subsystem(id).await?;
         }
 
         info!("[Registry] All subsystems started");
         Ok(())
     }
 
+    /// Start a single subsystem by ID.
+    async fn start_subsystem(&self, id: &SubsystemId) -> Result<(), SubsystemError> {
+        let Some(entry_arc) = self.subsystems.get(id) else {
+            return Ok(());
+        };
+
+        // Check dependencies before starting
+        self.check_dependencies(id, &entry_arc.read().info.dependencies)?;
+
+        // Start the subsystem
+        let mut entry = entry_arc.write();
+        info!("[Registry] Starting {:?} ({})", id, entry.info.name);
+        entry.status = SubsystemStatus::Starting;
+
+        if let Err(e) = entry.subsystem.start().await {
+            entry.status = SubsystemStatus::Error;
+            return self.handle_start_failure(id, e);
+        }
+
+        entry.status = SubsystemStatus::Healthy;
+        info!("[Registry] ✓ {:?} started successfully", id);
+        Ok(())
+    }
+
+    /// Handle a subsystem start failure.
+    fn handle_start_failure(&self, id: &SubsystemId, e: SubsystemError) -> Result<(), SubsystemError> {
+        if self.required.contains(id) {
+            error!("[Registry] ✗ Required {:?} failed: {}", id, e);
+            return Err(e);
+        }
+        warn!("[Registry] ✗ Optional {:?} failed: {}", id, e);
+        Ok(())
+    }
+
     /// Stop all subsystems in reverse dependency order.
-    #[allow(clippy::excessive_nesting)]
     pub async fn stop_all(&self) -> Result<(), SubsystemError> {
         info!("[Registry] Stopping all subsystems");
 
         // Stop in reverse order
         for id in self.init_order.iter().rev() {
-            if let Some(entry) = self.subsystems.get(id) {
-                let mut entry = entry.write();
-
-                if entry.status == SubsystemStatus::Healthy
-                    || entry.status == SubsystemStatus::Degraded
-                {
-                    info!("[Registry] Stopping {:?}", id);
-                    entry.status = SubsystemStatus::ShuttingDown;
-
-                    match entry.subsystem.stop().await {
-                        Ok(()) => {
-                            entry.status = SubsystemStatus::Stopped;
-                            info!("[Registry] ✓ {:?} stopped", id);
-                        }
-                        Err(e) => {
-                            entry.status = SubsystemStatus::Error;
-                            error!("[Registry] ✗ {:?} failed to stop cleanly: {}", id, e);
-                            // Continue stopping others
-                        }
-                    }
-                }
-            }
+            self.stop_subsystem(id).await;
         }
 
         info!("[Registry] All subsystems stopped");
         Ok(())
+    }
+
+    /// Stop a single subsystem by ID.
+    async fn stop_subsystem(&self, id: &SubsystemId) {
+        let Some(entry_arc) = self.subsystems.get(id) else {
+            return;
+        };
+
+        let mut entry = entry_arc.write();
+        let should_stop = entry.status == SubsystemStatus::Healthy
+            || entry.status == SubsystemStatus::Degraded;
+
+        if !should_stop {
+            return;
+        }
+
+        info!("[Registry] Stopping {:?}", id);
+        entry.status = SubsystemStatus::ShuttingDown;
+
+        match entry.subsystem.stop().await {
+            Ok(()) => {
+                entry.status = SubsystemStatus::Stopped;
+                info!("[Registry] ✓ {:?} stopped", id);
+            }
+            Err(e) => {
+                entry.status = SubsystemStatus::Error;
+                error!("[Registry] ✗ {:?} failed to stop cleanly: {}", id, e);
+            }
+        }
     }
 
     /// Run health checks on all subsystems.
@@ -256,79 +272,94 @@ impl SubsystemRegistry {
 
     /// Check if all dependencies for a subsystem are healthy.
     /// Returns Ok if all required deps are healthy, Err otherwise.
-    #[allow(clippy::excessive_nesting)]
     fn check_dependencies(
         &self,
         subsystem_id: &SubsystemId,
         dependencies: &[SubsystemId],
     ) -> Result<(), SubsystemError> {
         for dep_id in dependencies {
-            let Some(dep_entry) = self.subsystems.get(dep_id) else {
-                // Dependency not registered - only an error if required
-                if self.required.contains(dep_id) {
-                    return Err(SubsystemError {
-                        subsystem_id: *subsystem_id,
-                        kind: SubsystemErrorKind::MissingDependency,
-                        message: format!("Required dependency {:?} not registered", dep_id),
-                    });
-                }
-                continue;
-            };
-
-            let dep_status = dep_entry.read().status;
-            if dep_status == SubsystemStatus::Healthy {
-                continue;
-            }
-
-            // Dependency not healthy - only an error if required
-            if self.required.contains(dep_id) {
-                return Err(SubsystemError {
-                    subsystem_id: *subsystem_id,
-                    kind: SubsystemErrorKind::MissingDependency,
-                    message: format!("Required dependency {:?} is {:?}", dep_id, dep_status),
-                });
-            }
-            warn!(
-                "[Registry] Optional dependency {:?} not healthy, continuing",
-                dep_id
-            );
+            self.check_single_dependency(subsystem_id, dep_id)?;
         }
         Ok(())
     }
 
+    /// Check a single dependency status.
+    fn check_single_dependency(
+        &self,
+        subsystem_id: &SubsystemId,
+        dep_id: &SubsystemId,
+    ) -> Result<(), SubsystemError> {
+        let Some(dep_entry) = self.subsystems.get(dep_id) else {
+            return self.handle_missing_dependency(subsystem_id, dep_id);
+        };
+
+        let dep_status = dep_entry.read().status;
+        if dep_status == SubsystemStatus::Healthy {
+            return Ok(());
+        }
+
+        // Dependency not healthy
+        if !self.required.contains(dep_id) {
+            warn!("[Registry] Optional dependency {:?} not healthy, continuing", dep_id);
+            return Ok(());
+        }
+
+        Err(SubsystemError {
+            subsystem_id: *subsystem_id,
+            kind: SubsystemErrorKind::MissingDependency,
+            message: format!("Required dependency {:?} is {:?}", dep_id, dep_status),
+        })
+    }
+
+    /// Handle a missing dependency (not registered).
+    fn handle_missing_dependency(
+        &self,
+        subsystem_id: &SubsystemId,
+        dep_id: &SubsystemId,
+    ) -> Result<(), SubsystemError> {
+        if !self.required.contains(dep_id) {
+            return Ok(());
+        }
+        Err(SubsystemError {
+            subsystem_id: *subsystem_id,
+            kind: SubsystemErrorKind::MissingDependency,
+            message: format!("Required dependency {:?} not registered", dep_id),
+        })
+    }
+
     /// Compute initialization order using topological sort on dependencies.
-    #[allow(clippy::excessive_nesting)]
     fn compute_init_order(&mut self) {
-        // Simple topological sort
         let mut order = Vec::new();
         let mut visited = std::collections::HashSet::new();
 
-        fn visit(
-            id: SubsystemId,
-            subsystems: &HashMap<SubsystemId, Arc<RwLock<SubsystemEntry>>>,
-            visited: &mut std::collections::HashSet<SubsystemId>,
-            order: &mut Vec<SubsystemId>,
-        ) {
-            if visited.contains(&id) {
-                return;
-            }
-            visited.insert(id);
-
-            if let Some(entry) = subsystems.get(&id) {
-                let deps = entry.read().info.dependencies.clone();
-                for dep in deps {
-                    visit(dep, subsystems, visited, order);
-                }
-            }
-
-            order.push(id);
-        }
-
         for id in self.subsystems.keys() {
-            visit(*id, &self.subsystems, &mut visited, &mut order);
+            self.visit_for_topo_sort(*id, &mut visited, &mut order);
         }
 
         self.init_order = order;
+    }
+
+    /// Visit a node for topological sort (recursive helper).
+    fn visit_for_topo_sort(
+        &self,
+        id: SubsystemId,
+        visited: &mut std::collections::HashSet<SubsystemId>,
+        order: &mut Vec<SubsystemId>,
+    ) {
+        if visited.contains(&id) {
+            return;
+        }
+        visited.insert(id);
+
+        // Visit dependencies first
+        if let Some(entry) = self.subsystems.get(&id) {
+            let deps = entry.read().info.dependencies.clone();
+            for dep in deps {
+                self.visit_for_topo_sort(dep, visited, order);
+            }
+        }
+
+        order.push(id);
     }
 }
 

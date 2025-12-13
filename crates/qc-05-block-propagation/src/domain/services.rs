@@ -21,28 +21,43 @@ pub fn calculate_short_id(tx_hash: &Hash, nonce: u64) -> ShortTxId {
     short_id
 }
 
+/// Parameters for creating a compact block.
+///
+/// Groups the arguments needed for `create_compact_block` to reduce parameter count.
+#[derive(Clone, Copy)]
+pub struct CompactBlockParams<'a> {
+    /// Block header hash
+    pub header_hash: Hash,
+    /// Block height
+    pub block_height: u64,
+    /// Parent block hash
+    pub parent_hash: Hash,
+    /// Block timestamp
+    pub timestamp: u64,
+    /// Transaction hashes in the block
+    pub tx_hashes: &'a [Hash],
+    /// Nonce for short ID calculation
+    pub nonce: u64,
+    /// Indices of transactions to prefill
+    pub prefill_indices: &'a [usize],
+}
+
 /// Create a compact block from full block data.
-pub fn create_compact_block(
-    header_hash: Hash,
-    block_height: u64,
-    parent_hash: Hash,
-    timestamp: u64,
-    tx_hashes: &[Hash],
-    nonce: u64,
-    prefill_indices: &[usize],
-) -> CompactBlock {
-    let short_txids: Vec<ShortTxId> = tx_hashes
+pub fn create_compact_block(params: CompactBlockParams<'_>) -> CompactBlock {
+    let short_txids: Vec<ShortTxId> = params
+        .tx_hashes
         .iter()
-        .map(|hash| calculate_short_id(hash, nonce))
+        .map(|hash| calculate_short_id(hash, params.nonce))
         .collect();
 
-    let prefilled_txs: Vec<PrefilledTx> = prefill_indices
+    let prefilled_txs: Vec<PrefilledTx> = params
+        .prefill_indices
         .iter()
         .filter_map(|&i| {
-            if i < tx_hashes.len() {
+            if i < params.tx_hashes.len() {
                 Some(PrefilledTx {
                     index: i as u16,
-                    tx_hash: tx_hashes[i],
+                    tx_hash: params.tx_hashes[i],
                     tx_data: Vec::new(), // Actual tx data would be provided
                 })
             } else {
@@ -51,9 +66,15 @@ pub fn create_compact_block(
         })
         .collect();
 
-    CompactBlock::new(header_hash, block_height, parent_hash, timestamp, nonce)
-        .with_short_txids(short_txids)
-        .with_prefilled_txs(prefilled_txs)
+    CompactBlock::new(
+        params.header_hash,
+        params.block_height,
+        params.parent_hash,
+        params.timestamp,
+        params.nonce,
+    )
+    .with_short_txids(short_txids)
+    .with_prefilled_txs(prefilled_txs)
 }
 
 /// Result of compact block reconstruction.
@@ -183,15 +204,15 @@ mod tests {
     #[test]
     fn test_create_compact_block() {
         let tx_hashes = vec![[1u8; 32], [2u8; 32], [3u8; 32]];
-        let compact = create_compact_block(
-            [0xAAu8; 32],
-            100,
-            [0u8; 32],
-            1234567890,
-            &tx_hashes,
-            42,
-            &[0], // Prefill first tx (coinbase)
-        );
+        let compact = create_compact_block(CompactBlockParams {
+            header_hash: [0xAAu8; 32],
+            block_height: 100,
+            parent_hash: [0u8; 32],
+            timestamp: 1234567890,
+            tx_hashes: &tx_hashes,
+            nonce: 42,
+            prefill_indices: &[0], // Prefill first tx (coinbase)
+        });
 
         assert_eq!(compact.block_height, 100);
         assert_eq!(compact.short_txids.len(), 3);
@@ -202,7 +223,15 @@ mod tests {
     #[test]
     fn test_reconstruct_block_success() {
         let tx_hashes = vec![[1u8; 32], [2u8; 32], [3u8; 32]];
-        let compact = create_compact_block([0xAAu8; 32], 100, [0u8; 32], 0, &tx_hashes, 42, &[]);
+        let compact = create_compact_block(CompactBlockParams {
+            header_hash: [0xAAu8; 32],
+            block_height: 100,
+            parent_hash: [0u8; 32],
+            timestamp: 0,
+            tx_hashes: &tx_hashes,
+            nonce: 42,
+            prefill_indices: &[],
+        });
 
         // Mock mempool that has all transactions
         let mempool: std::collections::HashMap<ShortTxId, Hash> = tx_hashes
@@ -229,7 +258,15 @@ mod tests {
     #[test]
     fn test_reconstruct_block_missing_tx() {
         let tx_hashes = vec![[1u8; 32], [2u8; 32], [3u8; 32]];
-        let compact = create_compact_block([0xAAu8; 32], 100, [0u8; 32], 0, &tx_hashes, 42, &[]);
+        let compact = create_compact_block(CompactBlockParams {
+            header_hash: [0xAAu8; 32],
+            block_height: 100,
+            parent_hash: [0u8; 32],
+            timestamp: 0,
+            tx_hashes: &tx_hashes,
+            nonce: 42,
+            prefill_indices: &[],
+        });
 
         // Mock mempool missing one transaction
         let mempool: std::collections::HashMap<ShortTxId, Hash> = tx_hashes[..2]

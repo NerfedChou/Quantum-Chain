@@ -17,6 +17,28 @@ use std::collections::HashSet;
 /// Maximum execution steps to prevent infinite loops (safety limit).
 const MAX_EXECUTION_STEPS: u64 = 10_000_000;
 
+/// Perform sign extension on a value.
+///
+/// Helper function to reduce nesting in the SignExtend opcode.
+fn sign_extend(k: U256, x: U256) -> U256 {
+    // k >= 32 means no extension needed
+    if k >= U256::from(32) {
+        return x;
+    }
+
+    let k = k.as_usize();
+    let bit_index = 8 * k + 7;
+    let bit = x.bit(bit_index);
+    let mask = (U256::one() << (bit_index + 1)) - 1;
+
+    // Apply mask based on sign bit
+    if bit {
+        x | !mask
+    } else {
+        x & mask
+    }
+}
+
 /// EVM Interpreter state.
 pub struct Interpreter<'a, S, A>
 where
@@ -271,21 +293,7 @@ where
             Opcode::SignExtend => {
                 let k = self.stack.pop()?;
                 let x = self.stack.pop()?;
-
-                // k >= 32 means no extension needed
-                let result = if k >= U256::from(32) {
-                    x
-                } else {
-                    let k = k.as_usize();
-                    let bit_index = 8 * k + 7;
-                    let bit = x.bit(bit_index);
-                    let mask = (U256::one() << (bit_index + 1)) - 1;
-                    if bit {
-                        x | !mask
-                    } else {
-                        x & mask
-                    }
-                };
+                let result = sign_extend(k, x);
                 self.stack.push(result)?;
             }
 
@@ -791,10 +799,12 @@ where
             Opcode::JumpI => {
                 let dest = self.stack.pop()?.as_usize();
                 let condition = self.stack.pop()?;
-                if !condition.is_zero() {
-                    if !self.jump_dests.contains(&dest) {
-                        return Err(VmError::InvalidJump(dest));
-                    }
+                // Only jump if condition is non-zero
+                if condition.is_zero() {
+                    // No jump
+                } else if !self.jump_dests.contains(&dest) {
+                    return Err(VmError::InvalidJump(dest));
+                } else {
                     self.pc = dest;
                 }
             }

@@ -281,22 +281,19 @@ impl SubsystemConfig {
 
     /// Validate dependencies are satisfied.
     pub fn validate(&self) -> Result<(), Vec<SubsystemError>> {
-        let mut errors = Vec::new();
-
-        for id in SubsystemId::all() {
-            if !self.is_enabled(id) {
-                continue;
-            }
-            for dep in id.dependencies() {
-                if self.is_enabled(dep) {
-                    continue;
-                }
-                errors.push(SubsystemError {
-                    subsystem: id,
-                    message: format!("Requires {} but it is disabled", dep.name()),
-                });
-            }
-        }
+        let errors: Vec<_> = SubsystemId::all()
+            .into_iter()
+            .filter(|&id| self.is_enabled(id))
+            .flat_map(|id| {
+                id.dependencies()
+                    .into_iter()
+                    .filter(|&dep| !self.is_enabled(dep))
+                    .map(move |dep| SubsystemError {
+                        subsystem: id,
+                        message: format!("Requires {} but it is disabled", dep.name()),
+                    })
+            })
+            .collect();
 
         if errors.is_empty() {
             Ok(())

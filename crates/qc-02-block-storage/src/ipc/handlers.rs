@@ -2,6 +2,7 @@
 //!
 //! Implements the request/response and event handling per IPC-MATRIX.md.
 
+use crate::domain::entities::StoredBlock;
 use crate::domain::errors::StorageError;
 use crate::ports::inbound::{BlockAssemblerApi, BlockStorageApi};
 use crate::ports::outbound::{
@@ -28,6 +29,17 @@ fn compute_block_hash(header: &BlockHeader) -> Hash {
     let mut hash = [0u8; 32];
     hash.copy_from_slice(&result);
     hash
+}
+
+/// Convert stored block to BlockDifficultyInfo
+fn to_difficulty_info(stored: StoredBlock) -> BlockDifficultyInfo {
+    let block_hash = compute_block_hash(&stored.block.header);
+    BlockDifficultyInfo {
+        height: stored.block.header.height,
+        timestamp: stored.block.header.timestamp,
+        difficulty: stored.block.header.difficulty,
+        hash: block_hash,
+    }
 }
 
 /// Block Storage IPC Handler
@@ -427,18 +439,11 @@ where
 
         if chain_tip_height > 0 {
             // Read blocks from highest to lowest
-            for height in (start_height..=chain_tip_height).rev() {
-                let Ok(stored) = self.service.read_block_by_height(height) else {
-                    continue;
-                };
-                let block_hash = compute_block_hash(&stored.block.header);
-                recent_blocks.push(BlockDifficultyInfo {
-                    height: stored.block.header.height,
-                    timestamp: stored.block.header.timestamp,
-                    difficulty: stored.block.header.difficulty,
-                    hash: block_hash,
-                });
-            }
+            recent_blocks = (start_height..=chain_tip_height)
+                .rev()
+                .filter_map(|height| self.service.read_block_by_height(height).ok())
+                .map(to_difficulty_info)
+                .collect();
         }
 
         // Step 3: Get chain tip hash and timestamp

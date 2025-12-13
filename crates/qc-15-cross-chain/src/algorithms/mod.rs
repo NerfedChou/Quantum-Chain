@@ -9,7 +9,7 @@ pub mod secret;
 
 pub use atomic_swap::{
     calculate_timelocks, create_atomic_swap, is_swap_complete, is_swap_refunded,
-    validate_swap_timelocks,
+    validate_swap_timelocks, AtomicSwapParams,
 };
 pub use secret::{
     create_hash_lock, generate_random_secret, verify_claim, verify_refund, verify_secret,

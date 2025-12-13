@@ -110,7 +110,9 @@ impl ComputeEngine for CpuEngine {
                 if hash_value <= target {
                     found.store(true, Ordering::SeqCst);
                     result_nonce.store(nonce, Ordering::SeqCst);
-                    let mut hash_lock = result_hash.lock().unwrap();
+                    let mut hash_lock = result_hash
+                        .lock()
+                        .expect("result_hash mutex should not be poisoned");
                     hash_lock.copy_from_slice(&hash2);
                     break;
                 }
@@ -119,7 +121,9 @@ impl ComputeEngine for CpuEngine {
 
         if found.load(Ordering::SeqCst) {
             let nonce = result_nonce.load(Ordering::SeqCst);
-            let hash = *result_hash.lock().unwrap();
+            let hash = *result_hash
+                .lock()
+                .expect("result_hash mutex should not be poisoned");
             Ok(Some((nonce, hash)))
         } else {
             Ok(None)

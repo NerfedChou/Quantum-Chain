@@ -122,7 +122,6 @@ jobs:
             -A clippy::cast_possible_truncation \
             -A clippy::cast_precision_loss \
             -A clippy::cast_sign_loss \
-            -A clippy::excessive_nesting \
             -A clippy::field_reassign_with_default \
             -A clippy::const_is_empty \
             -A clippy::should_implement_trait \
@@ -165,7 +164,6 @@ jobs:
             -A clippy::missing_panics_doc \
             -A clippy::cast_possible_truncation \
             -A clippy::const_is_empty \
-            -A clippy::excessive_nesting \
             -A clippy::needless_borrows_for_generic_args \
             -A clippy::field_reassign_with_default \
             -A clippy::needless_range_loop
@@ -219,7 +217,7 @@ jobs:
           
           echo "✅ All functions within complexity bounds"
       
-      - name: Check Function Length (ZTAC: 80 lines)
+      - name: "Check Function Length (ZTAC: 80 lines)"
         run: |
           echo "=========================================="
           echo "ZTAC: Function Length (≤ 80 lines)"

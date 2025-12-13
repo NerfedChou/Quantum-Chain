@@ -13,23 +13,21 @@ pub fn invariant_topological_order(schedule: &ExecutionSchedule, graph: &Depende
     let mut executed: HashSet<Hash> = HashSet::new();
 
     for group in &schedule.parallel_groups {
+        // Check dependencies for all transactions in group
         for tx_hash in &group.transactions {
-            // Check all incoming edges: their sources must be already executed
-            for edge in &graph.edges {
-                if edge.to != *tx_hash {
-                    continue;
-                }
-                if !executed.contains(&edge.from) {
-                    // Dependency not yet executed - violation!
-                    return false;
-                }
+            let has_unmet_dependency = graph
+                .edges
+                .iter()
+                .filter(|edge| edge.to == *tx_hash)
+                .any(|edge| !executed.contains(&edge.from));
+
+            if has_unmet_dependency {
+                return false;
             }
         }
 
         // Mark all transactions in this group as executed
-        for tx_hash in &group.transactions {
-            executed.insert(*tx_hash);
-        }
+        executed.extend(group.transactions.iter().copied());
     }
 
     true

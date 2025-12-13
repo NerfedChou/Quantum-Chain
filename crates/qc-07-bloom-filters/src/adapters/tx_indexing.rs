@@ -21,6 +21,31 @@ use crate::ports::{TransactionAddresses, TransactionDataProvider};
 /// Default timeout for IPC queries
 const IPC_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Wait for a matching ApiQueryResponse on the event stream.
+///
+/// Returns the result when a response with matching correlation_id is found.
+async fn await_api_response(
+    mut stream: impl futures::Stream<Item = BlockchainEvent> + Unpin,
+    correlation_id: String,
+) -> Option<Result<serde_json::Value, shared_bus::ApiQueryError>> {
+    use futures::StreamExt;
+    while let Some(event) = stream.next().await {
+        let BlockchainEvent::ApiQueryResponse {
+            correlation_id: resp_id,
+            result,
+            ..
+        } = event
+        else {
+            continue;
+        };
+
+        if resp_id == correlation_id {
+            return Some(result);
+        }
+    }
+    None
+}
+
 /// Adapter for Transaction Indexing subsystem (qc-03)
 ///
 /// Connects to qc-03-transaction-indexing via shared-bus ApiQuery events.
@@ -76,7 +101,7 @@ impl TxIndexingAdapter {
 
         // Subscribe to ApiGateway topic for response AFTER checking
         let filter = EventFilter::topics(vec![EventTopic::ApiGateway]);
-        let mut stream = self.bus.event_stream(filter);
+        let stream = self.bus.event_stream(filter);
 
         let receivers = self.bus.publish(event).await;
         debug!(
@@ -87,27 +112,10 @@ impl TxIndexingAdapter {
         );
 
         // Wait for response with timeout
-        let response = timeout(IPC_TIMEOUT, async {
-            use futures::StreamExt;
-            while let Some(event) = stream.next().await {
-                let BlockchainEvent::ApiQueryResponse {
-                    correlation_id: resp_id,
-                    result,
-                    ..
-                } = event
-                else {
-                    continue;
-                };
-                if resp_id != correlation_id {
-                    continue;
-                }
-                return Some(result);
-            }
-            None
-        })
-        .await
-        .map_err(|_| DataError::Timeout)?
-        .ok_or_else(|| DataError::ConnectionError("Response stream ended".to_string()))?;
+        let response = timeout(IPC_TIMEOUT, await_api_response(stream, correlation_id))
+            .await
+            .map_err(|_| DataError::Timeout)?
+            .ok_or_else(|| DataError::ConnectionError("Response stream ended".to_string()))?;
 
         // Convert result
         response.map_err(|e| DataError::QueryError(e.message))

@@ -48,7 +48,6 @@ pub struct ConflictInfo {
 }
 
 /// Detect conflicts between transaction access patterns
-#[allow(clippy::excessive_nesting)]
 pub fn detect_conflicts(patterns: &[TransactionAccessPattern]) -> Vec<ConflictInfo> {
     let mut conflicts = Vec::new();
 
@@ -57,54 +56,75 @@ pub fn detect_conflicts(patterns: &[TransactionAccessPattern]) -> Vec<ConflictIn
             let p1 = &patterns[i];
             let p2 = &patterns[j];
 
-            // Check Write-Write conflicts
-            for (addr1, key1) in &p1.writes {
-                for (addr2, key2) in &p2.writes {
-                    if addr1 == addr2 && key1 == key2 {
-                        conflicts.push(ConflictInfo {
-                            tx1_index: i,
-                            tx2_index: j,
-                            conflict_type: ConflictType::WriteWrite,
-                            conflicting_address: *addr1,
-                            conflicting_key: *key1,
-                        });
-                    }
-                }
-            }
-
-            // Check Read-Write conflicts (p1 reads, p2 writes)
-            for (addr1, key1) in &p1.reads {
-                for (addr2, key2) in &p2.writes {
-                    if addr1 == addr2 && key1 == key2 {
-                        conflicts.push(ConflictInfo {
-                            tx1_index: i,
-                            tx2_index: j,
-                            conflict_type: ConflictType::ReadWrite,
-                            conflicting_address: *addr1,
-                            conflicting_key: *key1,
-                        });
-                    }
-                }
-            }
-
-            // Check Read-Write conflicts (p1 writes, p2 reads)
-            for (addr1, key1) in &p1.writes {
-                for (addr2, key2) in &p2.reads {
-                    if addr1 == addr2 && key1 == key2 {
-                        conflicts.push(ConflictInfo {
-                            tx1_index: i,
-                            tx2_index: j,
-                            conflict_type: ConflictType::ReadWrite,
-                            conflicting_address: *addr1,
-                            conflicting_key: *key1,
-                        });
-                    }
-                }
-            }
+            // Check all conflict types using helper functions
+            check_write_write_conflicts(p1, p2, i, j, &mut conflicts);
+            check_read_write_conflicts(p1, p2, i, j, &mut conflicts);
         }
     }
 
     conflicts
+}
+
+/// Check for write-write conflicts between two transaction patterns.
+fn check_write_write_conflicts(
+    p1: &TransactionAccessPattern,
+    p2: &TransactionAccessPattern,
+    i: usize,
+    j: usize,
+    conflicts: &mut Vec<ConflictInfo>,
+) {
+    for (addr1, key1) in &p1.writes {
+        for (addr2, key2) in &p2.writes {
+            if addr1 == addr2 && key1 == key2 {
+                conflicts.push(ConflictInfo {
+                    tx1_index: i,
+                    tx2_index: j,
+                    conflict_type: ConflictType::WriteWrite,
+                    conflicting_address: *addr1,
+                    conflicting_key: *key1,
+                });
+            }
+        }
+    }
+}
+
+/// Check for read-write conflicts between two transaction patterns.
+fn check_read_write_conflicts(
+    p1: &TransactionAccessPattern,
+    p2: &TransactionAccessPattern,
+    i: usize,
+    j: usize,
+    conflicts: &mut Vec<ConflictInfo>,
+) {
+    // Check p1 reads vs p2 writes
+    for (addr1, key1) in &p1.reads {
+        for (addr2, key2) in &p2.writes {
+            if addr1 == addr2 && key1 == key2 {
+                conflicts.push(ConflictInfo {
+                    tx1_index: i,
+                    tx2_index: j,
+                    conflict_type: ConflictType::ReadWrite,
+                    conflicting_address: *addr1,
+                    conflicting_key: *key1,
+                });
+            }
+        }
+    }
+
+    // Check p1 writes vs p2 reads
+    for (addr1, key1) in &p1.writes {
+        for (addr2, key2) in &p2.reads {
+            if addr1 == addr2 && key1 == key2 {
+                conflicts.push(ConflictInfo {
+                    tx1_index: i,
+                    tx2_index: j,
+                    conflict_type: ConflictType::ReadWrite,
+                    conflicting_address: *addr1,
+                    conflicting_key: *key1,
+                });
+            }
+        }
+    }
 }
 
 #[cfg(test)]

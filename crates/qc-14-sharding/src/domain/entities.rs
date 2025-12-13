@@ -77,28 +77,39 @@ pub struct CrossShardTransaction {
     pub created_at: u64,
 }
 
+/// Parameters for creating a cross-shard transaction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CrossShardTxParams {
+    /// Transaction hash (unique identifier).
+    pub tx_hash: Hash,
+    /// Source shard ID.
+    pub source_shard: ShardId,
+    /// Target shard IDs.
+    pub target_shards: Vec<ShardId>,
+    /// Sender address.
+    pub sender: Address,
+    /// Recipient addresses (one per target shard).
+    pub recipients: Vec<Address>,
+    /// Amount being transferred.
+    pub amount: u64,
+    /// Creation timestamp.
+    pub created_at: u64,
+}
+
 impl CrossShardTransaction {
     /// Create a new pending cross-shard transaction.
-    pub fn new(
-        tx_hash: Hash,
-        source_shard: ShardId,
-        target_shards: Vec<ShardId>,
-        sender: Address,
-        recipients: Vec<Address>,
-        amount: u64,
-        created_at: u64,
-    ) -> Self {
+    pub fn new(params: CrossShardTxParams) -> Self {
         Self {
-            tx_hash,
-            source_shard,
-            target_shards,
-            sender,
-            recipients,
-            amount,
+            tx_hash: params.tx_hash,
+            source_shard: params.source_shard,
+            target_shards: params.target_shards,
+            sender: params.sender,
+            recipients: params.recipients,
+            amount: params.amount,
             state: CrossShardState::Pending,
             lock_proofs: Vec::new(),
             abort_reason: None,
-            created_at,
+            created_at: params.created_at,
         }
     }
 
@@ -193,15 +204,15 @@ mod tests {
     use super::*;
 
     fn create_test_tx() -> CrossShardTransaction {
-        CrossShardTransaction::new(
-            [1u8; 32],
-            0,
-            vec![1, 2],
-            [10u8; 20],
-            vec![[11u8; 20], [12u8; 20]],
-            1000,
-            12345,
-        )
+        CrossShardTransaction::new(CrossShardTxParams {
+            tx_hash: [1u8; 32],
+            source_shard: 0,
+            target_shards: vec![1, 2],
+            sender: [10u8; 20],
+            recipients: vec![[11u8; 20], [12u8; 20]],
+            amount: 1000,
+            created_at: 12345,
+        })
     }
 
     #[test]

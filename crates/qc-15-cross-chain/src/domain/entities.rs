@@ -32,27 +32,38 @@ pub struct HTLC {
     pub created_at: u64,
 }
 
+/// Parameters for creating an HTLC.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HTLCParams {
+    /// Unique identifier.
+    pub id: Hash,
+    /// Cryptographic hash of secret.
+    pub hash_lock: Hash,
+    /// Expiration timestamp.
+    pub time_lock: u64,
+    /// Amount locked.
+    pub amount: u64,
+    /// Sender address.
+    pub sender: ChainAddress,
+    /// Recipient address.
+    pub recipient: ChainAddress,
+    /// Creation timestamp.
+    pub created_at: u64,
+}
+
 impl HTLC {
     /// Create a new HTLC.
-    pub fn new(
-        id: Hash,
-        hash_lock: Hash,
-        time_lock: u64,
-        amount: u64,
-        sender: ChainAddress,
-        recipient: ChainAddress,
-        created_at: u64,
-    ) -> Self {
+    pub fn new(params: HTLCParams) -> Self {
         Self {
-            id,
-            hash_lock,
-            time_lock,
-            amount,
-            sender,
-            recipient,
+            id: params.id,
+            hash_lock: params.hash_lock,
+            time_lock: params.time_lock,
+            amount: params.amount,
+            sender: params.sender,
+            recipient: params.recipient,
             state: HTLCState::Pending,
             secret: None,
-            created_at,
+            created_at: params.created_at,
         }
     }
 
@@ -338,15 +349,15 @@ mod tests {
     use super::*;
 
     fn create_test_htlc() -> HTLC {
-        HTLC::new(
-            [1u8; 32],
-            [2u8; 32],
-            10000,
-            1000,
-            ChainAddress::new(ChainId::QuantumChain, [10u8; 20]),
-            ChainAddress::new(ChainId::Ethereum, [20u8; 20]),
-            1000,
-        )
+        HTLC::new(HTLCParams {
+            id: [1u8; 32],
+            hash_lock: [2u8; 32],
+            time_lock: 10000,
+            amount: 1000,
+            sender: ChainAddress::new(ChainId::QuantumChain, [10u8; 20]),
+            recipient: ChainAddress::new(ChainId::Ethereum, [20u8; 20]),
+            created_at: 1000,
+        })
     }
 
     #[test]

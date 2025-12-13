@@ -354,39 +354,47 @@ impl BlockStorageHandler {
                 }
             };
 
-            match event {
-                ChoreographyEvent::BlockValidated {
-                    block_hash,
-                    block_height,
-                    sender_id,
-                } if sender_id == SubsystemId::Consensus => {
+            self.dispatch_event(event).await;
+        }
+    }
+
+    /// Dispatch a choreography event to the appropriate handler.
+    async fn dispatch_event(&self, event: ChoreographyEvent) {
+        match event {
+            ChoreographyEvent::BlockValidated {
+                block_hash,
+                block_height,
+                sender_id,
+            } => {
+                if sender_id == SubsystemId::Consensus {
                     self.handle_block_validated(block_hash, block_height).await;
-                }
-                ChoreographyEvent::MerkleRootComputed {
-                    block_hash,
-                    merkle_root,
-                    sender_id,
-                } if sender_id == SubsystemId::TransactionIndexing => {
-                    self.handle_merkle_root(block_hash, merkle_root).await;
-                }
-                ChoreographyEvent::StateRootComputed {
-                    block_hash,
-                    state_root,
-                    sender_id,
-                } if sender_id == SubsystemId::StateManagement => {
-                    self.handle_state_root(block_hash, state_root).await;
-                }
-                ChoreographyEvent::BlockValidated { sender_id, .. } => {
+                } else {
                     warn!("[qc-02] Ignoring BlockValidated from {:?}", sender_id);
                 }
-                ChoreographyEvent::MerkleRootComputed { sender_id, .. } => {
+            }
+            ChoreographyEvent::MerkleRootComputed {
+                block_hash,
+                merkle_root,
+                sender_id,
+            } => {
+                if sender_id == SubsystemId::TransactionIndexing {
+                    self.handle_merkle_root(block_hash, merkle_root).await;
+                } else {
                     warn!("[qc-02] Ignoring MerkleRootComputed from {:?}", sender_id);
                 }
-                ChoreographyEvent::StateRootComputed { sender_id, .. } => {
+            }
+            ChoreographyEvent::StateRootComputed {
+                block_hash,
+                state_root,
+                sender_id,
+            } => {
+                if sender_id == SubsystemId::StateManagement {
+                    self.handle_state_root(block_hash, state_root).await;
+                } else {
                     warn!("[qc-02] Ignoring StateRootComputed from {:?}", sender_id);
                 }
-                _ => {}
             }
+            _ => {}
         }
     }
 }
