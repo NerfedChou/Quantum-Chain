@@ -8,6 +8,30 @@ use crate::domain::errors::OrderingError;
 use crate::domain::value_objects::Hash;
 use std::collections::HashMap;
 
+/// Process neighbors of a node, updating in-degrees and queueing ready nodes.
+///
+/// This helper function reduces nesting depth in the main algorithm loop.
+fn process_neighbors(
+    node: &Hash,
+    graph: &DependencyGraph,
+    in_degree: &mut HashMap<Hash, usize>,
+    next_queue: &mut Vec<Hash>,
+) {
+    let Some(neighbors) = graph.adjacency.get(node) else {
+        return;
+    };
+
+    for neighbor in neighbors {
+        let Some(degree) = in_degree.get_mut(neighbor) else {
+            continue;
+        };
+        *degree = degree.saturating_sub(1);
+        if *degree == 0 {
+            next_queue.push(*neighbor);
+        }
+    }
+}
+
 /// Perform Kahn's topological sort on the dependency graph.
 ///
 /// Returns an ExecutionSchedule with parallel groups.
@@ -50,19 +74,7 @@ pub fn kahns_topological_sort(graph: &DependencyGraph) -> Result<ExecutionSchedu
         let mut next_queue: Vec<Hash> = Vec::new();
 
         for node in &current_group {
-            let Some(neighbors) = graph.adjacency.get(node) else {
-                continue;
-            };
-            for neighbor in neighbors {
-                let Some(degree) = in_degree.get_mut(neighbor) else {
-                    continue;
-                };
-                *degree = degree.saturating_sub(1);
-                if *degree != 0 {
-                    continue;
-                }
-                next_queue.push(*neighbor);
-            }
+            process_neighbors(node, graph, &mut in_degree, &mut next_queue);
         }
 
         // Sort next queue for determinism

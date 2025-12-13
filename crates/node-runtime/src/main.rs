@@ -169,6 +169,7 @@ fn create_validated_block(params: MinedBlockParams) -> shared_types::ValidatedBl
 }
 
 /// Load last block hash and difficulty for bridge initialization
+#[allow(dead_code)]
 fn load_last_block_for_bridge(
     storage: &impl qc_02_block_storage::BlockStorageApi,
     chain_height: u64,
@@ -178,17 +179,31 @@ fn load_last_block_for_bridge(
 
     match storage.read_block_by_height(target_height) {
         Err(_) => {
-            let label = if chain_height > 0 { "last block" } else { "genesis" };
+            let label = if chain_height > 0 {
+                "last block"
+            } else {
+                "genesis"
+            };
             info!("[Bridge] ⚠️ Could not load {}, using zeros", label);
-            ([0u8; 32], qc_17_block_production::DifficultyConfig::default().initial_difficulty)
+            (
+                [0u8; 32],
+                qc_17_block_production::DifficultyConfig::default().initial_difficulty,
+            )
         }
         Ok(stored) => {
             let hash = compute_block_hash(&stored.block);
             let diff = resolve_difficulty(&stored, fallback_difficulty);
-            let label = if target_height == 0 { "genesis" } else { "last" };
+            let label = if target_height == 0 {
+                "genesis"
+            } else {
+                "last"
+            };
             info!(
                 "[Bridge] 📖 Loaded {} block hash ({:02x}{:02x}..., diff: {})",
-                label, hash[0], hash[1], difficulty_desc(&diff)
+                label,
+                hash[0],
+                hash[1],
+                difficulty_desc(&diff)
             );
             (hash, diff)
         }
@@ -687,17 +702,26 @@ impl NodeRuntime {
 
             match storage.read_block_by_height(target_height) {
                 Err(_) => {
-                    let label = if chain_height > 0 { "last block" } else { "genesis" };
+                    let label = match chain_height > 0 {
+                        true => "last block",
+                        false => "genesis",
+                    };
                     info!("[Bridge] ⚠️ Could not load {}, using zeros", label);
                     ([0u8; 32], initial_difficulty)
                 }
                 Ok(stored) => {
                     let hash = compute_block_hash(&stored.block);
                     let diff = resolve_difficulty(&stored, last_known_difficulty);
-                    let label = if target_height == 0 { "genesis" } else { "last" };
+                    let label = match target_height == 0 {
+                        true => "genesis",
+                        false => "last",
+                    };
                     info!(
                         "[Bridge] 📖 Loaded {} block hash ({:02x}{:02x}..., diff: {})",
-                        label, hash[0], hash[1], crate::difficulty_desc(&diff)
+                        label,
+                        hash[0],
+                        hash[1],
+                        crate::difficulty_desc(&diff)
                     );
                     (hash, diff)
                 }
@@ -719,6 +743,7 @@ impl NodeRuntime {
                 let pending_blocks = miner_status_checker.drain_pending_blocks().await;
 
                 // Debug: Log every 10th iteration or when we have blocks
+                #[allow(clippy::excessive_nesting)]
                 if iteration % 10 == 0 || !pending_blocks.is_empty() {
                     let status = miner_status_checker.get_status().await;
                     info!(
@@ -731,6 +756,7 @@ impl NodeRuntime {
                 }
 
                 // Process each mined block with its OWN difficulty and nonce
+                #[allow(clippy::excessive_nesting)]
                 for mined_block in pending_blocks {
                     let block_height = mined_block.height;
                     let difficulty = mined_block.difficulty;
@@ -746,7 +772,9 @@ impl NodeRuntime {
 
                     info!(
                         "[Bridge] 🌉 Storing block #{} (nonce: {}, diff: {}) to storage",
-                        block_height, nonce, crate::difficulty_desc(&difficulty)
+                        block_height,
+                        nonce,
+                        crate::difficulty_desc(&difficulty)
                     );
 
                     // Store block directly to qc-02
@@ -781,7 +809,10 @@ impl NodeRuntime {
                     if let Err(e) = choreography_router.publish(event) {
                         error!("[Bridge] ❌ Failed to publish BlockValidated: {}", e);
                     } else {
-                        info!("[Bridge] ✅ Published BlockValidated for block #{}", block_height);
+                        info!(
+                            "[Bridge] ✅ Published BlockValidated for block #{}",
+                            block_height
+                        );
                     }
 
                     last_block_height = block_height;

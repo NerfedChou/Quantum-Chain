@@ -428,7 +428,13 @@ mod tests {
         let message_bytes = b"test message";
         let signature =
             create_test_signature(message_bytes, subsystem_id::CONSENSUS, &master_secret);
-        let ctx = create_test_ctx(subsystem_id::CONSENSUS, now, nonce, &signature, message_bytes);
+        let ctx = create_test_ctx(
+            subsystem_id::CONSENSUS,
+            now,
+            nonce,
+            &signature,
+            message_bytes,
+        );
 
         // From Consensus (wrong sender)
         let result = handler.handle_add_transaction(&ctx, request);
@@ -720,7 +726,13 @@ mod tests {
         };
 
         // From Consensus (wrong sender)
-        let ctx = create_test_ctx(subsystem_id::CONSENSUS, now, nonce, &signature, message_bytes);
+        let ctx = create_test_ctx(
+            subsystem_id::CONSENSUS,
+            now,
+            nonce,
+            &signature,
+            message_bytes,
+        );
         let result = handler.handle_storage_confirmation(&ctx, confirmation);
         assert!(matches!(
             result,
@@ -750,8 +762,13 @@ mod tests {
             rejection_reason: BlockRejectionReason::StorageFailure,
         };
 
-        let ctx =
-            create_test_ctx(subsystem_id::BLOCK_STORAGE, now, nonce, &signature, message_bytes);
+        let ctx = create_test_ctx(
+            subsystem_id::BLOCK_STORAGE,
+            now,
+            nonce,
+            &signature,
+            message_bytes,
+        );
         let result = handler.handle_block_rejected(&ctx, notification);
         assert!(result.is_ok());
     }
@@ -774,7 +791,13 @@ mod tests {
             rejection_reason: BlockRejectionReason::ConsensusRejected,
         };
 
-        let ctx = create_test_ctx(subsystem_id::CONSENSUS, now, nonce, &signature, message_bytes);
+        let ctx = create_test_ctx(
+            subsystem_id::CONSENSUS,
+            now,
+            nonce,
+            &signature,
+            message_bytes,
+        );
         let result = handler.handle_block_rejected(&ctx, notification);
         assert!(result.is_ok());
     }

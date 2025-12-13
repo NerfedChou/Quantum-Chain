@@ -87,10 +87,9 @@ impl StateAdapter {
             for tx in &transactions {
                 // Apply transaction effects to state
                 let _ = trie.apply_balance_change(tx.from, -(tx.value as i128));
-                let Some(to) = tx.to else {
-                    continue;
-                };
-                let _ = trie.apply_balance_change(to, tx.value as i128);
+                // Apply recipient balance change if present
+                tx.to
+                    .map(|to| trie.apply_balance_change(to, tx.value as i128));
             }
         }
 

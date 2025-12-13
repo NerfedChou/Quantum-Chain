@@ -23,6 +23,13 @@ use tracing::{error, info, warn};
 /// Only Consensus (Subsystem 8) can request ordering.
 const AUTHORIZED_SENDER: u8 = 8;
 
+/// Convert address/key tuple to StorageLocation.
+///
+/// Helper function to reduce nesting in map closures.
+fn to_storage_location((addr, key): &([u8; 20], [u8; 32])) -> StorageLocation {
+    StorageLocation::new(H160::from(*addr), H256::from(*key))
+}
+
 /// IPC Handler for Transaction Ordering.
 ///
 /// Validates security boundaries and delegates to domain service.
@@ -182,20 +189,16 @@ impl TransactionOrderingHandler {
 
             // Add reads if available
             if let Some(read_set) = request.read_sets.get(i) {
-                access_pattern.reads.extend(
-                    read_set.iter().map(|(addr, key)| {
-                        StorageLocation::new(H160::from(*addr), H256::from(*key))
-                    }),
-                );
+                access_pattern
+                    .reads
+                    .extend(read_set.iter().map(to_storage_location));
             }
 
             // Add writes if available
             if let Some(write_set) = request.write_sets.get(i) {
-                access_pattern.writes.extend(
-                    write_set.iter().map(|(addr, key)| {
-                        StorageLocation::new(H160::from(*addr), H256::from(*key))
-                    }),
-                );
+                access_pattern
+                    .writes
+                    .extend(write_set.iter().map(to_storage_location));
             }
 
             transactions.push(AnnotatedTransaction::new(

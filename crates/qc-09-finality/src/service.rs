@@ -9,8 +9,8 @@ use crate::domain::{
 };
 use crate::error::{FinalityError, FinalityResult};
 use crate::events::outgoing::{
-    InactivityLeakTriggeredEvent, SlashableOffenseDetectedEvent, SlashingEvidence,
-    SlashableOffenseType as EventSlashableOffenseType,
+    InactivityLeakTriggeredEvent, SlashableOffenseDetectedEvent,
+    SlashableOffenseType as EventSlashableOffenseType, SlashingEvidence,
 };
 use crate::ports::inbound::{AttestationResult, FinalityApi};
 use crate::ports::outbound::{

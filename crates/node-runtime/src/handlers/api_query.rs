@@ -48,6 +48,14 @@ use shared_bus::{
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 
+/// Helper to create block transaction count JSON
+fn block_tx_json(block_num: u64, count: u64) -> serde_json::Value {
+    serde_json::json!({
+        "block": block_num,
+        "tx_count": count
+    })
+}
+
 /// Handler that processes API queries from the API Gateway.
 ///
 /// Subscribes to `ApiQuery` events and routes them to the appropriate
@@ -582,17 +590,14 @@ impl ApiQueryHandler {
                 let head_lag = chain_tip.saturating_sub(indexed_height);
 
                 // Build block_tx_counts for traffic pattern (last 15 blocks)
-                let mut block_tx_counts = Vec::new();
                 let start_block = indexed_height.saturating_sub(14);
-                for block_num in start_block..=indexed_height {
-                    let Some(count) = tx_index.get_tx_count_for_block(block_num) else {
-                        continue;
-                    };
-                    block_tx_counts.push(serde_json::json!({
-                        "block": block_num,
-                        "tx_count": count
-                    }));
-                }
+                let block_tx_counts: Vec<_> = (start_block..=indexed_height)
+                    .filter_map(|block_num| {
+                        tx_index
+                            .get_tx_count_for_block(block_num)
+                            .map(|count| block_tx_json(block_num, count))
+                    })
+                    .collect();
 
                 Ok(serde_json::json!({
                     "total_indexed": stats.total_indexed_txs,

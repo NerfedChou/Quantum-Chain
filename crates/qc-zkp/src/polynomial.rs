@@ -48,7 +48,10 @@ impl Polynomial {
         }
 
         // Horner's method
-        let mut result = *self.coeffs.last().unwrap();
+        let mut result = *self
+            .coeffs
+            .last()
+            .expect("coeffs is non-empty (checked above)");
         for coeff in self.coeffs.iter().rev().skip(1) {
             result = result * x + *coeff;
         }

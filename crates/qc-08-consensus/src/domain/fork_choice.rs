@@ -123,22 +123,7 @@ impl LMDGhostStore {
             let stake = validator_set.get_stake(&validator).unwrap_or(0);
 
             // Walk up the tree adding weight
-            let mut current = target;
-            let mut visited = HashSet::new();
-
-            while visited.insert(current) {
-                let parent = match self.blocks.get(&current) {
-                    Some(header) => {
-                        *self.weight_cache.entry(current).or_insert(0) += stake;
-                        if current == header.parent_hash {
-                            break;
-                        }
-                        header.parent_hash
-                    }
-                    None => break,
-                };
-                current = parent;
-            }
+            self.add_weight_to_ancestors(target, stake);
         }
 
         self.cache_valid = true;
@@ -162,6 +147,28 @@ impl LMDGhostStore {
     /// Total vote count.
     pub fn total_votes(&self) -> usize {
         self.latest_votes.len()
+    }
+
+    /// Add stake weight to a block and all its ancestors.
+    ///
+    /// Helper function to reduce nesting in compute_weights loop.
+    fn add_weight_to_ancestors(&mut self, target: Hash, stake: u128) {
+        let mut current = target;
+        let mut visited = HashSet::new();
+
+        while visited.insert(current) {
+            let Some(header) = self.blocks.get(&current) else {
+                break;
+            };
+
+            *self.weight_cache.entry(current).or_insert(0) += stake;
+
+            // Stop if we hit genesis (parent == self)
+            if current == header.parent_hash {
+                break;
+            }
+            current = header.parent_hash;
+        }
     }
 }
 
