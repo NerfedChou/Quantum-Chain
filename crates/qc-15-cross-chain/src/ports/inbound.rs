@@ -10,7 +10,7 @@ use crate::domain::{
 use async_trait::async_trait;
 
 /// Parameters for initiating an atomic swap.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InitiateSwapParams {
     /// Source chain identifier.
     pub source_chain: ChainId,
