@@ -10,8 +10,9 @@
 
 use crate::domain::{
     attestation_signing_message, commit_signing_message, prepare_signing_message, Block,
-    BlockHeader, ChainHead, ChainState, ConsensusAlgorithm, ConsensusConfig, ConsensusError,
-    ConsensusResult, PBFTProof, PoSProof, ValidatedBlock, ValidationProof,
+    BlockHeader, ChainHead, ChainState, CommitMessage, ConsensusAlgorithm, ConsensusConfig,
+    ConsensusError, ConsensusResult, PBFTProof, PoSProof, PrepareMessage, ValidatedBlock,
+    ValidationProof,
 };
 use crate::ports::{
     ConsensusApi, EventBus, MempoolGateway, SignatureVerifier, SystemTimeSource, TimeSource,
@@ -301,6 +302,30 @@ where
         }
 
         // ZERO-TRUST: Re-verify each attestation signature independently
+        self.verify_attestations(&validator_set, block_hash, proof)?;
+
+        // Check attestation threshold (2/3)
+        let participation = proof.participation_count();
+        let required = validator_set.required_attestations(self.config.min_attestation_percent);
+
+        if participation < required {
+            let got_percent = (participation * 100 / validator_set.len()) as u8;
+            return Err(ConsensusError::InsufficientAttestations {
+                got: got_percent,
+                required: self.config.min_attestation_percent,
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Verify attestations for PoS proof
+    fn verify_attestations(
+        &self,
+        validator_set: &crate::domain::ValidatorSet,
+        block_hash: &Hash,
+        proof: &PoSProof,
+    ) -> ConsensusResult<()> {
         let signing_message = attestation_signing_message(block_hash, proof.slot, proof.epoch);
 
         for attestation in &proof.attestations {
@@ -319,19 +344,6 @@ where
                 ));
             }
         }
-
-        // Check attestation threshold (2/3)
-        let participation = proof.participation_count();
-        let required = validator_set.required_attestations(self.config.min_attestation_percent);
-
-        if participation < required {
-            let got_percent = (participation * 100 / validator_set.len()) as u8;
-            return Err(ConsensusError::InsufficientAttestations {
-                got: got_percent,
-                required: self.config.min_attestation_percent,
-            });
-        }
-
         Ok(())
     }
 
@@ -377,6 +389,87 @@ where
                 attestation.validator,
             ))
         }
+    }
+
+    /// Verify PBFT prepare signatures
+    fn verify_pbft_prepares(
+        &self,
+        validator_set: &crate::domain::ValidatorSet,
+        prepares: &[PrepareMessage],
+    ) -> ConsensusResult<()> {
+        for prepare in prepares {
+            if !validator_set.contains(&prepare.validator) {
+                return Err(ConsensusError::UnknownValidator(prepare.validator));
+            }
+
+            // Get validator's public key
+            let pubkey = validator_set
+                .get_pubkey(&prepare.validator)
+                .ok_or(ConsensusError::UnknownValidator(prepare.validator))?;
+
+            // Reconstruct the message that was signed
+            let prepare_msg =
+                prepare_signing_message(prepare.view, prepare.sequence, &prepare.block_hash);
+
+            // ZERO-TRUST: Verify ECDSA signature independently
+            // Convert 48-byte BLS pubkey to 33-byte compressed ECDSA for verification
+            let ecdsa_pubkey: [u8; 33] = {
+                let mut pk = [0u8; 33];
+                pk[0] = 0x02; // compressed prefix
+                pk[1..].copy_from_slice(&pubkey[..32]);
+                pk
+            };
+
+            if !self
+                .sig_verifier
+                .verify_ecdsa(&prepare_msg, &prepare.signature, &ecdsa_pubkey)
+            {
+                return Err(ConsensusError::SignatureVerificationFailed(
+                    prepare.validator,
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Verify PBFT commit signatures
+    fn verify_pbft_commits(
+        &self,
+        validator_set: &crate::domain::ValidatorSet,
+        commits: &[CommitMessage],
+    ) -> ConsensusResult<()> {
+        for commit in commits {
+            if !validator_set.contains(&commit.validator) {
+                return Err(ConsensusError::UnknownValidator(commit.validator));
+            }
+
+            // Get validator's public key
+            let pubkey = validator_set
+                .get_pubkey(&commit.validator)
+                .ok_or(ConsensusError::UnknownValidator(commit.validator))?;
+
+            // Reconstruct the message that was signed
+            let commit_msg =
+                commit_signing_message(commit.view, commit.sequence, &commit.block_hash);
+
+            // ZERO-TRUST: Verify ECDSA signature independently
+            let ecdsa_pubkey: [u8; 33] = {
+                let mut pk = [0u8; 33];
+                pk[0] = 0x02;
+                pk[1..].copy_from_slice(&pubkey[..32]);
+                pk
+            };
+
+            if !self
+                .sig_verifier
+                .verify_ecdsa(&commit_msg, &commit.signature, &ecdsa_pubkey)
+            {
+                return Err(ConsensusError::SignatureVerificationFailed(
+                    commit.validator,
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Validate PBFT proof with ZERO-TRUST signature re-verification
@@ -430,73 +523,11 @@ where
 
         // ZERO-TRUST: Verify prepare signatures
         // SECURITY: Each prepare message MUST be independently verified
-        for prepare in &proof.prepares {
-            if !validator_set.contains(&prepare.validator) {
-                return Err(ConsensusError::UnknownValidator(prepare.validator));
-            }
-
-            // Get validator's public key
-            let pubkey = validator_set
-                .get_pubkey(&prepare.validator)
-                .ok_or(ConsensusError::UnknownValidator(prepare.validator))?;
-
-            // Reconstruct the message that was signed
-            let prepare_msg =
-                prepare_signing_message(prepare.view, prepare.sequence, &prepare.block_hash);
-
-            // ZERO-TRUST: Verify ECDSA signature independently
-            // Convert 48-byte BLS pubkey to 33-byte compressed ECDSA for verification
-            // In production, validators would have separate ECDSA keys for PBFT
-            let ecdsa_pubkey: [u8; 33] = {
-                let mut pk = [0u8; 33];
-                pk[0] = 0x02; // compressed prefix
-                pk[1..].copy_from_slice(&pubkey[..32]);
-                pk
-            };
-
-            if !self
-                .sig_verifier
-                .verify_ecdsa(&prepare_msg, &prepare.signature, &ecdsa_pubkey)
-            {
-                return Err(ConsensusError::SignatureVerificationFailed(
-                    prepare.validator,
-                ));
-            }
-        }
+        self.verify_pbft_prepares(&validator_set, &proof.prepares)?;
 
         // ZERO-TRUST: Verify commit signatures
         // SECURITY: Each commit message MUST be independently verified
-        for commit in &proof.commits {
-            if !validator_set.contains(&commit.validator) {
-                return Err(ConsensusError::UnknownValidator(commit.validator));
-            }
-
-            // Get validator's public key
-            let pubkey = validator_set
-                .get_pubkey(&commit.validator)
-                .ok_or(ConsensusError::UnknownValidator(commit.validator))?;
-
-            // Reconstruct the message that was signed
-            let commit_msg =
-                commit_signing_message(commit.view, commit.sequence, &commit.block_hash);
-
-            // ZERO-TRUST: Verify ECDSA signature independently
-            let ecdsa_pubkey: [u8; 33] = {
-                let mut pk = [0u8; 33];
-                pk[0] = 0x02;
-                pk[1..].copy_from_slice(&pubkey[..32]);
-                pk
-            };
-
-            if !self
-                .sig_verifier
-                .verify_ecdsa(&commit_msg, &commit.signature, &ecdsa_pubkey)
-            {
-                return Err(ConsensusError::SignatureVerificationFailed(
-                    commit.validator,
-                ));
-            }
-        }
+        self.verify_pbft_commits(&validator_set, &proof.commits)?;
 
         Ok(())
     }

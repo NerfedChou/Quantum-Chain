@@ -105,6 +105,15 @@ where
     tx_index: HashMap<Hash, TransactionLocation>,
 }
 
+/// dependencies for BlockStorageService
+pub struct BlockStorageDependencies<KV, FS, CS, TS, BS> {
+    pub kv_store: KV,
+    pub fs_adapter: FS,
+    pub checksum: CS,
+    pub time_source: TS,
+    pub serializer: BS,
+}
+
 impl<KV, FS, CS, TS, BS> BlockStorageService<KV, FS, CS, TS, BS>
 where
     KV: KeyValueStore,
@@ -119,21 +128,17 @@ where
     /// 1. Load the block index from persistent storage
     /// 2. Load the transaction index (if `persist_transaction_index` is enabled)
     pub fn new(
-        kv_store: KV,
-        fs_adapter: FS,
-        checksum: CS,
-        time_source: TS,
-        serializer: BS,
+        deps: BlockStorageDependencies<KV, FS, CS, TS, BS>,
         config: StorageConfig,
     ) -> Self {
         let assembly_buffer = BlockAssemblyBuffer::new(config.assembly_config.clone());
 
         let mut service = Self {
-            kv_store,
-            fs_adapter,
-            checksum,
-            time_source,
-            serializer,
+            kv_store: deps.kv_store,
+            fs_adapter: deps.fs_adapter,
+            checksum: deps.checksum,
+            time_source: deps.time_source,
+            serializer: deps.serializer,
             config,
             assembly_buffer,
             block_index: BlockIndex::new(),
@@ -727,14 +732,14 @@ mod tests {
         SystemTimeSource,
         BincodeBlockSerializer,
     > {
-        BlockStorageService::new(
-            InMemoryKVStore::new(),
-            MockFileSystemAdapter::new(50),
-            DefaultChecksumProvider,
-            SystemTimeSource,
-            BincodeBlockSerializer,
-            StorageConfig::default(),
-        )
+        let deps = BlockStorageDependencies {
+            kv_store: InMemoryKVStore::new(),
+            fs_adapter: MockFileSystemAdapter::new(50),
+            checksum: DefaultChecksumProvider,
+            time_source: SystemTimeSource,
+            serializer: BincodeBlockSerializer,
+        };
+        BlockStorageService::new(deps, StorageConfig::default())
     }
 
     fn make_test_block(height: u64, parent_hash: Hash) -> ValidatedBlock {
@@ -775,14 +780,14 @@ mod tests {
 
     #[test]
     fn test_disk_full_invariant() {
-        let mut service = BlockStorageService::new(
-            InMemoryKVStore::new(),
-            MockFileSystemAdapter::new(4), // Below 5% threshold
-            DefaultChecksumProvider,
-            SystemTimeSource,
-            BincodeBlockSerializer,
-            StorageConfig::default(),
-        );
+        let deps = BlockStorageDependencies {
+            kv_store: InMemoryKVStore::new(),
+            fs_adapter: MockFileSystemAdapter::new(4), // Below 5% threshold
+            checksum: DefaultChecksumProvider,
+            time_source: SystemTimeSource,
+            serializer: BincodeBlockSerializer,
+        };
+        let mut service = BlockStorageService::new(deps, StorageConfig::default());
 
         let block = make_test_block(0, [0; 32]);
         let result = service.write_block(block, [0; 32], [0; 32]);
@@ -910,14 +915,14 @@ mod tests {
     #[test]
     fn test_write_succeeds_when_disk_at_5_percent() {
         // INVARIANT-2 boundary: exactly 5% passes threshold check
-        let mut service = BlockStorageService::new(
-            InMemoryKVStore::new(),
-            MockFileSystemAdapter::new(5),
-            DefaultChecksumProvider,
-            SystemTimeSource,
-            BincodeBlockSerializer,
-            StorageConfig::default(),
-        );
+        let deps = BlockStorageDependencies {
+            kv_store: InMemoryKVStore::new(),
+            fs_adapter: MockFileSystemAdapter::new(5),
+            checksum: DefaultChecksumProvider,
+            time_source: SystemTimeSource,
+            serializer: BincodeBlockSerializer,
+        };
+        let mut service = BlockStorageService::new(deps, StorageConfig::default());
 
         let block = make_test_block(0, [0; 32]);
         let result = service.write_block(block, [0; 32], [0; 32]);
@@ -1296,14 +1301,14 @@ mod tests {
         let config = StorageConfig::new().with_persist_transaction_index(true);
         let kv_store = InMemoryKVStore::new();
 
-        let mut service = BlockStorageService::new(
+        let deps = BlockStorageDependencies {
             kv_store,
-            MockFileSystemAdapter::new(50),
-            DefaultChecksumProvider,
-            SystemTimeSource,
-            BincodeBlockSerializer,
-            config,
-        );
+            fs_adapter: MockFileSystemAdapter::new(50),
+            checksum: DefaultChecksumProvider,
+            time_source: SystemTimeSource,
+            serializer: BincodeBlockSerializer,
+        };
+        let mut service = BlockStorageService::new(deps, config);
 
         // Create block with a transaction
         let mut block = make_test_block(0, [0; 32]);

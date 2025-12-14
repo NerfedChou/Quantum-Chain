@@ -5,7 +5,7 @@ use tracing::info;
 
 use qc_01_peer_discovery::{
     adapters::VerificationRequestPublisher,
-    domain::{BanReason, NodeId, PeerDiscoveryError, PeerInfo, RoutingTableStats},
+    domain::{BanDetails, NodeId, PeerDiscoveryError, PeerInfo, RoutingTableStats},
     ipc::VerifyNodeIdentityRequest,
     ports::PeerDiscoveryApi,
     service::PeerDiscoveryService,
@@ -36,12 +36,11 @@ impl PeerDiscoveryApi for SharedPeerDiscovery {
     fn ban_peer(
         &mut self,
         node_id: NodeId,
-        duration_seconds: u64,
-        reason: BanReason,
+        details: BanDetails,
     ) -> Result<(), PeerDiscoveryError> {
         self.inner
             .write()
-            .ban_peer(node_id, duration_seconds, reason)
+            .ban_peer(node_id, details)
     }
 
     fn is_banned(&self, node_id: NodeId) -> bool {

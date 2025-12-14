@@ -15,53 +15,99 @@
 // HANDSHAKE DATA
 // =============================================================================
 
-/// Chain information exchanged during handshake
+/// Static chain configuration (network, genesis, protocol)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HandshakeData {
+pub struct ChainInfo {
     /// Network identifier (mainnet=1, testnet=2, etc.)
     pub network_id: u32,
     /// Genesis block hash - MUST match for same network
     pub genesis_hash: [u8; 32],
-    /// Current head block number
-    pub head_height: u64,
-    /// Current head block hash
-    pub head_hash: [u8; 32],
-    /// Total accumulated difficulty (for PoW)
-    pub total_difficulty: u128,
     /// Protocol version
     pub protocol_version: u16,
 }
 
-impl HandshakeData {
-    /// Create new handshake data
-    pub fn new(
-        network_id: u32,
-        genesis_hash: [u8; 32],
-        head_height: u64,
-        head_hash: [u8; 32],
-        total_difficulty: u128,
-        protocol_version: u16,
-    ) -> Self {
+impl ChainInfo {
+    /// Create new chain info
+    pub fn new(network_id: u32, genesis_hash: [u8; 32], protocol_version: u16) -> Self {
         Self {
             network_id,
             genesis_hash,
-            head_height,
-            head_hash,
-            total_difficulty,
             protocol_version,
         }
+    }
+}
+
+/// Dynamic chain state (head block, difficulty)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeadState {
+    /// Current head block number
+    pub height: u64,
+    /// Current head block hash
+    pub hash: [u8; 32],
+    /// Total accumulated difficulty (for PoW)
+    pub total_difficulty: u128,
+}
+
+impl HeadState {
+    /// Create new head state
+    pub fn new(height: u64, hash: [u8; 32], total_difficulty: u128) -> Self {
+        Self {
+            height,
+            hash,
+            total_difficulty,
+        }
+    }
+}
+
+/// Chain information exchanged during handshake
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandshakeData {
+    /// Chain configuration
+    pub chain_info: ChainInfo,
+    /// Current chain state
+    pub head_state: HeadState,
+}
+
+impl HandshakeData {
+    /// Create new handshake data
+    pub fn new(chain_info: ChainInfo, head_state: HeadState) -> Self {
+        Self {
+            chain_info,
+            head_state,
+        }
+    }
+
+    /// Convenience accessor for network_id
+    pub fn network_id(&self) -> u32 {
+        self.chain_info.network_id
+    }
+
+    /// Convenience accessor for genesis_hash
+    pub fn genesis_hash(&self) -> [u8; 32] {
+        self.chain_info.genesis_hash
+    }
+
+    /// Convenience accessor for protocol_version
+    pub fn protocol_version(&self) -> u16 {
+        self.chain_info.protocol_version
+    }
+
+    /// Convenience accessor for head_height
+    pub fn head_height(&self) -> u64 {
+        self.head_state.height
+    }
+
+    /// Convenience accessor for total_difficulty
+    pub fn total_difficulty(&self) -> u128 {
+        self.head_state.total_difficulty
     }
 
     /// Create a minimal handshake for testing
     #[cfg(test)]
     pub fn for_testing(head_height: u64, total_difficulty: u128) -> Self {
         Self {
-            network_id: 1,
-            genesis_hash: [0u8; 32],
-            head_height,
-            head_hash: [0u8; 32],
-            total_difficulty,
-            protocol_version: 1,
+            chain_info: ChainInfo::new(1, [0u8; 32], 1),
+            head_state: HeadState::new(head_height, [0u8; 32], total_difficulty),
         }
     }
 }
@@ -166,11 +212,11 @@ pub fn verify_handshake(
     // Filter 1: Network Match (O(1))
     // -------------------------------------------------------------------------
 
-    if ours.genesis_hash != theirs.genesis_hash {
+    if ours.chain_info.genesis_hash != theirs.chain_info.genesis_hash {
         return HandshakeResult::Reject(RejectReason::WrongNetwork);
     }
 
-    if ours.network_id != theirs.network_id {
+    if ours.chain_info.network_id != theirs.chain_info.network_id {
         return HandshakeResult::Reject(RejectReason::NetworkIdMismatch);
     }
 
@@ -178,8 +224,8 @@ pub fn verify_handshake(
     // Filter 2: Protocol Version (O(1))
     // -------------------------------------------------------------------------
 
-    if theirs.protocol_version < config.min_protocol_version
-        || theirs.protocol_version > config.max_protocol_version
+    if theirs.chain_info.protocol_version < config.min_protocol_version
+        || theirs.chain_info.protocol_version > config.max_protocol_version
     {
         return HandshakeResult::Reject(RejectReason::ProtocolMismatch);
     }
@@ -189,7 +235,7 @@ pub fn verify_handshake(
     // -------------------------------------------------------------------------
 
     // If peer is behind our finalized height by too much, they're useless
-    if theirs.head_height + config.max_behind_blocks < config.finalized_height {
+    if theirs.head_state.height + config.max_behind_blocks < config.finalized_height {
         return HandshakeResult::Reject(RejectReason::TooFarBehind);
     }
 
@@ -197,10 +243,10 @@ pub fn verify_handshake(
     // Filter 4: Classification by Total Difficulty
     // -------------------------------------------------------------------------
 
-    let classification = if theirs.total_difficulty > ours.total_difficulty {
+    let classification = if theirs.head_state.total_difficulty > ours.head_state.total_difficulty {
         // Peer has more work done - potential sync source
         PeerClassification::SyncSource
-    } else if theirs.total_difficulty < ours.total_difficulty {
+    } else if theirs.head_state.total_difficulty < ours.head_state.total_difficulty {
         // Peer has less work - we can help them sync
         PeerClassification::SyncTarget
     } else {
@@ -326,14 +372,10 @@ mod tests {
         height: u64,
         difficulty: u128,
     ) -> HandshakeData {
-        HandshakeData {
-            network_id,
-            genesis_hash: genesis,
-            head_height: height,
-            head_hash: [0u8; 32],
-            total_difficulty: difficulty,
-            protocol_version: 1,
-        }
+        HandshakeData::new(
+            ChainInfo::new(network_id, genesis, 1),
+            HeadState::new(height, [0u8; 32], difficulty),
+        )
     }
 
     // =========================================================================
@@ -379,7 +421,7 @@ mod tests {
 
         let ours = make_handshake(genesis, 1, 100, 1000);
         let mut theirs = make_handshake(genesis, 1, 100, 1000);
-        theirs.protocol_version = 0; // Too old
+        theirs.chain_info.protocol_version = 0; // Too old
 
         let config = HandshakeConfig::default();
 

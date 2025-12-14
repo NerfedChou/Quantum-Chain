@@ -295,7 +295,7 @@ pub struct ApiQueryError {
 mod tests {
     use super::*;
     use crate::domain::{
-        BanReason, IpAddr, KademliaConfig, PeerDiscoveryError, RoutingTable, RoutingTableStats,
+        BanDetails, BanReason, IpAddr, KademliaConfig, PeerDiscoveryError, RoutingTable, RoutingTableStats,
         SocketAddr, Timestamp,
     };
 
@@ -352,11 +352,10 @@ mod tests {
         fn ban_peer(
             &mut self,
             node_id: NodeId,
-            duration_seconds: u64,
-            reason: BanReason,
+            details: BanDetails,
         ) -> Result<(), PeerDiscoveryError> {
             self.table
-                .ban_peer(node_id, duration_seconds, reason, Timestamp::new(1000))
+                .ban_peer(node_id, details, Timestamp::new(1000))
         }
 
         fn is_banned(&self, node_id: NodeId) -> bool {

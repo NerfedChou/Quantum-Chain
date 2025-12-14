@@ -287,6 +287,25 @@ impl BannedPeers {
 }
 
 // =============================================================================
+// BanDetails Implementation
+// =============================================================================
+
+/// Details for banning a peer.
+pub struct BanDetails {
+    pub duration_secs: u64,
+    pub reason: BanReason,
+}
+
+impl BanDetails {
+    pub fn new(duration_secs: u64, reason: BanReason) -> Self {
+        Self {
+            duration_secs,
+            reason,
+        }
+    }
+}
+
+// =============================================================================
 // RoutingTable Implementation
 // =============================================================================
 
@@ -599,12 +618,12 @@ impl RoutingTable {
         removed
     }
 
+
     /// Ban a peer
     pub fn ban_peer(
         &mut self,
         node_id: NodeId,
-        duration_secs: u64,
-        reason: BanReason,
+        details: BanDetails,
         now: Timestamp,
     ) -> Result<(), PeerDiscoveryError> {
         // Remove from routing table if present
@@ -617,8 +636,8 @@ impl RoutingTable {
         self.pending_verification.remove(&node_id);
 
         // Add to banned list
-        let until = now.add_secs(duration_secs);
-        self.banned_peers.ban(node_id, until, reason);
+        let until = now.add_secs(details.duration_secs);
+        self.banned_peers.ban(node_id, until, details.reason);
 
         Ok(())
     }
@@ -972,7 +991,7 @@ mod tests {
         let peer = make_peer(1, 8080);
 
         table
-            .ban_peer(peer.node_id, 60, BanReason::ManualBan, now)
+            .ban_peer(peer.node_id, BanDetails::new(60, BanReason::ManualBan), now)
             .unwrap();
 
         // INVARIANT-4: Banned peers excluded from routing table
@@ -993,7 +1012,7 @@ mod tests {
         let peer = make_peer(1, 8080);
 
         table
-            .ban_peer(peer.node_id, 60, BanReason::ManualBan, now)
+            .ban_peer(peer.node_id, BanDetails::new(60, BanReason::ManualBan), now)
             .unwrap();
 
         // Ban active at t=1000 and t=1059 (59 seconds elapsed)
@@ -1013,7 +1032,7 @@ mod tests {
         let peer = make_peer(1, 8080);
 
         table
-            .ban_peer(peer.node_id, 60, BanReason::ManualBan, now)
+            .ban_peer(peer.node_id, BanDetails::new(60, BanReason::ManualBan), now)
             .unwrap();
 
         let result = table.stage_peer(peer, now);

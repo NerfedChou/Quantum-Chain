@@ -436,6 +436,26 @@ impl NodeRuntime {
 
     /// Start the choreography event handlers.
     async fn start_choreography_handlers(&self) -> Result<()> {
+        // Calculate chain height once for all consumers
+        let chain_height = {
+            let storage = self.container.block_storage.read();
+            storage.get_latest_height().unwrap_or(0)
+        };
+
+        if chain_height > 0 {
+             info!("[Main] 💾 Chain height loaded: {}", chain_height);
+        }
+
+        self.start_core_handlers().await?;
+        self.start_block_production(chain_height).await?;
+        self.start_consensus_and_bridge(chain_height).await?;
+
+        info!("Choreography handlers started");
+        Ok(())
+    }
+
+    /// Start the core handlers (Storage, Indexing, State, Finality, SigVerify).
+    async fn start_core_handlers(&self) -> Result<()> {
         let router = self.choreography.router();
         let container = Arc::clone(&self.container);
 
@@ -531,8 +551,7 @@ impl NodeRuntime {
             info!("[qc-12] Transaction Ordering handler started");
         }
 
-        // Start Signature Verification handler (qc-10) - CRITICAL for peer discovery and secure IPC
-        // Handles VerifyNodeIdentity events from qc-01, verifying signatures and responding
+        // Start Signature Verification handler (qc-10)
         let mempool_gateway = RuntimeMempoolGateway::new(Arc::clone(&container.event_bus));
         let sv_service =
             qc_10_signature_verification::SignatureVerificationService::new(mempool_gateway);
@@ -563,7 +582,12 @@ impl NodeRuntime {
             }
         });
 
-        // Start Block Production Miner (qc-17) - auto-start on node initialization
+        Ok(())
+    }
+
+    /// Start the block production miner (qc-17).
+    async fn start_block_production(&self, chain_height: u64) -> Result<()> {
+        let container = Arc::clone(&self.container);
         info!("Starting Block Production Miner (qc-17)...");
 
         // Create miner configuration (PoW mode by default)
@@ -592,26 +616,9 @@ impl NodeRuntime {
             miner_config,
         ));
 
-        // Get current chain height from storage to resume from
-        let chain_height = {
-            let storage = container.block_storage.read();
-            storage.get_latest_height().unwrap_or(0)
-        };
-
-        if chain_height > 0 {
-            info!(
-                "[qc-17] 💾 Chain height loaded from storage: {}",
-                chain_height
-            );
-        }
-
-        // Load recent block history for difficulty adjustment when resuming
-        // We need timestamps from recent blocks to calculate proper difficulty
-        // Load recent blocks for difficulty adjustment - CRITICAL for chain continuity
-        // We track the last known good difficulty to handle old blocks without difficulty
+        // Load recent block history for difficulty adjustment
         let recent_blocks: Vec<qc_17_block_production::HistoricalBlockInfo> = {
             let storage = container.block_storage.read();
-            // Use domain calculator instead of inline magic numbers
             let diff_calc = DifficultyWindowCalculator::new(DifficultyWindowConfig::default());
             let window_size = diff_calc.calculate_window_size(chain_height);
             let mut last_known_difficulty =
@@ -624,7 +631,6 @@ impl NodeRuntime {
                 })
                 .collect();
 
-            // Reverse to get newest-first order (required by DGW algorithm)
             blocks.reverse();
 
             if let Some(first) = blocks.first() {
@@ -639,16 +645,14 @@ impl NodeRuntime {
             blocks
         };
 
-        // Extract last known difficulty from loaded blocks for production config
-        let last_known_difficulty =
-            recent_blocks
-                .first()
-                .map(|b| b.difficulty)
-                .unwrap_or_else(|| {
-                    primitive_types::U256::from(2).pow(primitive_types::U256::from(252))
-                });
+        let last_known_difficulty = recent_blocks
+            .first()
+            .map(|b| b.difficulty)
+            .unwrap_or_else(|| {
+                primitive_types::U256::from(2).pow(primitive_types::U256::from(252))
+            });
 
-        // Start production in PoW mode with the correct starting height
+        // Start production in PoW mode
         let miner_clone = Arc::clone(&miner_service);
         let production_config = qc_17_block_production::ProductionConfig {
             starting_height: chain_height,
@@ -681,17 +685,18 @@ impl NodeRuntime {
         });
 
         info!("  [17] Block Production Miner started (PoW auto-mining enabled)");
+        Ok(())
+    }
 
-        // V2.4 CHOREOGRAPHY: Subscribe to BlockProduced events from shared-bus
-        // The bridge republishes to internal EventRouter, then ConsensusHandler processes.
-        // This is the proper EDA pattern per Architecture.md Section 2.3.
+    /// Start consensus handler and event bridge.
+    async fn start_consensus_and_bridge(&self, chain_height: u64) -> Result<()> {
         let choreography_router = self.choreography.router();
+        let container = Arc::clone(&self.container);
 
-        // Start Consensus handler (qc-08) - validates blocks and publishes BlockValidated
+        // Start Consensus handler (qc-08)
         let consensus_adapter = Arc::new(crate::adapters::ConsensusAdapter::new(Arc::clone(
             &choreography_router,
         )));
-        // Set initial chain height for validation (event-sourced thereafter)
         consensus_adapter.set_initial_chain_height(chain_height);
 
         let consensus_handler = crate::handlers::ConsensusHandler::new(
@@ -724,8 +729,6 @@ impl NodeRuntime {
         ));
 
         info!("  [Bridge] Choreography subscription started (EDA - no polling)");
-
-        info!("Choreography handlers started");
         Ok(())
     }
 

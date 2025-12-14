@@ -613,14 +613,14 @@ mod tests {
         SystemTimeSource,
         BincodeBlockSerializer,
     > {
-        let service = BlockStorageService::new(
-            InMemoryKVStore::new(),
-            MockFileSystemAdapter::new(50),
-            DefaultChecksumProvider,
-            SystemTimeSource,
-            BincodeBlockSerializer,
-            StorageConfig::default(),
-        );
+        let deps = crate::service::BlockStorageDependencies {
+            kv_store: InMemoryKVStore::new(),
+            fs_adapter: MockFileSystemAdapter::new(50),
+            checksum: DefaultChecksumProvider,
+            time_source: SystemTimeSource,
+            serializer: BincodeBlockSerializer,
+        };
+        let service = BlockStorageService::new(deps, StorageConfig::default());
         BlockStorageHandler::new(service, [0u8; 32])
     }
 
