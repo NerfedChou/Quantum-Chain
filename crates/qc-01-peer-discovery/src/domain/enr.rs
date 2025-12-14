@@ -682,8 +682,10 @@ mod tests {
 
     #[test]
     fn test_cache_gc_stale() {
-        let mut config = EnrConfig::default();
-        config.max_record_age_secs = 100;
+        let config = EnrConfig {
+            max_record_age_secs: 100,
+            ..Default::default()
+        };
         let mut cache = EnrCache::new(config);
 
         // Insert at time 0
