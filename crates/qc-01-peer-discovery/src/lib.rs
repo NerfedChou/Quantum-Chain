@@ -53,7 +53,6 @@
 //! ```
 
 #![warn(missing_docs)]
-#![allow(missing_docs)] // TODO: Add documentation for all public items
 
 // =============================================================================
 // CORE MODULES (Zero Dependencies)
@@ -149,8 +148,8 @@ pub use domain::{
 
 // Port traits
 pub use ports::{
-    ConfigProvider, NetworkError, NetworkSocket, NodeIdValidator, PeerDiscoveryApi, TimeSource,
-    VerificationHandler,
+    ConfigProvider, NetworkError, NetworkSocket, NodeIdValidator, PeerDiscoveryApi, RateLimiter,
+    RandomSource, SecureHasher, TimeSource, VerificationHandler,
 };
 
 // Service
@@ -180,7 +179,8 @@ pub use ipc::{
     feature = "network"
 ))]
 pub use adapters::{
-    NoOpNetworkSocket, NoOpNodeIdValidator, ProofOfWorkValidator, StaticConfigProvider,
+    FixedRandomSource, NoOpNetworkSocket, NoOpNodeIdValidator, NoOpRateLimiter, OsRandomSource,
+    ProofOfWorkValidator, SimpleHasher, SipHasher, SlidingWindowRateLimiter, StaticConfigProvider,
     SystemTimeSource,
 };
 

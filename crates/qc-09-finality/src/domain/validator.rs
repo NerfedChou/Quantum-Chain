@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Bytes};
 use std::collections::HashMap;
 
-/// BLS public key for signature verification (96 bytes for BLS12-381 G2)
-pub type BlsPublicKey = [u8; 96];
+/// BLS public key for signature verification (48 bytes for BLS12-381 G1 compressed)
+pub type BlsPublicKey = [u8; 48];
 
 /// Validator identifier (derived from public key, 32 bytes)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -46,7 +46,7 @@ pub struct Validator {
 impl Validator {
     pub fn new(id: ValidatorId, stake: u128, index: usize) -> Self {
         // Default pubkey derived from ID (for backward compatibility)
-        let mut pubkey = [0u8; 96];
+        let mut pubkey = [0u8; 48];
         pubkey[..32].copy_from_slice(&id.0);
         Self {
             id,
@@ -227,7 +227,7 @@ mod tests {
     fn test_validator_with_pubkey() {
         let mut set = ValidatorSet::new(1);
         let id = test_validator_id(1);
-        let pubkey = [42u8; 96];
+        let pubkey = [42u8; 48];
 
         set.add_validator_with_pubkey(id, 100, pubkey);
 

@@ -10,6 +10,7 @@
 //! | `hashing` | BLAKE3 | Fast hashing |
 //! | `signatures` | Ed25519 | Digital signatures (future P2P) |
 //! | `ecdsa` | secp256k1 | Transaction/Node identity signing |
+//! | `bls` | BLS12-381 | Attestation signatures (qc-09-finality) |
 //!
 //! ## Security Properties
 //!
@@ -21,6 +22,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
+pub mod bls;
 pub mod ecdsa;
 pub mod errors;
 pub mod hashing;
@@ -28,6 +30,7 @@ pub mod signatures;
 pub mod symmetric;
 
 // Re-exports
+pub use bls::{BlsKeyPair, BlsPublicKey, BlsSignature};
 pub use ecdsa::{Secp256k1KeyPair, Secp256k1PublicKey, Secp256k1Signature};
 pub use errors::CryptoError;
 pub use hashing::{blake3_hash, Blake3Hasher};

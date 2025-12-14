@@ -54,4 +54,12 @@ pub enum CryptoError {
     /// Key generation failed
     #[error("Key generation failed: {0}")]
     KeyGenerationFailed(String),
+
+    /// BLS aggregation failed
+    #[error("BLS aggregation failed")]
+    AggregationFailed,
+
+    /// Invalid input for cryptographic operation
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
 }

@@ -3,12 +3,11 @@
 //! Implements `ValidatorSetProvider` port using State Management (qc-04).
 //! Reference: SPEC-09-FINALITY.md Section 3.2, IPC-MATRIX.md
 
-use crate::domain::{Validator, ValidatorId, ValidatorSet};
+use crate::domain::{ValidatorId, ValidatorSet};
 use crate::error::{FinalityError, FinalityResult};
 use crate::ports::outbound::ValidatorSetProvider;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tracing::{debug, info};
 
 /// Adapter that queries State Management (qc-04) for validator stake information.
@@ -68,31 +67,13 @@ impl ValidatorSetProvider for StateManagementValidatorProvider {
         );
 
         // TODO: Query qc-04 via event bus
-        // For now, return a minimal test set
-        let validator_set = ValidatorSet {
-            epoch,
-            validators: vec![
-                Validator {
-                    id: [1u8; 32],
-                    pubkey: [1u8; 48],
-                    stake: self.default_stake,
-                    active: true,
-                },
-                Validator {
-                    id: [2u8; 32],
-                    pubkey: [2u8; 48],
-                    stake: self.default_stake,
-                    active: true,
-                },
-                Validator {
-                    id: [3u8; 32],
-                    pubkey: [3u8; 48],
-                    stake: self.default_stake,
-                    active: true,
-                },
-            ],
-            total_stake: self.default_stake * 3,
-        };
+        // For now, return a minimal test set using the proper constructor methods
+        let mut validator_set = ValidatorSet::new(epoch);
+
+        // Add test validators using the proper API
+        validator_set.add_validator(ValidatorId([1u8; 32]), self.default_stake);
+        validator_set.add_validator(ValidatorId([2u8; 32]), self.default_stake);
+        validator_set.add_validator(ValidatorId([3u8; 32]), self.default_stake);
 
         // Cache the result
         self.cache.write().insert(epoch, validator_set.clone());
@@ -107,20 +88,17 @@ impl ValidatorSetProvider for StateManagementValidatorProvider {
     ) -> FinalityResult<u128> {
         let validator_set = self.get_validator_set_at_epoch(epoch).await?;
 
-        let validator = validator_set
-            .validators
-            .iter()
-            .find(|v| &v.id == validator_id);
-
-        match validator {
-            Some(v) => Ok(v.stake),
-            None => Err(FinalityError::UnknownValidator(*validator_id)),
+        match validator_set.get_stake(validator_id) {
+            Some(stake) => Ok(stake),
+            None => Err(FinalityError::UnknownValidator {
+                validator_id: validator_id.0,
+            }),
         }
     }
 
     async fn get_total_active_stake(&self, epoch: u64) -> FinalityResult<u128> {
         let validator_set = self.get_validator_set_at_epoch(epoch).await?;
-        Ok(validator_set.total_stake)
+        Ok(validator_set.total_stake())
     }
 }
 
@@ -133,14 +111,17 @@ mod tests {
         let provider = StateManagementValidatorProvider::new();
         let set = provider.get_validator_set_at_epoch(1).await.unwrap();
 
-        assert_eq!(set.epoch, 1);
-        assert_eq!(set.validators.len(), 3);
+        assert_eq!(set.epoch(), 1);
+        assert_eq!(set.len(), 3);
     }
 
     #[tokio::test]
     async fn test_get_validator_stake() {
         let provider = StateManagementValidatorProvider::new();
-        let stake = provider.get_validator_stake(&[1u8; 32], 1).await.unwrap();
+        let stake = provider
+            .get_validator_stake(&ValidatorId([1u8; 32]), 1)
+            .await
+            .unwrap();
 
         assert_eq!(stake, 32_000_000_000);
     }
@@ -148,28 +129,22 @@ mod tests {
     #[tokio::test]
     async fn test_unknown_validator_error() {
         let provider = StateManagementValidatorProvider::new();
-        let result = provider.get_validator_stake(&[99u8; 32], 1).await;
+        let result = provider
+            .get_validator_stake(&ValidatorId([99u8; 32]), 1)
+            .await;
 
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_cache_hit() {
-        let custom_set = ValidatorSet {
-            epoch: 5,
-            validators: vec![Validator {
-                id: [10u8; 32],
-                pubkey: [10u8; 48],
-                stake: 1000,
-                active: true,
-            }],
-            total_stake: 1000,
-        };
+        let mut custom_set = ValidatorSet::new(5);
+        custom_set.add_validator(ValidatorId([10u8; 32]), 1000);
 
         let provider = StateManagementValidatorProvider::with_cached_set(5, custom_set);
         let set = provider.get_validator_set_at_epoch(5).await.unwrap();
 
-        assert_eq!(set.validators.len(), 1);
-        assert_eq!(set.validators[0].stake, 1000);
+        assert_eq!(set.len(), 1);
+        assert_eq!(set.get_stake(&ValidatorId([10u8; 32])), Some(1000));
     }
 }

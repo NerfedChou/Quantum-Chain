@@ -240,10 +240,15 @@ mod udp_socket {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[repr(u8)]
     pub enum MessageType {
+        /// PING request to check if peer is alive.
         Ping = 0x01,
+        /// PONG response to a PING.
         Pong = 0x02,
+        /// Request to find nodes close to a target ID.
         FindNode = 0x03,
+        /// Response containing list of nodes.
         Nodes = 0x04,
+        /// Bootstrap request with identity proof.
         Bootstrap = 0x05,
     }
 
@@ -584,7 +589,12 @@ mod toml_config {
     #[derive(Debug, Clone)]
     pub enum ConfigError {
         /// File I/O error.
-        Io { path: String, error: String },
+        Io {
+            /// Path of the file that failed to load.
+            path: String,
+            /// Error message from the I/O operation.
+            error: String,
+        },
         /// TOML parsing error.
         Parse(String),
     }

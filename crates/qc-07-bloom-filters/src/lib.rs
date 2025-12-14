@@ -105,6 +105,7 @@ pub mod ports;
 pub mod service;
 
 // Re-exports for convenience
+pub use domain::cuckoo::CuckooFilter; // Layer compliance: exposed via lib.rs
 pub use domain::{BlockFilter, BloomConfig, BloomConfigBuilder, BloomFilter};
 pub use error::{DataError, FilterError};
 pub use handler::BloomFilterHandler;

@@ -1,6 +1,6 @@
 use crate::adapters::EventBusAdapter;
 use crate::wiring::EventRouter;
-use qc_10_signature_verification::domain::entities::VerifiedTransaction;
+use qc_10_signature_verification::VerifiedTransaction; // Layer compliant
 use qc_10_signature_verification::ports::outbound::{MempoolError, MempoolGateway};
 use sha3::{Digest, Keccak256};
 use shared_bus::{events::BlockchainEvent, EventPublisher, InMemoryEventBus};

@@ -41,6 +41,7 @@ pub struct VerificationProof {
 }
 
 impl VerificationProof {
+    /// Create a new verification proof from public key and signature.
     pub fn new(claimed_pubkey: [u8; 33], signature: [u8; 64]) -> Self {
         Self {
             claimed_pubkey,
@@ -119,6 +120,7 @@ pub struct SubnetMask {
 }
 
 impl SubnetMask {
+    /// Create a new subnet mask with the given prefix length.
     pub fn new(prefix_length: u8) -> Self {
         Self { prefix_length }
     }

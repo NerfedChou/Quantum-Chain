@@ -65,7 +65,7 @@ pub mod service;
 // Re-export domain types
 pub use domain::assembler::{AssemblyConfig, BlockAssemblyBuffer, PendingBlockAssembly};
 pub use domain::entities::{BlockIndex, BlockIndexEntry, StoredBlock};
-pub use domain::errors::StorageError;
+pub use domain::errors::{FSError, KVStoreError, StorageError}; // Layer compliance: errors exposed via lib.rs
 pub use domain::value_objects::{KeyPrefix, StorageConfig, TransactionLocation};
 
 // Re-export port traits

@@ -111,11 +111,14 @@ pub struct BannedPeers {
     entries: HashMap<NodeId, BannedEntry>,
 }
 
-/// Individual ban entry
+/// Individual ban entry.
 #[derive(Debug, Clone)]
 pub struct BannedEntry {
+    /// The banned node's ID.
     pub node_id: NodeId,
+    /// When the ban expires.
     pub banned_until: Timestamp,
+    /// Reason for the ban.
     pub reason: BanReason,
 }
 
@@ -191,12 +194,12 @@ impl KBucket {
     }
 
     /// Remove a peer by NodeId
+    /// Remove a peer by NodeId using optimized position-map pattern.
     fn remove_peer(&mut self, node_id: &NodeId) -> Option<PeerInfo> {
-        if let Some(pos) = self.peers.iter().position(|p| &p.node_id == node_id) {
-            Some(self.peers.remove(pos))
-        } else {
-            None
-        }
+        self.peers
+            .iter()
+            .position(|p| &p.node_id == node_id)
+            .map(|pos| self.peers.remove(pos))
     }
 
     /// Move a peer to the front (most recently seen)
@@ -240,6 +243,7 @@ impl Default for KBucket {
 // =============================================================================
 
 impl BannedPeers {
+    /// Create a new empty banned peers tracker.
     pub fn new() -> Self {
         Self {
             entries: HashMap::new(),
@@ -258,13 +262,12 @@ impl BannedPeers {
         );
     }
 
-    /// Check if a peer is currently banned
+    /// Check if a peer is currently banned.
+    /// Optimized: uses map_or for cleaner conditional logic.
     pub fn is_banned(&self, node_id: &NodeId, now: Timestamp) -> bool {
-        if let Some(entry) = self.entries.get(node_id) {
-            entry.banned_until > now
-        } else {
-            false
-        }
+        self.entries
+            .get(node_id)
+            .is_some_and(|entry| entry.banned_until > now)
     }
 
     /// Remove expired bans
@@ -652,11 +655,10 @@ impl RoutingTable {
             .get_mut(bucket_idx)
             .ok_or(PeerDiscoveryError::InvalidNodeId)?;
 
-        if bucket.remove_peer(node_id).is_some() {
-            Ok(())
-        } else {
-            Err(PeerDiscoveryError::PeerNotFound)
-        }
+        bucket
+            .remove_peer(node_id)
+            .map(|_| ())
+            .ok_or(PeerDiscoveryError::PeerNotFound)
     }
 
     /// Find the k closest peers to a target

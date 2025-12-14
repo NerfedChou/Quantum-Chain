@@ -71,3 +71,33 @@ pub mod bootstrap_handler;
 
 #[cfg(feature = "bootstrap")]
 pub use bootstrap_handler::*;
+
+// =============================================================================
+// SECURITY ADAPTERS (V2.5 - Always Available)
+// =============================================================================
+
+/// Security adapters: RandomSource, SecureHasher, RateLimiter implementations.
+///
+/// Provides both mock (for testing) and production implementations.
+pub mod security;
+
+pub use security::{
+    FixedRandomSource, NoOpRateLimiter, OsRandomSource, SimpleHasher, SipHasher,
+    SlidingWindowRateLimiter,
+};
+
+// =============================================================================
+// FEELER NETWORK ADAPTER (Requires `network` feature)
+// =============================================================================
+
+/// Feeler network adapter for probing addresses.
+///
+/// Connects the pure domain `FeelerState` to actual network I/O.
+#[cfg(feature = "network")]
+pub mod feeler;
+
+#[cfg(feature = "network")]
+pub use feeler::{FeelerCoordinator, FeelerError, FeelerPort, MockFeelerPort};
+
+#[cfg(feature = "quic")]
+pub use feeler::QuicFeelerPort;

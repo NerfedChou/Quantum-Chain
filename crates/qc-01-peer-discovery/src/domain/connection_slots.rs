@@ -352,12 +352,16 @@ pub enum AcceptResult {
     Evicted(NodeId),
 }
 
-/// Connection statistics
+/// Connection statistics.
 #[derive(Debug, Clone, Default)]
 pub struct ConnectionStats {
+    /// Current number of outbound connections.
     pub outbound_count: usize,
+    /// Current number of inbound connections.
     pub inbound_count: usize,
+    /// Maximum outbound connections allowed.
     pub max_outbound: usize,
+    /// Maximum inbound connections allowed.
     pub max_inbound: usize,
 }
 
