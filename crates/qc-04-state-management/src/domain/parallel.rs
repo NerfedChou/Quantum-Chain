@@ -113,8 +113,9 @@ mod tests {
 
     #[test]
     fn test_parallel_threshold() {
-        assert!(PARALLEL_THRESHOLD >= 2);
-        assert!(PARALLEL_THRESHOLD <= 16);
+        // Compile-time assertions for threshold bounds
+        const _: () = assert!(PARALLEL_THRESHOLD >= 2);
+        const _: () = assert!(PARALLEL_THRESHOLD <= 16);
     }
 
     #[test]
