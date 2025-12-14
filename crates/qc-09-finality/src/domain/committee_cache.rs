@@ -181,8 +181,8 @@ mod tests {
 
         // 80 present, 20 absent
         let mut participation = vec![true; 100];
-        for i in 80..100 {
-            participation[i] = false;
+        for item in participation.iter_mut().take(100).skip(80) {
+            *item = false;
         }
 
         let analysis = cache.analyze_participation(&participation);

@@ -1145,9 +1145,9 @@ mod tests {
     fn test_parallel_threshold_constant() {
         use super::super::value_objects::PARALLEL_THRESHOLD;
 
-        // Threshold should be reasonable (not too small to waste threads)
-        assert!(PARALLEL_THRESHOLD >= 256);
-        assert!(PARALLEL_THRESHOLD <= 4096);
+        // Compile-time assertions for threshold bounds
+        const _: () = assert!(PARALLEL_THRESHOLD >= 256);
+        const _: () = assert!(PARALLEL_THRESHOLD <= 4096);
     }
 
     // ========== Test Group 9: Multi-Proof (Batched) ==========

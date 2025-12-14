@@ -65,7 +65,7 @@ use qc_06_mempool::{MempoolConfig, TransactionPool};
 fn block_hash_from_height(height: u64) -> Hash {
     let mut hasher = Keccak256::new();
     hasher.update(b"test_block_");
-    hasher.update(&height.to_le_bytes());
+    hasher.update(height.to_le_bytes());
     let result = hasher.finalize();
     let mut hash = [0u8; 32];
     hash.copy_from_slice(&result);
@@ -79,8 +79,8 @@ fn create_tx_hashes(count: usize, block_height: u64) -> Vec<Hash> {
         .map(|i| {
             let mut hasher = Keccak256::new();
             hasher.update(b"tx_");
-            hasher.update(&block_height.to_le_bytes());
-            hasher.update(&(i as u64).to_le_bytes());
+            hasher.update(block_height.to_le_bytes());
+            hasher.update((i as u64).to_le_bytes());
             let result = hasher.finalize();
             let mut hash = [0u8; 32];
             hash.copy_from_slice(&result);
