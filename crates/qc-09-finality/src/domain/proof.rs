@@ -90,6 +90,27 @@ impl FinalityProof {
     }
 }
 
+impl Default for FinalityProof {
+    fn default() -> Self {
+        Self {
+            source_checkpoint: ProofCheckpoint {
+                epoch: 0,
+                block_hash: [0u8; 32],
+                block_height: 0,
+            },
+            target_checkpoint: ProofCheckpoint {
+                epoch: 0,
+                block_hash: [0u8; 32],
+                block_height: 0,
+            },
+            aggregate_signature: BlsSignature::default(),
+            participation_bitmap: vec![],
+            participating_stake: 0,
+            total_stake: 0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

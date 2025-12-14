@@ -146,6 +146,8 @@ pub enum BlockchainEvent {
         block_height: u64,
         /// The finalized block hash.
         block_hash: Hash,
+        /// The epoch in which finality was reached.
+        finalized_epoch: u64,
     },
 
     // =========================================================================

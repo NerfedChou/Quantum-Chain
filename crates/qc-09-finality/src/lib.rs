@@ -106,6 +106,7 @@
 #![warn(missing_docs)]
 #![allow(missing_docs)] // TODO: Add documentation for all public items
 
+pub mod adapters;
 pub mod domain;
 pub mod error;
 pub mod events;
@@ -130,3 +131,6 @@ pub use ports::outbound::{
     AttestationVerifier, BlockStorageGateway, MarkFinalizedRequest, ValidatorSetProvider,
 };
 pub use service::{FinalityConfig, FinalityService};
+
+// Adapter exports
+pub use adapters::BLSAttestationVerifier;

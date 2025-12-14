@@ -10,8 +10,9 @@
 
 use crate::domain::{
     attestation_signing_message, commit_signing_message, prepare_signing_message, Block,
-    BlockHeader, ChainHead, ChainState, ConsensusAlgorithm, ConsensusConfig, ConsensusError,
-    ConsensusResult, PBFTProof, PoSProof, ValidatedBlock, ValidationProof,
+    BlockHeader, ChainHead, ChainState, CommitMessage, ConsensusAlgorithm, ConsensusConfig,
+    ConsensusError, ConsensusResult, PBFTProof, PoSProof, PrepareMessage, ValidatedBlock,
+    ValidationProof,
 };
 use crate::ports::{
     ConsensusApi, EventBus, MempoolGateway, SignatureVerifier, SystemTimeSource, TimeSource,
@@ -167,18 +168,24 @@ where
     ///
     /// INVARIANT-4: Block height must be parent height + 1
     fn validate_height(&self, header: &BlockHeader) -> ConsensusResult<()> {
-        let chain = self.chain_state.read();
-
         if header.is_genesis() {
-            if header.block_height != 0 {
-                return Err(ConsensusError::InvalidHeight {
-                    expected: 0,
-                    actual: header.block_height,
-                });
-            }
-            return Ok(());
+            return self.validate_genesis_height(header);
         }
+        self.validate_chain_height(header)
+    }
 
+    fn validate_genesis_height(&self, header: &BlockHeader) -> ConsensusResult<()> {
+        if header.block_height != 0 {
+            return Err(ConsensusError::InvalidHeight {
+                expected: 0,
+                actual: header.block_height,
+            });
+        }
+        Ok(())
+    }
+
+    fn validate_chain_height(&self, header: &BlockHeader) -> ConsensusResult<()> {
+        let chain = self.chain_state.read();
         if let Some(parent) = chain.get_block(&header.parent_hash) {
             let expected = parent.block_height + 1;
             if header.block_height != expected {
@@ -188,7 +195,6 @@ where
                 });
             }
         }
-
         Ok(())
     }
 
@@ -301,6 +307,30 @@ where
         }
 
         // ZERO-TRUST: Re-verify each attestation signature independently
+        self.verify_attestations(&validator_set, block_hash, proof)?;
+
+        // Check attestation threshold (2/3)
+        let participation = proof.participation_count();
+        let required = validator_set.required_attestations(self.config.min_attestation_percent);
+
+        if participation < required {
+            let got_percent = (participation * 100 / validator_set.len()) as u8;
+            return Err(ConsensusError::InsufficientAttestations {
+                got: got_percent,
+                required: self.config.min_attestation_percent,
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Verify attestations for PoS proof
+    fn verify_attestations(
+        &self,
+        validator_set: &crate::domain::ValidatorSet,
+        block_hash: &Hash,
+        proof: &PoSProof,
+    ) -> ConsensusResult<()> {
         let signing_message = attestation_signing_message(block_hash, proof.slot, proof.epoch);
 
         for attestation in &proof.attestations {
@@ -319,19 +349,6 @@ where
                 ));
             }
         }
-
-        // Check attestation threshold (2/3)
-        let participation = proof.participation_count();
-        let required = validator_set.required_attestations(self.config.min_attestation_percent);
-
-        if participation < required {
-            let got_percent = (participation * 100 / validator_set.len()) as u8;
-            return Err(ConsensusError::InsufficientAttestations {
-                got: got_percent,
-                required: self.config.min_attestation_percent,
-            });
-        }
-
         Ok(())
     }
 
@@ -377,6 +394,71 @@ where
                 attestation.validator,
             ))
         }
+    }
+
+    /// Generic helper to verify PBFT signatures (Deduplication)
+    fn verify_pbft_signatures<T, F>(
+        &self,
+        validator_set: &crate::domain::ValidatorSet,
+        items: &[T],
+        msg_extractor: F,
+    ) -> ConsensusResult<()>
+    where
+        F: Fn(&T) -> (crate::domain::ValidatorId, Vec<u8>, &[u8; 65]),
+    {
+        for item in items {
+            let (validator, msg, signature) = msg_extractor(item);
+
+            if !validator_set.contains(&validator) {
+                return Err(ConsensusError::UnknownValidator(validator));
+            }
+
+            // Get validator's public key
+            let pubkey = validator_set
+                .get_pubkey(&validator)
+                .ok_or(ConsensusError::UnknownValidator(validator))?;
+
+            // ZERO-TRUST: Verify ECDSA signature independently
+            // Convert 48-byte BLS pubkey to 33-byte compressed ECDSA for verification
+            let ecdsa_pubkey: [u8; 33] = {
+                let mut pk = [0u8; 33];
+                pk[0] = 0x02; // compressed prefix
+                pk[1..].copy_from_slice(&pubkey[..32]);
+                pk
+            };
+
+            if !self
+                .sig_verifier
+                .verify_ecdsa(&msg, signature, &ecdsa_pubkey)
+            {
+                return Err(ConsensusError::SignatureVerificationFailed(validator));
+            }
+        }
+        Ok(())
+    }
+
+    /// Verify PBFT prepare signatures
+    fn verify_pbft_prepares(
+        &self,
+        validator_set: &crate::domain::ValidatorSet,
+        prepares: &[PrepareMessage],
+    ) -> ConsensusResult<()> {
+        self.verify_pbft_signatures(validator_set, prepares, |prepare| {
+            let msg = prepare_signing_message(prepare.view, prepare.sequence, &prepare.block_hash);
+            (prepare.validator, msg, &prepare.signature)
+        })
+    }
+
+    /// Verify PBFT commit signatures
+    fn verify_pbft_commits(
+        &self,
+        validator_set: &crate::domain::ValidatorSet,
+        commits: &[CommitMessage],
+    ) -> ConsensusResult<()> {
+        self.verify_pbft_signatures(validator_set, commits, |commit| {
+            let msg = commit_signing_message(commit.view, commit.sequence, &commit.block_hash);
+            (commit.validator, msg, &commit.signature)
+        })
     }
 
     /// Validate PBFT proof with ZERO-TRUST signature re-verification
@@ -430,75 +512,50 @@ where
 
         // ZERO-TRUST: Verify prepare signatures
         // SECURITY: Each prepare message MUST be independently verified
-        for prepare in &proof.prepares {
-            if !validator_set.contains(&prepare.validator) {
-                return Err(ConsensusError::UnknownValidator(prepare.validator));
-            }
-
-            // Get validator's public key
-            let pubkey = validator_set
-                .get_pubkey(&prepare.validator)
-                .ok_or(ConsensusError::UnknownValidator(prepare.validator))?;
-
-            // Reconstruct the message that was signed
-            let prepare_msg =
-                prepare_signing_message(prepare.view, prepare.sequence, &prepare.block_hash);
-
-            // ZERO-TRUST: Verify ECDSA signature independently
-            // Convert 48-byte BLS pubkey to 33-byte compressed ECDSA for verification
-            // In production, validators would have separate ECDSA keys for PBFT
-            let ecdsa_pubkey: [u8; 33] = {
-                let mut pk = [0u8; 33];
-                pk[0] = 0x02; // compressed prefix
-                pk[1..].copy_from_slice(&pubkey[..32]);
-                pk
-            };
-
-            if !self
-                .sig_verifier
-                .verify_ecdsa(&prepare_msg, &prepare.signature, &ecdsa_pubkey)
-            {
-                return Err(ConsensusError::SignatureVerificationFailed(
-                    prepare.validator,
-                ));
-            }
-        }
+        self.verify_pbft_prepares(&validator_set, &proof.prepares)?;
 
         // ZERO-TRUST: Verify commit signatures
         // SECURITY: Each commit message MUST be independently verified
-        for commit in &proof.commits {
-            if !validator_set.contains(&commit.validator) {
-                return Err(ConsensusError::UnknownValidator(commit.validator));
+        self.verify_pbft_commits(&validator_set, &proof.commits)?;
+
+        Ok(())
+    }
+
+    /// Verify block logic (Stateless checks depending on state but not modifying it)
+    async fn verify_block_logic(&self, block: &Block, block_hash: &Hash) -> ConsensusResult<()> {
+        self.validate_structure(block)
+            .map_err(|e| { crate::metrics::record_block_rejected("invalid_structure"); e })?;
+
+        self.validate_parent(&block.header)
+            .map_err(|e| { crate::metrics::record_block_rejected("unknown_parent"); e })?;
+
+        self.validate_height(&block.header)
+            .map_err(|e| { crate::metrics::record_block_rejected("invalid_height"); e })?;
+
+        self.validate_timestamp(&block.header)
+            .map_err(|e| { crate::metrics::record_block_rejected("invalid_timestamp"); e })?;
+
+        if let Err(e) = self.validate_proposer(&block.header, &block.proof).await {
+            crate::metrics::record_block_rejected("invalid_proposer");
+            return Err(e);
+        }
+
+        if let Err(e) = self.validate_consensus_proof(&block.proof, block_hash).await {
+            match e {
+                ConsensusError::InvalidSignatureFormat(_) => crate::metrics::record_block_rejected("invalid_signature"),
+                _ => crate::metrics::record_block_rejected("invalid_proof"),
             }
-
-            // Get validator's public key
-            let pubkey = validator_set
-                .get_pubkey(&commit.validator)
-                .ok_or(ConsensusError::UnknownValidator(commit.validator))?;
-
-            // Reconstruct the message that was signed
-            let commit_msg =
-                commit_signing_message(commit.view, commit.sequence, &commit.block_hash);
-
-            // ZERO-TRUST: Verify ECDSA signature independently
-            let ecdsa_pubkey: [u8; 33] = {
-                let mut pk = [0u8; 33];
-                pk[0] = 0x02;
-                pk[1..].copy_from_slice(&pubkey[..32]);
-                pk
-            };
-
-            if !self
-                .sig_verifier
-                .verify_ecdsa(&commit_msg, &commit.signature, &ecdsa_pubkey)
-            {
-                return Err(ConsensusError::SignatureVerificationFailed(
-                    commit.validator,
-                ));
-            }
+            return Err(e);
         }
 
         Ok(())
+    }
+
+    async fn validate_consensus_proof(&self, proof: &ValidationProof, block_hash: &Hash) -> ConsensusResult<()> {
+        match proof {
+            ValidationProof::PoS(pos_proof) => self.validate_pos_proof(pos_proof, block_hash).await,
+            ValidationProof::PBFT(pbft_proof) => self.validate_pbft_proof(pbft_proof, block_hash).await,
+        }
     }
 
     /// Full block validation
@@ -515,51 +572,8 @@ where
             }
         }
 
-        // 1. Validate structure
-        if let Err(e) = self.validate_structure(&block) {
-            crate::metrics::record_block_rejected("invalid_structure");
-            return Err(e);
-        }
-
-        // 2. Validate parent linkage (INVARIANT-1)
-        if let Err(e) = self.validate_parent(&block.header) {
-            crate::metrics::record_block_rejected("unknown_parent");
-            return Err(e);
-        }
-
-        // 3. Validate height sequence (INVARIANT-4)
-        if let Err(e) = self.validate_height(&block.header) {
-            crate::metrics::record_block_rejected("invalid_height");
-            return Err(e);
-        }
-
-        // 4. Validate timestamp (INVARIANT-5)
-        if let Err(e) = self.validate_timestamp(&block.header) {
-            crate::metrics::record_block_rejected("invalid_timestamp");
-            return Err(e);
-        }
-
-        // 5. Validate proposer is in validator set
-        if let Err(e) = self.validate_proposer(&block.header, &block.proof).await {
-            crate::metrics::record_block_rejected("invalid_proposer");
-            return Err(e);
-        }
-
-        // 6. Validate consensus proof with ZERO-TRUST signature verification
-        match &block.proof {
-            ValidationProof::PoS(pos_proof) => {
-                if let Err(e) = self.validate_pos_proof(pos_proof, &block_hash).await {
-                    crate::metrics::record_block_rejected("invalid_pos_proof");
-                    return Err(e);
-                }
-            }
-            ValidationProof::PBFT(pbft_proof) => {
-                if let Err(e) = self.validate_pbft_proof(pbft_proof, &block_hash).await {
-                    crate::metrics::record_block_rejected("invalid_pbft_proof");
-                    return Err(e);
-                }
-            }
-        }
+        // Verify block logic
+        self.verify_block_logic(&block, &block_hash).await?;
 
         // 7. Add to chain state
         {

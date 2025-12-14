@@ -14,7 +14,7 @@
 //! Reference: SPEC-01-PEER-DISCOVERY.md Section 3.1
 
 use crate::domain::{
-    BanReason, KademliaConfig, NodeId, PeerDiscoveryError, PeerInfo, RoutingTable,
+    BanDetails, KademliaConfig, NodeId, PeerDiscoveryError, PeerInfo, RoutingTable,
     RoutingTableStats, Timestamp,
 };
 use crate::ports::{PeerDiscoveryApi, TimeSource, VerificationHandler};
@@ -159,12 +159,11 @@ impl PeerDiscoveryApi for PeerDiscoveryService {
     fn ban_peer(
         &mut self,
         node_id: NodeId,
-        duration_seconds: u64,
-        reason: BanReason,
+        details: BanDetails,
     ) -> Result<(), PeerDiscoveryError> {
         let now = self.now();
         self.routing_table
-            .ban_peer(node_id, duration_seconds, reason, now)
+            .ban_peer(node_id, details, now)
     }
 
     fn is_banned(&self, node_id: NodeId) -> bool {
@@ -336,7 +335,7 @@ mod tests {
         assert!(!service.is_banned(peer_id));
 
         service
-            .ban_peer(peer_id, 3600, BanReason::MalformedMessage)
+            .ban_peer(peer_id, BanDetails::new(3600, BanReason::MalformedMessage))
             .unwrap();
 
         assert!(service.is_banned(peer_id));
@@ -365,7 +364,7 @@ mod tests {
 
         // Ban for 3600 seconds
         service
-            .ban_peer(peer_id, 3600, BanReason::MalformedMessage)
+            .ban_peer(peer_id, BanDetails::new(3600, BanReason::MalformedMessage))
             .unwrap();
 
         assert!(service.is_banned(peer_id), "Peer is banned at t=1000");

@@ -13,6 +13,8 @@ metrics = ["prometheus"]
 
 [dependencies]
 shared-types = { path = "../shared-types" }
+shared-crypto = { path = "../shared-crypto" }
+shared-bus = { path = "../shared-bus" }
 thiserror = "1.0"
 async-trait = "0.1"
 tokio = { version = "1.0", features = ["sync", "time"] }

@@ -111,11 +111,14 @@ pub struct BannedPeers {
     entries: HashMap<NodeId, BannedEntry>,
 }
 
-/// Individual ban entry
+/// Individual ban entry.
 #[derive(Debug, Clone)]
 pub struct BannedEntry {
+    /// The banned node's ID.
     pub node_id: NodeId,
+    /// When the ban expires.
     pub banned_until: Timestamp,
+    /// Reason for the ban.
     pub reason: BanReason,
 }
 
@@ -191,12 +194,12 @@ impl KBucket {
     }
 
     /// Remove a peer by NodeId
+    /// Remove a peer by NodeId using optimized position-map pattern.
     fn remove_peer(&mut self, node_id: &NodeId) -> Option<PeerInfo> {
-        if let Some(pos) = self.peers.iter().position(|p| &p.node_id == node_id) {
-            Some(self.peers.remove(pos))
-        } else {
-            None
-        }
+        self.peers
+            .iter()
+            .position(|p| &p.node_id == node_id)
+            .map(|pos| self.peers.remove(pos))
     }
 
     /// Move a peer to the front (most recently seen)
@@ -240,6 +243,7 @@ impl Default for KBucket {
 // =============================================================================
 
 impl BannedPeers {
+    /// Create a new empty banned peers tracker.
     pub fn new() -> Self {
         Self {
             entries: HashMap::new(),
@@ -258,13 +262,12 @@ impl BannedPeers {
         );
     }
 
-    /// Check if a peer is currently banned
+    /// Check if a peer is currently banned.
+    /// Optimized: uses map_or for cleaner conditional logic.
     pub fn is_banned(&self, node_id: &NodeId, now: Timestamp) -> bool {
-        if let Some(entry) = self.entries.get(node_id) {
-            entry.banned_until > now
-        } else {
-            false
-        }
+        self.entries
+            .get(node_id)
+            .is_some_and(|entry| entry.banned_until > now)
     }
 
     /// Remove expired bans
@@ -280,6 +283,25 @@ impl BannedPeers {
             .values()
             .filter(|e| e.banned_until > now)
             .count()
+    }
+}
+
+// =============================================================================
+// BanDetails Implementation
+// =============================================================================
+
+/// Details for banning a peer.
+pub struct BanDetails {
+    pub duration_secs: u64,
+    pub reason: BanReason,
+}
+
+impl BanDetails {
+    pub fn new(duration_secs: u64, reason: BanReason) -> Self {
+        Self {
+            duration_secs,
+            reason,
+        }
     }
 }
 
@@ -596,12 +618,12 @@ impl RoutingTable {
         removed
     }
 
+
     /// Ban a peer
     pub fn ban_peer(
         &mut self,
         node_id: NodeId,
-        duration_secs: u64,
-        reason: BanReason,
+        details: BanDetails,
         now: Timestamp,
     ) -> Result<(), PeerDiscoveryError> {
         // Remove from routing table if present
@@ -614,8 +636,8 @@ impl RoutingTable {
         self.pending_verification.remove(&node_id);
 
         // Add to banned list
-        let until = now.add_secs(duration_secs);
-        self.banned_peers.ban(node_id, until, reason);
+        let until = now.add_secs(details.duration_secs);
+        self.banned_peers.ban(node_id, until, details.reason);
 
         Ok(())
     }
@@ -652,11 +674,10 @@ impl RoutingTable {
             .get_mut(bucket_idx)
             .ok_or(PeerDiscoveryError::InvalidNodeId)?;
 
-        if bucket.remove_peer(node_id).is_some() {
-            Ok(())
-        } else {
-            Err(PeerDiscoveryError::PeerNotFound)
-        }
+        bucket
+            .remove_peer(node_id)
+            .map(|_| ())
+            .ok_or(PeerDiscoveryError::PeerNotFound)
     }
 
     /// Find the k closest peers to a target
@@ -970,7 +991,7 @@ mod tests {
         let peer = make_peer(1, 8080);
 
         table
-            .ban_peer(peer.node_id, 60, BanReason::ManualBan, now)
+            .ban_peer(peer.node_id, BanDetails::new(60, BanReason::ManualBan), now)
             .unwrap();
 
         // INVARIANT-4: Banned peers excluded from routing table
@@ -991,7 +1012,7 @@ mod tests {
         let peer = make_peer(1, 8080);
 
         table
-            .ban_peer(peer.node_id, 60, BanReason::ManualBan, now)
+            .ban_peer(peer.node_id, BanDetails::new(60, BanReason::ManualBan), now)
             .unwrap();
 
         // Ban active at t=1000 and t=1059 (59 seconds elapsed)
@@ -1011,7 +1032,7 @@ mod tests {
         let peer = make_peer(1, 8080);
 
         table
-            .ban_peer(peer.node_id, 60, BanReason::ManualBan, now)
+            .ban_peer(peer.node_id, BanDetails::new(60, BanReason::ManualBan), now)
             .unwrap();
 
         let result = table.stage_peer(peer, now);

@@ -19,8 +19,11 @@ pub mod conflicts;
 pub mod entities;
 pub mod errors;
 pub mod flat_storage;
+pub mod nibbles;
+pub mod node;
 pub mod parallel;
 pub mod proofs;
+pub mod rlp;
 pub mod trie;
 pub mod verify;
 

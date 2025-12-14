@@ -26,19 +26,23 @@ ipc = ["dep:shared-types", "dep:uuid"]
 # Enables: adapters/api_handler.rs
 rpc = ["dep:serde", "dep:serde_json"]
 
-# Bootstrap handler with correlation ID generation
+# Bootstrap handler with correlation ID generation and PoW verification
 # Enables: adapters/bootstrap_handler.rs
-bootstrap = ["dep:uuid"]
+bootstrap = ["dep:uuid", "dep:sha2"]
 
 # Network adapters (UDP socket, TOML config)
 # Enables: UdpNetworkSocket, TomlConfigProvider
 network = ["dep:tokio", "dep:toml", "dep:serde"]
 
+# QUIC transport layer (encrypted P2P connections)
+# Enables: transport/quic.rs with full async implementation
+quic = ["network", "dep:quinn", "dep:rustls", "dep:rcgen"]
+
 # Test utilities (FixedTimeSource)
 test-utils = []
 
 # Full feature set (all adapters enabled)
-full = ["ipc", "rpc", "bootstrap", "network", "test-utils"]
+full = ["ipc", "rpc", "bootstrap", "network", "quic", "test-utils"]
 
 # =============================================================================
 # DEPENDENCIES: All optional except for core library
@@ -52,6 +56,9 @@ shared-types = { path = "../shared-types", optional = true }
 # Correlation ID generation (optional - for bootstrap handler)
 uuid = { version = "1.0", features = ["v4"], optional = true }
 
+# SHA-256 for PoW verification (optional - for bootstrap handler)
+sha2 = { version = "0.10", optional = true }
+
 # RPC responses (optional - for API gateway)
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
@@ -59,6 +66,11 @@ serde_json = { workspace = true, optional = true }
 # Network adapters (optional)
 tokio = { workspace = true, optional = true }
 toml = { version = "0.8", optional = true }
+
+# QUIC transport (optional - requires network feature)
+quinn = { version = "0.11", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+rcgen = { version = "0.13", optional = true }
 
 [dev-dependencies]
 # Testing utilities (always available for tests)

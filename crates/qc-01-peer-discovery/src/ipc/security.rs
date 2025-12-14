@@ -114,15 +114,25 @@ impl std::fmt::Display for SubsystemId {
 pub enum SecurityError {
     /// Message version is unsupported.
     UnsupportedVersion {
+        /// The version that was received.
         received: u16,
+        /// Minimum supported version.
         min_supported: u16,
+        /// Maximum supported version.
         max_supported: u16,
     },
     /// Message timestamp is outside valid window.
-    TimestampOutOfRange { timestamp: u64, now: u64 },
+    TimestampOutOfRange {
+        /// The timestamp from the message.
+        timestamp: u64,
+        /// Current time.
+        now: u64,
+    },
     /// Sender is not authorized for this request type.
     UnauthorizedSender {
+        /// The sender's subsystem ID.
         sender_id: u8,
+        /// List of allowed sender IDs.
         allowed_senders: &'static [u8],
     },
     /// Message signature is invalid.
@@ -130,15 +140,23 @@ pub enum SecurityError {
 
     /// Reply-to subsystem doesn't match sender (forwarding attack).
     ReplyToMismatch {
+        /// The sender's subsystem ID.
         sender_id: u8,
+        /// The reply_to subsystem ID.
         reply_to_subsystem: u8,
     },
     /// Unknown subsystem ID.
-    UnknownSubsystem { id: u8 },
+    UnknownSubsystem {
+        /// The unknown ID.
+        id: u8,
+    },
     /// Missing required reply_to for request.
     MissingReplyTo,
     /// Nonce replay detected (UUID-based from shared-types).
-    ReplayDetectedUuid { nonce: uuid::Uuid },
+    ReplayDetectedUuid {
+        /// The replayed nonce.
+        nonce: uuid::Uuid,
+    },
 }
 
 impl SecurityError {
@@ -251,12 +269,14 @@ impl AuthorizationRules {
     /// Subsystems that Peer Discovery can send TO.
     pub const ALLOWED_RECIPIENTS: &'static [u8] = &[5, 7, 10, 13];
 
-    /// Protocol version bounds.
+    /// Minimum supported protocol version.
     pub const MIN_SUPPORTED_VERSION: u16 = 1;
+    /// Maximum supported protocol version.
     pub const MAX_SUPPORTED_VERSION: u16 = 1;
 
-    /// Timestamp validity window (seconds).
+    /// Maximum age of a valid timestamp in seconds.
     pub const TIMESTAMP_MAX_AGE: u64 = 60;
+    /// Maximum future timestamp allowed in seconds.
     pub const TIMESTAMP_MAX_FUTURE: u64 = 10;
 
     /// Check if a sender is authorized for PeerListRequest.

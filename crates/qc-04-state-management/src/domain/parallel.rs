@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn test_parallel_threshold() {
-        // Compile-time assertions for threshold bounds
+        // Compile-time assertions on constants (clippy::assertions_on_constants)
         const _: () = assert!(PARALLEL_THRESHOLD >= 2);
         const _: () = assert!(PARALLEL_THRESHOLD <= 16);
     }

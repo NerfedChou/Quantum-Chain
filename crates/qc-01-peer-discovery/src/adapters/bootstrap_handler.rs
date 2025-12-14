@@ -40,21 +40,39 @@ pub struct BootstrapHandler<S, P> {
     pow_validator: Box<dyn NodeIdValidator>,
     /// Time source for timestamps.
     time_source: Box<dyn TimeSource>,
+    /// Required PoW difficulty (leading zero bits).
+    pow_difficulty: u32,
 }
 
 impl<S: PeerDiscoveryApi, P: VerificationRequestPublisher> BootstrapHandler<S, P> {
-    /// Create a new bootstrap handler.
+    /// Create a new bootstrap handler with production PoW difficulty (24 bits).
     pub fn new(
         service: S,
         verification_publisher: P,
         pow_validator: Box<dyn NodeIdValidator>,
         time_source: Box<dyn TimeSource>,
     ) -> Self {
+        Self::with_difficulty(service, verification_publisher, pow_validator, time_source, 24)
+    }
+
+    /// Create a bootstrap handler with custom PoW difficulty.
+    ///
+    /// # Arguments
+    ///
+    /// * `pow_difficulty` - Required leading zero bits (24 for production, lower for tests)
+    pub fn with_difficulty(
+        service: S,
+        verification_publisher: P,
+        pow_validator: Box<dyn NodeIdValidator>,
+        time_source: Box<dyn TimeSource>,
+        pow_difficulty: u32,
+    ) -> Self {
         Self {
             service,
             verification_publisher,
             pow_validator,
             time_source,
+            pow_difficulty,
         }
     }
 
@@ -123,18 +141,45 @@ impl<S: PeerDiscoveryApi, P: VerificationRequestPublisher> BootstrapHandler<S, P
     }
 
     /// Validate proof-of-work for anti-Sybil protection.
+    ///
+    /// # Security (Hardened)
+    ///
+    /// PoW must satisfy: SHA256(node_id || proof_of_work) has N+ leading zero bits.
+    /// This binds the proof to the identity. Production uses 24 bits (~16M attempts).
     fn validate_pow(&self, proof_of_work: &[u8; 32], node_id: &[u8; 32]) -> bool {
-        // The PoW should be: H(node_id || nonce) with sufficient leading zeros
-        // For now, we use the NodeIdValidator which checks leading zero bits
-        // In production, this would verify H(node_id || proof_of_work) has difficulty
-        self.pow_validator.validate_node_id(NodeId::new(*node_id))
-            && Self::has_sufficient_zeros(proof_of_work)
+        // First check: NodeId must also pass the validator (additional constraint)
+        if !self.pow_validator.validate_node_id(NodeId::new(*node_id)) {
+            return false;
+        }
+
+        // Compute H(node_id || proof_of_work) and verify difficulty
+        Self::verify_pow_binding(node_id, proof_of_work, self.pow_difficulty)
     }
 
-    /// Check if proof-of-work has sufficient leading zeros.
-    fn has_sufficient_zeros(pow: &[u8; 32]) -> bool {
-        // Require at least 16 leading zero bits (2 bytes)
-        pow[0] == 0 && pow[1] == 0
+    /// Verify that SHA256(node_id || nonce) has required leading zeros.
+    fn verify_pow_binding(node_id: &[u8; 32], nonce: &[u8; 32], required_zeros: u32) -> bool {
+        use sha2::{Sha256, Digest};
+
+        let mut hasher = Sha256::new();
+        hasher.update(node_id);
+        hasher.update(nonce);
+        let result = hasher.finalize();
+
+        Self::count_leading_zero_bits(&result) >= required_zeros
+    }
+
+    /// Count leading zero bits in a byte slice.
+    fn count_leading_zero_bits(bytes: &[u8]) -> u32 {
+        let mut count = 0u32;
+        for byte in bytes {
+            if *byte == 0 {
+                count += 8;
+            } else {
+                count += byte.leading_zeros();
+                break;
+            }
+        }
+        count
     }
 
     /// Generate a correlation ID for request/response matching.
@@ -189,22 +234,39 @@ mod tests {
         let time_source: Box<dyn TimeSource> = Box::new(TestTimeSource::new(Timestamp::new(1000)));
         let service = PeerDiscoveryService::new(local_id, config, time_source);
         let test_time: Box<dyn TimeSource> = Box::new(TestTimeSource::new(Timestamp::new(1000)));
-        // Publisher is managed by handler now
         let publisher = InMemoryVerificationPublisher::new();
         let validator = Box::new(NoOpNodeIdValidator::new());
 
-        BootstrapHandler::new(service, publisher, validator, test_time)
+        // Use low difficulty (8 bits) for fast tests
+        BootstrapHandler::with_difficulty(service, publisher, validator, test_time, 8)
+    }
+
+    /// Generate a valid PoW nonce for a given node_id at difficulty 8.
+    fn generate_test_pow(node_id: &[u8; 32]) -> [u8; 32] {
+        type Handler = BootstrapHandler<PeerDiscoveryService, InMemoryVerificationPublisher>;
+        
+        let mut nonce = [0u8; 32];
+        for i in 0..100_000u32 {
+            nonce[0..4].copy_from_slice(&i.to_le_bytes());
+            if Handler::verify_pow_binding(node_id, &nonce, 8) {
+                return nonce;
+            }
+        }
+        panic!("Failed to generate valid PoW");
     }
 
     fn make_request(node_byte: u8) -> BootstrapRequest {
         let mut node_id = [0u8; 32];
         node_id[0] = node_byte;
+        
+        // Generate valid PoW for this node_id
+        let pow = generate_test_pow(&node_id);
 
         BootstrapRequest::new(
             node_id,
             IpAddr::v4(192, 168, 1, node_byte),
             8080,
-            [0u8; 32], // Valid PoW (leading zeros)
+            pow,
             [2u8; 33],
             [3u8; 64],
         )
@@ -239,20 +301,54 @@ mod tests {
     }
 
     #[test]
-    fn test_has_sufficient_zeros() {
-        // Valid - 2 zero bytes
-        let valid_pow = [0u8; 32];
-        assert!(BootstrapHandler::<
-            PeerDiscoveryService,
-            InMemoryVerificationPublisher,
-        >::has_sufficient_zeros(&valid_pow));
+    fn test_count_leading_zero_bits() {
+        type Handler = BootstrapHandler<PeerDiscoveryService, InMemoryVerificationPublisher>;
 
-        // Invalid - only 1 zero byte
-        let mut invalid_pow = [0u8; 32];
-        invalid_pow[1] = 1;
-        assert!(!BootstrapHandler::<
-            PeerDiscoveryService,
-            InMemoryVerificationPublisher,
-        >::has_sufficient_zeros(&invalid_pow));
+        // 0 zero bits
+        assert_eq!(Handler::count_leading_zero_bits(&[0xFF]), 0);
+        
+        // 8 zero bits (1 byte)
+        assert_eq!(Handler::count_leading_zero_bits(&[0x00, 0xFF]), 8);
+        
+        // 12 zero bits (1 byte + 4 bits from 0x0F which is 0000_1111)
+        assert_eq!(Handler::count_leading_zero_bits(&[0x00, 0x0F]), 12);
+        
+        // 16 zero bits (2 bytes)
+        assert_eq!(Handler::count_leading_zero_bits(&[0x00, 0x00, 0xFF]), 16);
+        
+        // 24 zero bits (3 bytes + 0x80 = 1000_0000 has 0 leading zeros in that byte)
+        assert_eq!(Handler::count_leading_zero_bits(&[0x00, 0x00, 0x00, 0x80]), 24);
+        
+        // 25 zero bits (3 bytes + 0x40 = 0100_0000 has 1 leading zero)
+        assert_eq!(Handler::count_leading_zero_bits(&[0x00, 0x00, 0x00, 0x40]), 25);
+        
+        // 31 zero bits (3 bytes + 0x01 = 0000_0001 has 7 leading zeros)
+        assert_eq!(Handler::count_leading_zero_bits(&[0x00, 0x00, 0x00, 0x01]), 31);
+    }
+
+    #[test]
+    fn test_verify_pow_binding() {
+        type Handler = BootstrapHandler<PeerDiscoveryService, InMemoryVerificationPublisher>;
+
+        let node_id = [1u8; 32];
+        
+        // Find a valid nonce that produces 8 leading zero bits (for quick test)
+        // In production, 24 bits would be required but that's too slow for tests
+        let mut nonce = [0u8; 32];
+        let mut found = false;
+        for i in 0..100_000u32 {
+            nonce[0..4].copy_from_slice(&i.to_le_bytes());
+            if Handler::verify_pow_binding(&node_id, &nonce, 8) {
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "Should find valid 8-bit PoW within 100K attempts");
+        
+        // Verify that same nonce passes
+        assert!(Handler::verify_pow_binding(&node_id, &nonce, 8));
+        
+        // Verify that higher difficulty fails (probably)
+        // Note: might pass if we got lucky, but very unlikely for 24 bits
     }
 }

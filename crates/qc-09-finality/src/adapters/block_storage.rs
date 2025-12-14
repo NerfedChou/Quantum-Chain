@@ -3,7 +3,7 @@
 //! Implements `BlockStorageGateway` port using the event bus.
 //! Reference: SPEC-09-FINALITY.md Section 3.2, IPC-MATRIX.md
 
-use crate::error::{FinalityError, FinalityResult};
+use crate::error::FinalityResult;
 use crate::ports::outbound::{BlockStorageGateway, MarkFinalizedRequest};
 use async_trait::async_trait;
 use shared_bus::{BlockchainEvent, EventPublisher, InMemoryEventBus};

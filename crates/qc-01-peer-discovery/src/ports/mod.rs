@@ -19,4 +19,7 @@ pub mod inbound;
 pub mod outbound;
 
 pub use inbound::{PeerDiscoveryApi, VerificationHandler};
-pub use outbound::{ConfigProvider, NetworkError, NetworkSocket, NodeIdValidator, TimeSource};
+pub use outbound::{
+    ConfigProvider, EnrSignatureVerifier, NetworkError, NetworkSocket, NodeIdValidator,
+    RateLimiter, RandomSource, SecureHasher, TimeSource,
+};

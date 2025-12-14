@@ -29,333 +29,13 @@
 //! - Ethereum Yellow Paper Appendix D
 
 use super::{
+    nibbles::Nibbles,
+    node::TrieNode,
+    rlp,
     AccountState, Address, Hash, StateConfig, StateError, StateProof, StorageKey, StorageProof,
     StorageValue, EMPTY_TRIE_ROOT,
 };
-use sha3::{Digest, Keccak256};
 use std::collections::HashMap;
-
-// =============================================================================
-// NIBBLES: Half-byte path representation
-// =============================================================================
-
-/// Nibble path for trie traversal.
-///
-/// Addresses and keys are converted to nibbles (half-bytes, 0-15) for
-/// traversal through the trie. A 20-byte address becomes 40 nibbles.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Nibbles(pub Vec<u8>);
-
-impl Nibbles {
-    /// Create nibbles from a 20-byte address.
-    pub fn from_address(addr: &Address) -> Self {
-        let mut nibbles = Vec::with_capacity(40);
-        for byte in addr {
-            nibbles.push(byte >> 4);
-            nibbles.push(byte & 0x0F);
-        }
-        Nibbles(nibbles)
-    }
-
-    /// Create nibbles from a 32-byte storage key.
-    pub fn from_key(key: &StorageKey) -> Self {
-        let mut nibbles = Vec::with_capacity(64);
-        for byte in key {
-            nibbles.push(byte >> 4);
-            nibbles.push(byte & 0x0F);
-        }
-        Nibbles(nibbles)
-    }
-
-    /// Create nibbles from arbitrary bytes (used for hashed keys).
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        let mut nibbles = Vec::with_capacity(bytes.len() * 2);
-        for byte in bytes {
-            nibbles.push(byte >> 4);
-            nibbles.push(byte & 0x0F);
-        }
-        Nibbles(nibbles)
-    }
-
-    /// Get a slice of nibbles starting at offset.
-    pub fn slice(&self, start: usize) -> Self {
-        Nibbles(self.0[start..].to_vec())
-    }
-
-    /// Get a range slice of nibbles.
-    pub fn slice_range(&self, start: usize, end: usize) -> Self {
-        Nibbles(self.0[start..end].to_vec())
-    }
-
-    /// Find common prefix length with another nibbles path.
-    pub fn common_prefix_len(&self, other: &Nibbles) -> usize {
-        self.0
-            .iter()
-            .zip(other.0.iter())
-            .take_while(|(a, b)| a == b)
-            .count()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// Get nibble at index.
-    pub fn at(&self, index: usize) -> u8 {
-        self.0[index]
-    }
-
-    /// Encode nibbles with hex-prefix for RLP encoding.
-    ///
-    /// Per Ethereum Yellow Paper:
-    /// - First nibble encodes flags: 0=extension even, 1=extension odd, 2=leaf even, 3=leaf odd
-    /// - If odd number of nibbles, first nibble is part of path
-    pub fn encode_hex_prefix(&self, is_leaf: bool) -> Vec<u8> {
-        let odd = self.len() % 2 == 1;
-        let prefix = if is_leaf { 2 } else { 0 } + if odd { 1 } else { 0 };
-
-        let mut result = Vec::with_capacity((self.len() + 2) / 2);
-
-        if odd {
-            result.push((prefix << 4) | self.0[0]);
-            for chunk in self.0[1..].chunks(2) {
-                result.push((chunk[0] << 4) | chunk.get(1).copied().unwrap_or(0));
-            }
-        } else {
-            result.push(prefix << 4);
-            for chunk in self.0.chunks(2) {
-                result.push((chunk[0] << 4) | chunk.get(1).copied().unwrap_or(0));
-            }
-        }
-
-        result
-    }
-
-    /// Decode hex-prefix encoded bytes back to nibbles.
-    pub fn decode_hex_prefix(encoded: &[u8]) -> (Self, bool) {
-        if encoded.is_empty() {
-            return (Nibbles(vec![]), false);
-        }
-
-        let prefix = encoded[0] >> 4;
-        let is_leaf = prefix >= 2;
-        let odd = prefix % 2 == 1;
-
-        let mut nibbles = Vec::new();
-
-        if odd {
-            nibbles.push(encoded[0] & 0x0F);
-        }
-
-        for &byte in &encoded[1..] {
-            nibbles.push(byte >> 4);
-            nibbles.push(byte & 0x0F);
-        }
-
-        (Nibbles(nibbles), is_leaf)
-    }
-}
-
-// =============================================================================
-// TRIE NODE: The four node types in MPT
-// =============================================================================
-
-/// Node types in the Patricia Merkle Trie.
-///
-/// Per Ethereum Yellow Paper Appendix D, there are four node types:
-/// - Empty (null reference)
-/// - Leaf (remaining path + value)
-/// - Extension (shared prefix + single child)
-/// - Branch (16 children + optional value)
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TrieNode {
-    /// Empty node (null reference, hash = EMPTY_TRIE_ROOT).
-    Empty,
-
-    /// Leaf node: stores remaining key path and the value.
-    /// RLP: [hex_prefix_encode(path, true), value]
-    Leaf {
-        /// Remaining path from current position to this leaf.
-        path: Nibbles,
-        /// RLP-encoded value (account state or storage value).
-        value: Vec<u8>,
-    },
-
-    /// Extension node: shared prefix optimization.
-    /// RLP: [hex_prefix_encode(path, false), child_hash]
-    Extension {
-        /// Shared prefix path.
-        path: Nibbles,
-        /// Hash of child node.
-        child: Hash,
-    },
-
-    /// Branch node: 16-way branch for each nibble value.
-    /// RLP: \[child\[0\], ..., child\[15\], value\]
-    Branch {
-        /// 16 child node hashes (None = empty).
-        children: Box<[Option<Hash>; 16]>,
-        /// Optional value if a key terminates at this branch.
-        value: Option<Vec<u8>>,
-    },
-}
-
-impl TrieNode {
-    /// RLP-encode this node for hashing.
-    pub fn rlp_encode(&self) -> Vec<u8> {
-        match self {
-            TrieNode::Empty => vec![0x80], // RLP empty string
-
-            TrieNode::Leaf { path, value } => {
-                let encoded_path = path.encode_hex_prefix(true);
-                rlp_encode_two_items(&encoded_path, value)
-            }
-
-            TrieNode::Extension { path, child } => {
-                let encoded_path = path.encode_hex_prefix(false);
-                rlp_encode_two_items(&encoded_path, child)
-            }
-
-            TrieNode::Branch { children, value } => {
-                let mut items: Vec<Vec<u8>> = Vec::with_capacity(17);
-
-                for child in children.iter() {
-                    match child {
-                        Some(hash) => items.push(hash.to_vec()),
-                        None => items.push(vec![0x80]), // Empty
-                    }
-                }
-
-                match value {
-                    Some(v) => items.push(v.clone()),
-                    None => items.push(vec![0x80]),
-                }
-
-                rlp_encode_list_items(&items)
-            }
-        }
-    }
-
-    /// Compute Keccak256 hash of RLP-encoded node.
-    pub fn hash(&self) -> Hash {
-        if matches!(self, TrieNode::Empty) {
-            return EMPTY_TRIE_ROOT;
-        }
-        let encoded = self.rlp_encode();
-        keccak256(&encoded)
-    }
-
-    /// Process a single trie node during proof traversal.
-    ///
-    /// Returns `Some(next_hash)` to continue traversal, or `None` to stop.
-    /// This helper reduces nesting depth in proof generation loops.
-    fn process_for_proof(&self, key: &Nibbles, depth: &mut usize) -> Option<Hash> {
-        match self {
-            TrieNode::Empty => None,
-
-            TrieNode::Leaf { .. } => None, // Stop at leaf
-
-            TrieNode::Extension { path, child } => {
-                let remaining = key.slice(*depth);
-                if !remaining.0.starts_with(&path.0) {
-                    return None; // Path diverges
-                }
-                *depth += path.len();
-                Some(*child)
-            }
-
-            TrieNode::Branch { children, .. } => {
-                if *depth >= key.len() {
-                    return None; // Boundary reached
-                }
-                let nibble = key.at(*depth) as usize;
-                let child = children[nibble]?;
-                *depth += 1;
-                Some(child)
-            }
-        }
-    }
-}
-
-// =============================================================================
-// RLP ENCODING HELPERS
-// =============================================================================
-
-/// RLP-encode a byte slice.
-fn rlp_encode_bytes(data: &[u8]) -> Vec<u8> {
-    if data.len() == 1 && data[0] < 0x80 {
-        vec![data[0]]
-    } else if data.len() < 56 {
-        let mut result = vec![0x80 + data.len() as u8];
-        result.extend_from_slice(data);
-        result
-    } else {
-        let len_bytes = encode_length(data.len());
-        let mut result = vec![0xb7 + len_bytes.len() as u8];
-        result.extend_from_slice(&len_bytes);
-        result.extend_from_slice(data);
-        result
-    }
-}
-
-/// RLP-encode two items as a list.
-fn rlp_encode_two_items(a: &[u8], b: &[u8]) -> Vec<u8> {
-    let encoded_a = rlp_encode_bytes(a);
-    let encoded_b = rlp_encode_bytes(b);
-    let total_len = encoded_a.len() + encoded_b.len();
-
-    let mut result = Vec::with_capacity(total_len + 9);
-    if total_len < 56 {
-        result.push(0xc0 + total_len as u8);
-    } else {
-        let len_bytes = encode_length(total_len);
-        result.push(0xf7 + len_bytes.len() as u8);
-        result.extend_from_slice(&len_bytes);
-    }
-    result.extend(encoded_a);
-    result.extend(encoded_b);
-    result
-}
-
-/// RLP-encode multiple items as a list.
-fn rlp_encode_list_items(items: &[Vec<u8>]) -> Vec<u8> {
-    let encoded_items: Vec<Vec<u8>> = items.iter().map(|i| rlp_encode_bytes(i)).collect();
-    let total_len: usize = encoded_items.iter().map(|e| e.len()).sum();
-
-    let mut result = Vec::with_capacity(total_len + 9);
-    if total_len < 56 {
-        result.push(0xc0 + total_len as u8);
-    } else {
-        let len_bytes = encode_length(total_len);
-        result.push(0xf7 + len_bytes.len() as u8);
-        result.extend_from_slice(&len_bytes);
-    }
-    for encoded in encoded_items {
-        result.extend(encoded);
-    }
-    result
-}
-
-/// Encode a length as minimal big-endian bytes.
-fn encode_length(len: usize) -> Vec<u8> {
-    let bytes = len.to_be_bytes();
-    let start = bytes
-        .iter()
-        .position(|&b| b != 0)
-        .unwrap_or(bytes.len() - 1);
-    bytes[start..].to_vec()
-}
-
-/// Compute Keccak256 hash.
-fn keccak256(data: &[u8]) -> Hash {
-    let mut hasher = Keccak256::new();
-    hasher.update(data);
-    hasher.finalize().into()
-}
 
 // =============================================================================
 // PATRICIA MERKLE TRIE
@@ -596,10 +276,16 @@ impl PatriciaMerkleTrie {
         }
 
         // Build a mini-trie for storage
-        let mut hasher = Keccak256::new();
+        // Use default hasher logic similar to rlp::keccak256 but for multiple items
         let mut sorted_slots: Vec<_> = slots.iter().collect();
         sorted_slots.sort_by_key(|((_, key), _)| *key);
 
+        // This simplistic hash is not a real storage trie but a placeholder from original code
+        // For refactoring, we keep the original logic but use rlp::keccak256 where applicable?
+        // Original code used Keccak256::new() and update() loop.
+        use sha3::{Digest, Keccak256};
+        let mut hasher = Keccak256::new();
+        
         for ((_, key), value) in sorted_slots {
             hasher.update(key);
             hasher.update(*value);
@@ -627,7 +313,7 @@ impl PatriciaMerkleTrie {
         // Collect all key-value pairs
         let mut items: Vec<(Nibbles, Vec<u8>)> = Vec::new();
         for (address, state) in &self.accounts {
-            let key = Nibbles::from_bytes(&keccak256(address));
+            let key = Nibbles::from_bytes(&rlp::keccak256(address));
             let value = state.rlp_encode();
             items.push((key, value));
         }
@@ -730,7 +416,7 @@ impl PatriciaMerkleTrie {
     /// This proof can be verified by any party with just the proof and root hash.
     pub fn generate_proof(&self, address: Address) -> Result<StateProof, StateError> {
         let account = self.accounts.get(&address).cloned();
-        let key = Nibbles::from_bytes(&keccak256(&address));
+        let key = Nibbles::from_bytes(&rlp::keccak256(&address));
         let mut proof_nodes = Vec::new();
 
         // Traverse from root to leaf, collecting all nodes
@@ -850,103 +536,10 @@ impl PatriciaMerkleTrie {
         // Root hash (skip for now, will rebuild)
         cursor += 32;
 
-        // Account count
-        let account_count = u32::from_le_bytes([
-            data[cursor],
-            data[cursor + 1],
-            data[cursor + 2],
-            data[cursor + 3],
-        ]) as usize;
-        cursor += 4;
-
-        // Deserialize accounts
-        let mut accounts = HashMap::with_capacity(account_count);
-        let mut storage_counts = HashMap::new();
-
-        for _ in 0..account_count {
-            let mut address = [0u8; 20];
-            address.copy_from_slice(&data[cursor..cursor + 20]);
-            cursor += 20;
-
-            let balance = u128::from_le_bytes([
-                data[cursor],
-                data[cursor + 1],
-                data[cursor + 2],
-                data[cursor + 3],
-                data[cursor + 4],
-                data[cursor + 5],
-                data[cursor + 6],
-                data[cursor + 7],
-                data[cursor + 8],
-                data[cursor + 9],
-                data[cursor + 10],
-                data[cursor + 11],
-                data[cursor + 12],
-                data[cursor + 13],
-                data[cursor + 14],
-                data[cursor + 15],
-            ]);
-            cursor += 16;
-
-            let nonce = u64::from_le_bytes([
-                data[cursor],
-                data[cursor + 1],
-                data[cursor + 2],
-                data[cursor + 3],
-                data[cursor + 4],
-                data[cursor + 5],
-                data[cursor + 6],
-                data[cursor + 7],
-            ]);
-            cursor += 8;
-
-            let mut code_hash = [0u8; 32];
-            code_hash.copy_from_slice(&data[cursor..cursor + 32]);
-            cursor += 32;
-
-            let mut storage_root = [0u8; 32];
-            storage_root.copy_from_slice(&data[cursor..cursor + 32]);
-            cursor += 32;
-
-            accounts.insert(
-                address,
-                AccountState {
-                    balance,
-                    nonce,
-                    code_hash,
-                    storage_root,
-                },
-            );
-        }
-
-        // Storage count
-        let storage_count = u32::from_le_bytes([
-            data[cursor],
-            data[cursor + 1],
-            data[cursor + 2],
-            data[cursor + 3],
-        ]) as usize;
-        cursor += 4;
-
+        let accounts = Self::deserialize_accounts(&mut cursor, data)?;
+        
         // Deserialize storage
-        let mut storage = HashMap::with_capacity(storage_count);
-
-        for _ in 0..storage_count {
-            let mut address = [0u8; 20];
-            address.copy_from_slice(&data[cursor..cursor + 20]);
-            cursor += 20;
-
-            let mut key = [0u8; 32];
-            key.copy_from_slice(&data[cursor..cursor + 32]);
-            cursor += 32;
-
-            let mut value = [0u8; 32];
-            value.copy_from_slice(&data[cursor..cursor + 32]);
-            cursor += 32;
-
-            *storage_counts.entry(address).or_insert(0) += 1;
-            storage.insert((address, key), value);
-        }
+        let (storage, storage_counts) = Self::deserialize_storage(&mut cursor, data)?;
 
         // Create trie and rebuild
         let mut trie = Self {
@@ -962,6 +555,110 @@ impl PatriciaMerkleTrie {
         trie.rebuild_trie()?;
 
         Ok(trie)
+    }
+    
+    /// Helper to deserialize accounts
+    fn deserialize_accounts(cursor: &mut usize, data: &[u8]) -> Result<HashMap<Address, AccountState>, StateError> {
+        // Account count
+        let account_count = u32::from_le_bytes([
+            data[*cursor],
+            data[*cursor + 1],
+            data[*cursor + 2],
+            data[*cursor + 3],
+        ]) as usize;
+        *cursor += 4;
+
+        let mut accounts = HashMap::with_capacity(account_count);
+
+        for _ in 0..account_count {
+            let mut address = [0u8; 20];
+            address.copy_from_slice(&data[*cursor..*cursor + 20]);
+            *cursor += 20;
+
+            let balance = u128::from_le_bytes([
+                data[*cursor],
+                data[*cursor + 1],
+                data[*cursor + 2],
+                data[*cursor + 3],
+                data[*cursor + 4],
+                data[*cursor + 5],
+                data[*cursor + 6],
+                data[*cursor + 7],
+                data[*cursor + 8],
+                data[*cursor + 9],
+                data[*cursor + 10],
+                data[*cursor + 11],
+                data[*cursor + 12],
+                data[*cursor + 13],
+                data[*cursor + 14],
+                data[*cursor + 15],
+            ]);
+            *cursor += 16;
+
+            let nonce = u64::from_le_bytes([
+                data[*cursor],
+                data[*cursor + 1],
+                data[*cursor + 2],
+                data[*cursor + 3],
+                data[*cursor + 4],
+                data[*cursor + 5],
+                data[*cursor + 6],
+                data[*cursor + 7],
+            ]);
+            *cursor += 8;
+
+            let mut code_hash = [0u8; 32];
+            code_hash.copy_from_slice(&data[*cursor..*cursor + 32]);
+            *cursor += 32;
+
+            let mut storage_root = [0u8; 32];
+            storage_root.copy_from_slice(&data[*cursor..*cursor + 32]);
+            *cursor += 32;
+
+            accounts.insert(
+                address,
+                AccountState {
+                    balance,
+                    nonce,
+                    code_hash,
+                    storage_root,
+                },
+            );
+        }
+        Ok(accounts)
+    }
+    
+    /// Helper to deserialize storage
+    fn deserialize_storage(cursor: &mut usize, data: &[u8]) -> Result<(HashMap<(Address, StorageKey), StorageValue>, HashMap<Address, usize>), StateError> {
+        // Storage count
+        let storage_count = u32::from_le_bytes([
+            data[*cursor],
+            data[*cursor + 1],
+            data[*cursor + 2],
+            data[*cursor + 3],
+        ]) as usize;
+        *cursor += 4;
+
+        let mut storage = HashMap::with_capacity(storage_count);
+        let mut storage_counts = HashMap::new();
+
+        for _ in 0..storage_count {
+            let mut address = [0u8; 20];
+            address.copy_from_slice(&data[*cursor..*cursor + 20]);
+            *cursor += 20;
+
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&data[*cursor..*cursor + 32]);
+            *cursor += 32;
+
+            let mut value = [0u8; 32];
+            value.copy_from_slice(&data[*cursor..*cursor + 32]);
+            *cursor += 32;
+
+            *storage_counts.entry(address).or_insert(0) += 1;
+            storage.insert((address, key), value);
+        }
+        Ok((storage, storage_counts))
     }
 
     /// Save state to a TrieDatabase.
@@ -1022,7 +719,7 @@ pub fn verify_proof(proof: &StateProof, address: &Address, expected_root: &Hash)
     // For non-empty proofs, verify the path
     // Hash the first proof node and compare with expected behavior
     if let Some(first_node) = proof.proof_nodes.first() {
-        let computed_hash = keccak256(first_node);
+        let computed_hash = rlp::keccak256(first_node);
         // The first node's hash should match the root for a valid proof
         if proof.proof_nodes.len() == 1 {
             // Single node proof - special case for small tries
@@ -1044,49 +741,6 @@ pub fn verify_proof(proof: &StateProof, address: &Address, expected_root: &Hash)
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_nibbles_from_address() {
-        let addr = [
-            0xAB, 0xCD, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
-        ];
-        let nibbles = Nibbles::from_address(&addr);
-        assert_eq!(nibbles.len(), 40);
-        assert_eq!(nibbles.at(0), 0x0A);
-        assert_eq!(nibbles.at(1), 0x0B);
-        assert_eq!(nibbles.at(2), 0x0C);
-        assert_eq!(nibbles.at(3), 0x0D);
-        assert_eq!(nibbles.at(38), 0x0F);
-        assert_eq!(nibbles.at(39), 0x0F);
-    }
-
-    #[test]
-    fn test_hex_prefix_encoding() {
-        // Even length leaf
-        let nibbles = Nibbles(vec![1, 2, 3, 4]);
-        let encoded = nibbles.encode_hex_prefix(true);
-        assert_eq!(encoded[0] >> 4, 2); // Leaf flag, even
-
-        // Odd length leaf
-        let nibbles = Nibbles(vec![1, 2, 3]);
-        let encoded = nibbles.encode_hex_prefix(true);
-        assert_eq!(encoded[0] >> 4, 3); // Leaf flag, odd
-
-        // Even length extension
-        let nibbles = Nibbles(vec![1, 2, 3, 4]);
-        let encoded = nibbles.encode_hex_prefix(false);
-        assert_eq!(encoded[0] >> 4, 0); // Extension flag, even
-    }
-
-    #[test]
-    fn test_hex_prefix_roundtrip() {
-        let original = Nibbles(vec![1, 2, 3, 4, 5]);
-        let encoded = original.encode_hex_prefix(true);
-        let (decoded, is_leaf) = Nibbles::decode_hex_prefix(&encoded);
-        assert!(is_leaf);
-        assert_eq!(decoded.0, original.0);
-    }
 
     #[test]
     fn test_insert_and_get_account() {
@@ -1260,21 +914,6 @@ mod tests {
 
         // Account should be None (exclusion proof)
         assert!(proof.account_state.is_none());
-    }
-
-    #[test]
-    fn test_trie_node_hashing() {
-        let leaf = TrieNode::Leaf {
-            path: Nibbles(vec![1, 2, 3, 4]),
-            value: vec![0xAB, 0xCD],
-        };
-
-        let hash1 = leaf.hash();
-        let hash2 = leaf.hash();
-
-        // Same node should produce same hash
-        assert_eq!(hash1, hash2);
-        assert_ne!(hash1, EMPTY_TRIE_ROOT);
     }
 
     #[test]

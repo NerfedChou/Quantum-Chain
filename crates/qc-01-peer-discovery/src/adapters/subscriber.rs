@@ -70,16 +70,27 @@ pub trait PeerDiscoveryEventSubscriber: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerificationOutcome {
     /// Peer was promoted to routing table.
-    PeerPromoted { node_id: [u8; 32] },
+    PeerPromoted {
+        /// The promoted peer's node ID.
+        node_id: [u8; 32],
+    },
     /// Peer was rejected (invalid signature).
-    PeerRejected { node_id: [u8; 32] },
+    PeerRejected {
+        /// The rejected peer's node ID.
+        node_id: [u8; 32],
+    },
     /// Bucket is full, need to challenge existing peer.
     ChallengeRequired {
+        /// The new peer waiting to be added.
         new_peer: [u8; 32],
+        /// The existing peer being challenged.
         challenged_peer: [u8; 32],
     },
     /// Node was not in pending verification (already processed or unknown).
-    NotFound { node_id: [u8; 32] },
+    NotFound {
+        /// The node ID that was not found.
+        node_id: [u8; 32],
+    },
 }
 
 /// Errors that can occur during event subscription processing.
@@ -88,7 +99,10 @@ pub enum SubscriptionError {
     /// Message failed security validation.
     SecurityViolation(SecurityError),
     /// The event was for an unknown node.
-    UnknownNode { node_id: [u8; 32] },
+    UnknownNode {
+        /// The unknown node's ID.
+        node_id: [u8; 32],
+    },
     /// Processing error.
     ProcessingError(String),
 }

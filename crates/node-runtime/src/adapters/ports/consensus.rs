@@ -22,7 +22,7 @@ use std::sync::Arc;
 #[cfg(feature = "qc-06")]
 use qc_06_mempool::TransactionPool;
 
-use qc_08_consensus::domain::{
+use qc_08_consensus::{ // Layer compliant - imported from crate root
     SignedTransaction, ValidatedBlock, ValidationProof, ValidatorInfo, ValidatorSet,
 };
 use qc_08_consensus::ports::{EventBus, MempoolGateway, SignatureVerifier, ValidatorSetProvider};
@@ -222,8 +222,7 @@ impl Default for ConsensusSignatureAdapter {
 #[cfg(feature = "qc-10")]
 impl SignatureVerifier for ConsensusSignatureAdapter {
     fn verify_ecdsa(&self, message: &[u8], signature: &[u8; 65], _public_key: &[u8; 33]) -> bool {
-        use qc_10_signature_verification::domain::ecdsa::verify_ecdsa;
-        use qc_10_signature_verification::domain::entities::EcdsaSignature;
+        use qc_10_signature_verification::{verify_ecdsa, EcdsaSignature}; // Layer compliant
 
         let mut r = [0u8; 32];
         let mut s = [0u8; 32];
@@ -257,8 +256,7 @@ impl SignatureVerifier for ConsensusSignatureAdapter {
         signature: &[u8; 96],
         public_keys: &[[u8; 48]],
     ) -> bool {
-        use qc_10_signature_verification::domain::bls::verify_bls_aggregate;
-        use qc_10_signature_verification::domain::entities::{BlsPublicKey, BlsSignature};
+        use qc_10_signature_verification::{verify_bls_aggregate, BlsPublicKey, BlsSignature}; // Layer compliant
 
         let mut sig_bytes = [0u8; 48];
         sig_bytes.copy_from_slice(&signature[..48]);
@@ -277,8 +275,7 @@ impl SignatureVerifier for ConsensusSignatureAdapter {
     }
 
     fn recover_signer(&self, message: &[u8], signature: &[u8; 65]) -> Option<[u8; 20]> {
-        use qc_10_signature_verification::domain::ecdsa::recover_address;
-        use qc_10_signature_verification::domain::entities::EcdsaSignature;
+        use qc_10_signature_verification::{recover_address, EcdsaSignature}; // Layer compliant
 
         let mut r = [0u8; 32];
         let mut s = [0u8; 32];

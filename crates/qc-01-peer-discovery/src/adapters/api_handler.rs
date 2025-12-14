@@ -36,12 +36,17 @@ pub struct RpcPeerInfo {
 /// Network info for a peer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcNetworkInfo {
+    /// Local address of our node.
     #[serde(rename = "localAddress")]
     pub local_address: String,
+    /// Remote address of the peer.
     #[serde(rename = "remoteAddress")]
     pub remote_address: String,
+    /// Whether this is an inbound connection.
     pub inbound: bool,
+    /// Whether this peer is trusted.
     pub trusted: bool,
+    /// Whether this is a static node (manually configured).
     #[serde(rename = "static")]
     pub static_node: bool,
 }
@@ -66,25 +71,32 @@ pub struct RpcNodeInfo {
     pub protocols: RpcProtocols,
 }
 
-/// Port info.
+/// Port info for node discovery and listening.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcPorts {
+    /// UDP port for peer discovery protocol.
     pub discovery: u16,
+    /// TCP port for P2P listener.
     pub listener: u16,
 }
 
-/// Protocol info.
+/// Protocol info for supported network protocols.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcProtocols {
+    /// Ethereum protocol information.
     pub eth: RpcEthProtocol,
 }
 
 /// Ethereum protocol info.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcEthProtocol {
+    /// Network ID (e.g., 1 for mainnet).
     pub network: u64,
+    /// Current total difficulty.
     pub difficulty: u64,
+    /// Genesis block hash.
     pub genesis: String,
+    /// Current head block hash.
     pub head: String,
 }
 
@@ -273,7 +285,9 @@ pub fn handle_api_query<S: PeerDiscoveryApi>(
 /// Error type for API query responses (matches shared-bus).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiQueryError {
+    /// JSON-RPC error code.
     pub code: i32,
+    /// Human-readable error message.
     pub message: String,
 }
 
@@ -281,7 +295,7 @@ pub struct ApiQueryError {
 mod tests {
     use super::*;
     use crate::domain::{
-        BanReason, IpAddr, KademliaConfig, PeerDiscoveryError, RoutingTable, RoutingTableStats,
+        BanDetails, BanReason, IpAddr, KademliaConfig, PeerDiscoveryError, RoutingTable, RoutingTableStats,
         SocketAddr, Timestamp,
     };
 
@@ -338,11 +352,10 @@ mod tests {
         fn ban_peer(
             &mut self,
             node_id: NodeId,
-            duration_seconds: u64,
-            reason: BanReason,
+            details: BanDetails,
         ) -> Result<(), PeerDiscoveryError> {
             self.table
-                .ban_peer(node_id, duration_seconds, reason, Timestamp::new(1000))
+                .ban_peer(node_id, details, Timestamp::new(1000))
         }
 
         fn is_banned(&self, node_id: NodeId) -> bool {

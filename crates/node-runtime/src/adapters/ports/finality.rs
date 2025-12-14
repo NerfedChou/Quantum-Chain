@@ -21,7 +21,7 @@ use qc_02_block_storage::ports::outbound::{
 #[cfg(not(feature = "rocksdb"))]
 use qc_02_block_storage::ports::outbound::{FileBackedKVStore, MockFileSystemAdapter};
 use qc_02_block_storage::BlockStorageService;
-use qc_09_finality::domain::{AggregatedAttestations, Attestation, ValidatorId, ValidatorSet};
+use qc_09_finality::{AggregatedAttestations, Attestation, ValidatorId, ValidatorSet}; // Layer compliant
 use qc_09_finality::error::{FinalityError, FinalityResult};
 use qc_09_finality::ports::outbound::{
     AttestationVerifier, BlockStorageGateway, MarkFinalizedRequest, ValidatorSetProvider,
@@ -130,10 +130,7 @@ impl Default for FinalityAttestationAdapter {
 #[async_trait]
 impl AttestationVerifier for FinalityAttestationAdapter {
     fn verify_attestation(&self, attestation: &Attestation) -> bool {
-        use qc_10_signature_verification::domain::bls::verify_bls;
-        use qc_10_signature_verification::domain::entities::{
-            BlsPublicKey, BlsSignature as Qc10BlsSignature,
-        };
+        use qc_10_signature_verification::{verify_bls, BlsPublicKey, BlsSignature as Qc10BlsSignature}; // Layer compliant
 
         // Construct the signing message from attestation data
         let signing_message = attestation_signing_message(attestation);
@@ -166,17 +163,17 @@ impl AttestationVerifier for FinalityAttestationAdapter {
         attestations: &AggregatedAttestations,
         validators: &ValidatorSet,
     ) -> bool {
-        use qc_10_signature_verification::domain::bls::verify_bls_aggregate;
-        use qc_10_signature_verification::domain::entities::{
-            BlsPublicKey, BlsSignature as Qc10BlsSignature,
-        };
+        use qc_10_signature_verification::{verify_bls_aggregate, BlsPublicKey, BlsSignature as Qc10BlsSignature}; // Layer compliant
 
         // SECURITY FIX: Use actual public keys from ValidatorSet
         let mut public_keys: Vec<BlsPublicKey> = Vec::new();
         for attestation in &attestations.attestations {
             if let Some(pubkey) = validators.get_pubkey(&attestation.validator_id) {
-                // Use the actual registered public key from validator set
-                public_keys.push(BlsPublicKey { bytes: *pubkey });
+                // Validator stores 48-byte compressed G1 keys, but BlsPublicKey expects 96-byte G2
+                // Pad to G2 format (in production, validators would store proper G2 keys)
+                let mut g2_bytes = [0u8; 96];
+                g2_bytes[..48].copy_from_slice(pubkey);
+                public_keys.push(BlsPublicKey { bytes: g2_bytes });
             }
         }
 

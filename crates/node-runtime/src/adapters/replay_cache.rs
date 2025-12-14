@@ -16,7 +16,7 @@
 //! - If fresh: insert and process
 
 #[cfg(feature = "qc-07")]
-use qc_07_bloom_filters::domain::cuckoo::CuckooFilter;
+use qc_07_bloom_filters::CuckooFilter; // Layer compliant
 
 use std::time::{Duration, Instant};
 use uuid::Uuid;

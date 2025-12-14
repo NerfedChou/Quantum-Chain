@@ -26,7 +26,7 @@
 //! - fsync on write for durability
 
 use parking_lot::RwLock;
-use qc_02_block_storage::domain::errors::{FSError, KVStoreError};
+use qc_02_block_storage::{FSError, KVStoreError}; // Layer compliant
 use qc_02_block_storage::ports::outbound::{BatchOperation, FileSystemAdapter, KeyValueStore};
 use rocksdb::{ColumnFamilyDescriptor, IteratorMode, Options, WriteBatch, DB};
 use std::path::Path;
@@ -303,7 +303,7 @@ impl FileSystemAdapter for ProductionFileSystemAdapter {
 // State Trie RocksDB Database
 // =============================================================================
 
-use qc_04_state_management::domain::StateError;
+use qc_04_state_management::StateError; // Layer compliant
 use qc_04_state_management::ports::database::{SnapshotStorage, TrieDatabase};
 use shared_types::Hash;
 

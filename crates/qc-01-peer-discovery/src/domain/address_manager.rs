@@ -185,14 +185,77 @@ impl AddressBucket {
         &self.entries
     }
 
-    /// Get a random entry
-    pub fn random_entry(&self) -> Option<&AddressEntry> {
+    /// Get entry at a specific index.
+    ///
+    /// # Security Note
+    ///
+    /// Callers should use a cryptographically random index from `RandomSource`
+    /// to prevent predictable selection (anti-eclipse defense).
+    pub fn get_entry(&self, index: usize) -> Option<&AddressEntry> {
+        self.entries.get(index)
+    }
+
+    /// Get a random entry using an externally-provided random index.
+    ///
+    /// # Arguments
+    ///
+    /// * `random_index` - A random value in range [0, len). Use `RandomSource::random_usize(len)`.
+    ///
+    /// # Security
+    ///
+    /// The `random_index` MUST come from a CSPRNG (`RandomSource`) to prevent
+    /// attackers from predicting peer selection.
+    pub fn random_entry_at(&self, random_index: usize) -> Option<&AddressEntry> {
         if self.entries.is_empty() {
             None
         } else {
-            // Simple deterministic selection for now (can add randomness later)
-            Some(&self.entries[0])
+            // Use modulo to handle out-of-range indices gracefully
+            let safe_index = random_index % self.entries.len();
+            Some(&self.entries[safe_index])
         }
+    }
+
+    /// DEPRECATED: Deterministic entry selection (returns first entry).
+    ///
+    /// Use `random_entry_at()` with a proper random index instead.
+    #[deprecated(note = "Use random_entry_at() with RandomSource for security")]
+    pub fn random_entry(&self) -> Option<&AddressEntry> {
+        self.entries.first()
+    }
+
+    /// Evict the oldest entry (by last_success timestamp) from the bucket.
+    ///
+    /// Returns the evicted entry, or None if bucket is empty.
+    /// This follows the principle: prioritize recently successful connections.
+    pub fn evict_oldest(&mut self) -> Option<AddressEntry> {
+        if self.entries.is_empty() {
+            return None;
+        }
+
+        // Find index of entry with oldest last_success (None is considered oldest)
+        let oldest_idx = self
+            .entries
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                let a_time = a.last_success.map(|t| t.as_secs()).unwrap_or(0);
+                let b_time = b.last_success.map(|t| t.as_secs()).unwrap_or(0);
+                a_time.cmp(&b_time)
+            })
+            .map(|(idx, _)| idx)
+            .unwrap_or(0);
+
+        let entry = self.entries.remove(oldest_idx);
+        let subnet = SubnetKey::from_ip(&entry.peer_info.socket_addr.ip);
+
+        if let Some(count) = self.subnet_counts.get_mut(&subnet) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.subnet_counts.remove(&subnet);
+            }
+        }
+
+        Some(entry)
     }
 }
 
@@ -225,9 +288,11 @@ impl AddressTable {
         self.buckets.iter().map(|b| b.len()).sum()
     }
 
-    /// Check if empty
+    /// Check if empty using short-circuit optimization.
+    ///
+    /// De Morgan's: "all empty" = "not any non-empty"
     pub fn is_empty(&self) -> bool {
-        self.buckets.iter().all(|b| b.is_empty())
+        !self.buckets.iter().any(|b| !b.is_empty())
     }
 
     /// Check if table contains a node
@@ -235,15 +300,49 @@ impl AddressTable {
         self.node_to_bucket.contains_key(node_id)
     }
 
-    /// Get a random entry from the table
-    pub fn random_entry(&self) -> Option<&AddressEntry> {
-        // Simple: iterate buckets and return first non-empty
-        for bucket in &self.buckets {
-            if let Some(entry) = bucket.random_entry() {
-                return Some(entry);
-            }
+    /// Get a random entry from the table using proper randomness.
+    ///
+    /// # Arguments
+    ///
+    /// * `random_fn` - A function that returns a random usize in range [0, max).
+    ///   Should use `RandomSource::random_usize(max)`.
+    ///
+    /// # Security
+    ///
+    /// The random function MUST use CSPRNG to prevent eclipse attacks.
+    pub fn random_entry_with<F>(&self, mut random_fn: F) -> Option<&AddressEntry>
+    where
+        F: FnMut(usize) -> usize,
+    {
+        let total = self.len();
+        if total == 0 {
+            return None;
         }
+
+        // Select a random index across all entries
+        let random_global_idx = random_fn(total);
+
+        // Walk through buckets to find the entry at that global index
+        let mut remaining = random_global_idx;
+        for bucket in &self.buckets {
+            let bucket_len = bucket.len();
+            if remaining < bucket_len {
+                return bucket.get_entry(remaining);
+            }
+            remaining -= bucket_len;
+        }
+
+        // Fallback (shouldn't happen if total is correct)
         None
+    }
+
+    /// DEPRECATED: Get a random entry deterministically (first non-empty bucket).
+    ///
+    /// Use `random_entry_with()` with `RandomSource` for production security.
+    #[deprecated(note = "Use random_entry_with() with RandomSource for security")]
+    #[allow(deprecated)]
+    pub fn random_entry(&self) -> Option<&AddressEntry> {
+        self.buckets.iter().find_map(|bucket| bucket.random_entry())
     }
 }
 
@@ -375,9 +474,20 @@ impl AddressManager {
 
         // Check if bucket can accept
         if !tried_bucket.can_accept(&addr_subnet, &self.config) {
-            // Tried bucket full - evict oldest and still add
-            // For now, just reject (TODO: implement eviction)
-            return Ok(false);
+            // Tried bucket full - evict oldest entry (by last_success) to make room
+            // Per SPEC-01 principle: prioritize recently successful connections
+            let Some(evicted) = tried_bucket.evict_oldest() else {
+                // Bucket empty but can't accept due to subnet limits - reject
+                return Ok(false);
+            };
+            let evicted_subnet = SubnetKey::from_ip(&evicted.peer_info.socket_addr.ip);
+            // Update subnet tracking for evicted entry
+            if let Some(count) = self.tried_table.subnet_totals.get_mut(&evicted_subnet) {
+                *count = count.saturating_sub(1);
+            }
+            self.tried_table
+                .node_to_bucket
+                .remove(&evicted.peer_info.node_id);
         }
 
         tried_bucket.add(entry);
@@ -393,14 +503,42 @@ impl AddressManager {
         Ok(true)
     }
 
-    /// Get a random address from the New table (for Feeler connections)
+    /// Get a random address from the New table (for Feeler connections).
+    ///
+    /// # Security
+    ///
+    /// Consider using `random_new_address_with()` with a `RandomSource` for
+    /// production to prevent predictable peer selection.
+    #[allow(deprecated)]
     pub fn random_new_address(&self) -> Option<&AddressEntry> {
         self.new_table.random_entry()
     }
 
-    /// Get a random address from the Tried table (for outbound connections)
+    /// Get a random address from the Tried table (for outbound connections).
+    ///
+    /// # Security
+    ///
+    /// Consider using `random_tried_address_with()` with a `RandomSource` for
+    /// production to prevent predictable peer selection.
+    #[allow(deprecated)]
     pub fn random_tried_address(&self) -> Option<&AddressEntry> {
         self.tried_table.random_entry()
+    }
+
+    /// Get a random address from New table with proper randomness.
+    pub fn random_new_address_with<F>(&self, random_fn: F) -> Option<&AddressEntry>
+    where
+        F: FnMut(usize) -> usize,
+    {
+        self.new_table.random_entry_with(random_fn)
+    }
+
+    /// Get a random address from Tried table with proper randomness.
+    pub fn random_tried_address_with<F>(&self, random_fn: F) -> Option<&AddressEntry>
+    where
+        F: FnMut(usize) -> usize,
+    {
+        self.tried_table.random_entry_with(random_fn)
     }
 
     /// Get statistics
@@ -464,12 +602,16 @@ pub enum AddressManagerError {
 // STATISTICS
 // =============================================================================
 
-/// Statistics about the address manager
+/// Statistics about the address manager.
 #[derive(Debug, Clone, Default)]
 pub struct AddressManagerStats {
+    /// Number of addresses in the New table.
     pub new_count: usize,
+    /// Number of addresses in the Tried table.
     pub tried_count: usize,
+    /// Number of buckets in the New table.
     pub new_bucket_count: usize,
+    /// Number of buckets in the Tried table.
     pub tried_bucket_count: usize,
 }
 

@@ -339,7 +339,12 @@ pub enum CapabilityData {
     /// Single shard ID
     ShardId(u16),
     /// Range of shards (inclusive)
-    ShardRange { start: u16, end: u16 },
+    ShardRange {
+        /// Start of shard range (inclusive).
+        start: u16,
+        /// End of shard range (inclusive).
+        end: u16,
+    },
     /// Custom data
     Custom(Vec<u8>),
 }

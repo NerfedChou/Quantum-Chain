@@ -38,7 +38,7 @@
 //! ```
 
 use qc_16_api_gateway::adapters::pending::{PendingRequestStore, ResponseError};
-use qc_16_api_gateway::domain::CorrelationId;
+use qc_16_api_gateway::CorrelationId; // Now imported from crate root (layer compliant)
 use shared_bus::{BlockchainEvent, EventFilter, EventTopic, InMemoryEventBus, Subscription};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};

@@ -4,7 +4,7 @@
 //!
 //! Per SPEC-01-PEER-DISCOVERY.md Section 3.1
 
-use crate::domain::{BanReason, NodeId, PeerDiscoveryError, PeerInfo, RoutingTableStats};
+use crate::domain::{BanDetails, NodeId, PeerDiscoveryError, PeerInfo, RoutingTableStats};
 
 /// Primary API for interacting with the peer discovery subsystem.
 ///
@@ -89,8 +89,7 @@ pub trait PeerDiscoveryApi {
     fn ban_peer(
         &mut self,
         node_id: NodeId,
-        duration_seconds: u64,
-        reason: BanReason,
+        details: BanDetails,
     ) -> Result<(), PeerDiscoveryError>;
 
     /// Check if a peer is currently banned.

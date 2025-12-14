@@ -13,7 +13,7 @@ use parking_lot::RwLock;
 use shared_types::Hash;
 use std::sync::Arc;
 
-use qc_05_block_propagation::domain::{PeerId, ShortTxId};
+use qc_05_block_propagation::{PeerId, ShortTxId}; // Layer compliant
 use qc_05_block_propagation::events::PropagationError;
 use qc_05_block_propagation::ports::outbound::{
     ConsensusGateway, MempoolGateway, NetworkMessage, PeerInfo, PeerNetwork, SignatureVerifier,
@@ -196,8 +196,7 @@ impl SignatureVerifier for BlockPropSignatureAdapter {
         proposer_pubkey: &[u8],
         signature: &[u8],
     ) -> Result<bool, PropagationError> {
-        use qc_10_signature_verification::domain::ecdsa::verify_ecdsa;
-        use qc_10_signature_verification::domain::entities::EcdsaSignature;
+        use qc_10_signature_verification::{verify_ecdsa, EcdsaSignature}; // Layer compliant
 
         // Signature must be 65 bytes (r: 32, s: 32, v: 1)
         if signature.len() < 65 {

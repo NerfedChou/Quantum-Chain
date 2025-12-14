@@ -1145,7 +1145,7 @@ mod tests {
     fn test_parallel_threshold_constant() {
         use super::super::value_objects::PARALLEL_THRESHOLD;
 
-        // Compile-time assertions for threshold bounds
+        // Compile-time assertions on constants (clippy::assertions_on_constants)
         const _: () = assert!(PARALLEL_THRESHOLD >= 256);
         const _: () = assert!(PARALLEL_THRESHOLD <= 4096);
     }
