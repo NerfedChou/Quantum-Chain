@@ -112,8 +112,8 @@ fn bench_merkle_tree_operations(c: &mut Criterion) {
 
         for i in (1..next_pow2).rev() {
             let mut hasher = Keccak256::new();
-            hasher.update(&tree[2 * i]);
-            hasher.update(&tree[2 * i + 1]);
+            hasher.update(tree[2 * i]);
+            hasher.update(tree[2 * i + 1]);
             tree[i].copy_from_slice(&hasher.finalize());
         }
 
@@ -141,9 +141,9 @@ fn bench_merkle_tree_operations(c: &mut Criterion) {
             let mut hasher = Keccak256::new();
             if *is_left {
                 hasher.update(sibling);
-                hasher.update(&current);
+                hasher.update(current);
             } else {
-                hasher.update(&current);
+                hasher.update(current);
                 hasher.update(sibling);
             }
             current.copy_from_slice(&hasher.finalize());
@@ -221,7 +221,7 @@ fn bench_patricia_trie_operations(c: &mut Criterion) {
         for (addr, (balance, nonce)) in sorted {
             hasher.update(addr);
             hasher.update(balance);
-            hasher.update(&nonce.to_le_bytes());
+            hasher.update(nonce.to_le_bytes());
         }
 
         let mut result = [0u8; 32];
@@ -319,6 +319,7 @@ fn bench_mempool_operations(c: &mut Criterion) {
             self.by_price.iter().rev().take(n).map(|t| t.hash).collect()
         }
 
+        #[allow(dead_code)]
         fn remove(&mut self, hash: &[u8; 32]) -> bool {
             if let Some((gas_price, _)) = self.by_hash.remove(hash) {
                 self.by_price.remove(&PricedTx {
@@ -414,7 +415,7 @@ fn bench_consensus_operations(c: &mut Criterion) {
         hasher.update(parent);
         hasher.update(tx_root);
         hasher.update(state_root);
-        hasher.update(&height.to_le_bytes());
+        hasher.update(height.to_le_bytes());
 
         let mut result = [0u8; 32];
         result.copy_from_slice(&hasher.finalize());
@@ -486,6 +487,7 @@ fn bench_block_storage_operations(c: &mut Criterion) {
             self.by_height.insert(height, hash);
         }
 
+        #[allow(dead_code)]
         fn get_by_hash(&self, hash: &[u8; 32]) -> Option<&Vec<u8>> {
             self.by_hash.get(hash)
         }

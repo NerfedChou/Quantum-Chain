@@ -344,9 +344,11 @@ mod tests {
         let ours = make_handshake(genesis, 1, 1000, 10000);
         let theirs = make_handshake(genesis, 1, 10, 100); // Way behind
 
-        let mut config = HandshakeConfig::default();
-        config.finalized_height = 500;
-        config.max_behind_blocks = 100;
+        let config = HandshakeConfig {
+            finalized_height: 500,
+            max_behind_blocks: 100,
+            ..Default::default()
+        };
 
         let result = verify_handshake(&ours, &theirs, &config);
         assert_eq!(result, HandshakeResult::Reject(RejectReason::TooFarBehind));
@@ -359,9 +361,11 @@ mod tests {
         let ours = make_handshake(genesis, 1, 1000, 10000);
         let theirs = make_handshake(genesis, 1, 950, 9500); // Slightly behind
 
-        let mut config = HandshakeConfig::default();
-        config.finalized_height = 500;
-        config.max_behind_blocks = 100;
+        let config = HandshakeConfig {
+            finalized_height: 500,
+            max_behind_blocks: 100,
+            ..Default::default()
+        };
 
         let result = verify_handshake(&ours, &theirs, &config);
         assert!(matches!(result, HandshakeResult::Accept(_)));

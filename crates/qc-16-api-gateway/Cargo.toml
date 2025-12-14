@@ -76,3 +76,7 @@ tokio-test = "0.4"
 reqwest = { version = "0.12", features = ["json"] }
 tempfile = "3.14"
 proptest = "1.5"
+
+# cargo-machete false positives: these are used by features, re-exports, or transitive deps
+[package.metadata.cargo-machete]
+ignored = ["chrono", "ethereum-types", "jsonrpsee", "opentelemetry", "opentelemetry-otlp", "pin-project-lite", "prometheus", "shared-types", "tracing-opentelemetry", "tracing-subscriber"]

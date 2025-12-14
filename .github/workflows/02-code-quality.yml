@@ -108,7 +108,9 @@ jobs:
           echo ""
           
           # Core warnings as errors with practical allows
-          cargo clippy --all-targets -- \
+          # Note: qc-compute is excluded here and checked separately (requires unsafe for OpenCL)
+          RUSTFLAGS="-D warnings -D unsafe_code" cargo clippy --all-targets \
+            --exclude qc-compute -- \
             -D warnings \
             -D clippy::correctness \
             -A clippy::unwrap_used \
@@ -146,6 +148,26 @@ jobs:
             echo "✅ No clippy violations"
           else
             echo "❌ Clippy violations found - must fix before merge"
+            exit 1
+          fi
+      
+      - name: Run Clippy on qc-compute (OpenCL requires unsafe)
+        run: |
+          echo "=========================================="
+          echo "Clippy: qc-compute (unsafe allowed for OpenCL)"
+          echo "=========================================="
+          # qc-compute requires unsafe for OpenCL kernel execution
+          # Run with -D warnings but without -D unsafe_code
+          RUSTFLAGS="-D warnings" cargo clippy -p qc-compute --all-targets -- \
+            -D warnings \
+            -D clippy::correctness \
+            -A clippy::unwrap_used \
+            -A clippy::expect_used
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ qc-compute clippy passed"
+          else
+            echo "❌ qc-compute clippy violations found"
             exit 1
           fi
       
