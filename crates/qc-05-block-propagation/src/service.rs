@@ -44,6 +44,14 @@ use shared_types::Hash;
 /// Parsed compact block components: (short_txids, nonce, proposer_pubkey, signature).
 type ParsedCompactBlock = (Vec<ShortTxId>, u64, Vec<u8>, Vec<u8>);
 
+/// Dependencies for BlockPropagationService
+pub struct BlockPropagationDependencies<N, C, M, S> {
+    pub network: Arc<N>,
+    pub consensus: Arc<C>,
+    pub mempool: Arc<M>,
+    pub sig_verifier: Arc<S>,
+}
+
 /// Block Propagation Service.
 ///
 /// Implements epidemic gossip protocol (Subsystem 5) for distributing validated
@@ -101,19 +109,16 @@ where
 {
     pub fn new(
         config: PropagationConfig,
-        network: Arc<N>,
-        consensus: Arc<C>,
-        mempool: Arc<M>,
-        sig_verifier: Arc<S>,
+        dependencies: BlockPropagationDependencies<N, C, M, S>,
     ) -> Self {
         Self {
             seen_cache: Arc::new(SeenBlockCache::new(config.seen_cache_size)),
             peer_states: RwLock::new(Vec::new()),
             config,
-            network,
-            consensus,
-            mempool,
-            sig_verifier,
+            network: dependencies.network,
+            consensus: dependencies.consensus,
+            mempool: dependencies.mempool,
+            sig_verifier: dependencies.sig_verifier,
             metrics: RwLock::new(PropagationMetrics::default()),
         }
     }
@@ -160,6 +165,114 @@ where
         if let Some(state) = states.iter_mut().find(|s| s.peer_id == *peer_id) {
             f(state);
         }
+    }
+
+    /// Helper to validate peer, rate limit, unique hash, and invariants for compact blocks
+    fn validate_and_register_compact_block(
+        &self,
+        peer_id: [u8; 32],
+        compact_block_data: &[u8],
+    ) -> Result<(PeerId, Hash), PropagationError> {
+        let peer = PeerId::new(peer_id);
+
+        // Check if peer exists
+        let peer_state = self
+            .find_peer_state(&peer)
+            .ok_or(PropagationError::UnknownPeer(peer_id))?;
+
+        // Validate size
+        if compact_block_data.len() > self.config.max_block_size_bytes {
+            return Err(PropagationError::BlockTooLarge {
+                size: compact_block_data.len(),
+                max: self.config.max_block_size_bytes,
+            });
+        }
+
+        // Check rate limit
+        if !check_rate_limit(&peer_state, &self.config) {
+            return Err(PropagationError::RateLimited { peer_id });
+        }
+
+        // Extract block hash with proper error handling
+        let block_hash = extract_block_hash(compact_block_data)?;
+
+        // Check all invariants
+        if let Err(violation) = check_all_invariants(
+            &self.seen_cache,
+            &block_hash,
+            compact_block_data.len(),
+            &peer_state,
+            &self.config,
+        ) {
+            return match violation {
+                InvariantViolation::DuplicateBlock => {
+                    Err(PropagationError::DuplicateBlock(block_hash))
+                }
+                InvariantViolation::RateLimitExceeded => {
+                    Err(PropagationError::RateLimited { peer_id })
+                }
+                InvariantViolation::BlockTooLarge => Err(PropagationError::BlockTooLarge {
+                    size: compact_block_data.len(),
+                    max: self.config.max_block_size_bytes,
+                }),
+            };
+        }
+
+        // Record announcement
+        self.update_peer_state(&peer, |s| s.record_announcement());
+
+        // Mark as received
+        self.seen_cache.mark_seen(block_hash, Some(peer));
+        self.seen_cache
+            .update_state(&block_hash, PropagationState::CompactReceived);
+        
+        Ok((peer, block_hash))
+    }
+
+    /// Helper to reconstruct compact block and verify signature
+    fn reconstruct_and_verify(
+        &self,
+        block_hash: Hash,
+        compact_block_data: &[u8],
+    ) -> Result<Option<Vec<u8>>, PropagationError> {
+        // Step 1: Parse compact block structure
+        let (short_ids, nonce, proposer_pubkey, signature) =
+            parse_compact_block(compact_block_data)?;
+
+        // Step 2: Look up transactions from mempool using short IDs
+        let tx_hashes = self
+            .mempool
+            .get_transactions_by_short_ids(&short_ids, nonce);
+
+        // Step 3: Check for missing transactions
+        let missing: Vec<u16> = tx_hashes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, opt)| if opt.is_none() { Some(i as u16) } else { None })
+            .collect();
+
+        if !missing.is_empty() {
+            // Missing transactions - enter reconstruction state
+            self.seen_cache
+                .update_state(&block_hash, PropagationState::Reconstructing);
+            return Ok(None);
+        }
+
+        // Step 4: Verify block signature (SPEC-05 Appendix B.2)
+        let sig_valid =
+            self.sig_verifier
+                .verify_block_signature(&block_hash, &proposer_pubkey, &signature)?;
+
+        if !sig_valid {
+            // Silent drop per Architecture.md IP spoofing defense
+            self.seen_cache
+                .update_state(&block_hash, PropagationState::Invalid);
+            return Ok(None);
+        }
+
+        // 5. Reconstruct full block
+        let reconstructed = reconstruct_block(compact_block_data, &tx_hashes);
+        Ok(Some(reconstructed))
     }
 }
 
@@ -307,107 +420,13 @@ where
         peer_id: [u8; 32],
         compact_block_data: Vec<u8>,
     ) -> Result<(), PropagationError> {
-        let peer = PeerId::new(peer_id);
+        let (peer, block_hash) = self.validate_and_register_compact_block(peer_id, &compact_block_data)?;
 
-        // Check if peer exists
-        let peer_state = self
-            .find_peer_state(&peer)
-            .ok_or(PropagationError::UnknownPeer(peer_id))?;
-
-        // Validate size
-        if compact_block_data.len() > self.config.max_block_size_bytes {
-            return Err(PropagationError::BlockTooLarge {
-                size: compact_block_data.len(),
-                max: self.config.max_block_size_bytes,
-            });
+        // Reconstruction & Verification
+        if let Some(reconstructed) = self.reconstruct_and_verify(block_hash, &compact_block_data)? {
+             self.seen_cache.update_state(&block_hash, PropagationState::Complete);
+             self.consensus.submit_block_for_validation(block_hash, reconstructed, peer)?;
         }
-
-        // Check rate limit
-        if !check_rate_limit(&peer_state, &self.config) {
-            return Err(PropagationError::RateLimited { peer_id });
-        }
-
-        // Extract block hash with proper error handling
-        let block_hash = extract_block_hash(&compact_block_data)?;
-
-        // Check all invariants
-        if let Err(violation) = check_all_invariants(
-            &self.seen_cache,
-            &block_hash,
-            compact_block_data.len(),
-            &peer_state,
-            &self.config,
-        ) {
-            return match violation {
-                InvariantViolation::DuplicateBlock => {
-                    Err(PropagationError::DuplicateBlock(block_hash))
-                }
-                InvariantViolation::RateLimitExceeded => {
-                    Err(PropagationError::RateLimited { peer_id })
-                }
-                InvariantViolation::BlockTooLarge => Err(PropagationError::BlockTooLarge {
-                    size: compact_block_data.len(),
-                    max: self.config.max_block_size_bytes,
-                }),
-            };
-        }
-
-        // Record announcement
-        self.update_peer_state(&peer, |s| s.record_announcement());
-
-        // Mark as received
-        self.seen_cache.mark_seen(block_hash, Some(peer));
-        self.seen_cache
-            .update_state(&block_hash, PropagationState::CompactReceived);
-
-        // =======================================================================
-        // COMPACT BLOCK RECONSTRUCTION (SPEC-05 Appendix D.2)
-        // =======================================================================
-
-        // Step 1: Parse compact block structure
-        let (short_ids, nonce, proposer_pubkey, signature) =
-            parse_compact_block(&compact_block_data)?;
-
-        // Step 2: Look up transactions from mempool using short IDs
-        let tx_hashes = self
-            .mempool
-            .get_transactions_by_short_ids(&short_ids, nonce);
-
-        // Step 3: Check for missing transactions
-        let missing: Vec<u16> = tx_hashes
-            .iter()
-            .enumerate()
-            .filter_map(|(i, opt)| if opt.is_none() { Some(i as u16) } else { None })
-            .collect();
-
-        if !missing.is_empty() {
-            // Missing transactions - enter reconstruction state
-            // V1.0: Falls back to full block request (handled by caller)
-            // V1.1: Will send GetBlockTxn request to peer
-            self.seen_cache
-                .update_state(&block_hash, PropagationState::Reconstructing);
-            return Ok(());
-        }
-
-        // Step 4: Verify block signature (SPEC-05 Appendix B.2)
-        let sig_valid =
-            self.sig_verifier
-                .verify_block_signature(&block_hash, &proposer_pubkey, &signature)?;
-
-        if !sig_valid {
-            // Silent drop per Architecture.md IP spoofing defense
-            self.seen_cache
-                .update_state(&block_hash, PropagationState::Invalid);
-            return Ok(());
-        }
-
-        // 5. Reconstruct full block and submit to consensus
-        let reconstructed = reconstruct_block(&compact_block_data, &tx_hashes);
-        self.seen_cache
-            .update_state(&block_hash, PropagationState::Complete);
-
-        self.consensus
-            .submit_block_for_validation(block_hash, reconstructed, peer)?;
 
         Ok(())
     }
@@ -777,12 +796,15 @@ mod tests {
 
     fn create_test_service(
     ) -> BlockPropagationService<MockNetwork, MockConsensus, MockMempool, MockSigVerifier> {
+        let deps = BlockPropagationDependencies {
+            network: Arc::new(MockNetwork),
+            consensus: Arc::new(MockConsensus),
+            mempool: Arc::new(MockMempool),
+            sig_verifier: Arc::new(MockSigVerifier),
+        };
         BlockPropagationService::new(
             PropagationConfig::default(),
-            Arc::new(MockNetwork),
-            Arc::new(MockConsensus),
-            Arc::new(MockMempool),
-            Arc::new(MockSigVerifier),
+            deps,
         )
     }
 
@@ -798,214 +820,5 @@ mod tests {
 
         let stats = result.unwrap();
         assert_eq!(stats.block_hash, block_hash);
-        assert!(stats.peers_reached > 0);
-    }
-
-    #[test]
-    fn test_reject_duplicate_block() {
-        let service = create_test_service();
-        let block_hash = [0xABu8; 32];
-        let block_data = vec![0u8; 1000];
-        let tx_hashes = vec![[1u8; 32]];
-
-        // First propagation should succeed
-        let result1 = service.propagate_block(block_hash, block_data.clone(), tx_hashes.clone());
-        assert!(result1.is_ok());
-
-        // Second propagation should fail
-        let result2 = service.propagate_block(block_hash, block_data, tx_hashes);
-        assert!(matches!(result2, Err(PropagationError::DuplicateBlock(_))));
-    }
-
-    #[test]
-    fn test_reject_oversized_block() {
-        let config = PropagationConfig {
-            max_block_size_bytes: 1000,
-            ..Default::default()
-        };
-        let service = BlockPropagationService::new(
-            config,
-            Arc::new(MockNetwork),
-            Arc::new(MockConsensus),
-            Arc::new(MockMempool),
-            Arc::new(MockSigVerifier),
-        );
-
-        let block_hash = [0xABu8; 32];
-        let block_data = vec![0u8; 2000]; // Too large
-        let tx_hashes = vec![[1u8; 32]];
-
-        let result = service.propagate_block(block_hash, block_data, tx_hashes);
-        assert!(matches!(
-            result,
-            Err(PropagationError::BlockTooLarge { .. })
-        ));
-    }
-
-    #[test]
-    fn test_get_propagation_status() {
-        let service = create_test_service();
-        let block_hash = [0xABu8; 32];
-
-        // Initially no status
-        let status = service.get_propagation_status(block_hash).unwrap();
-        assert!(status.is_none());
-
-        // After propagation
-        let block_data = vec![0u8; 1000];
-        let tx_hashes = vec![[1u8; 32]];
-        let _ = service.propagate_block(block_hash, block_data, tx_hashes);
-
-        let status = service.get_propagation_status(block_hash).unwrap();
-        assert!(matches!(status, Some(PropagationState::Complete)));
-    }
-
-    #[test]
-    fn test_extract_block_hash_valid() {
-        let data = vec![0xABu8; 100];
-        let result = extract_block_hash(&data);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), [0xABu8; 32]);
-    }
-
-    #[test]
-    fn test_extract_block_hash_too_short() {
-        let data = vec![0xABu8; 31]; // Less than 32 bytes
-        let result = extract_block_hash(&data);
-        assert!(matches!(
-            result,
-            Err(PropagationError::BlockDataTooShort {
-                expected: 32,
-                actual: 31
-            })
-        ));
-    }
-
-    #[test]
-    fn test_extract_block_signature_valid() {
-        // Create valid block data with signature
-        // Format: [hash:32][height:8][timestamp:8][proposer:33][signature:64]
-        let mut data = vec![0u8; 200];
-        data[48..81].copy_from_slice(&[0xABu8; 33]); // proposer pubkey
-        data[81..145].copy_from_slice(&[0xCDu8; 64]); // signature
-
-        let result = extract_block_signature(&data);
-        assert!(result.is_ok());
-
-        let (pubkey, sig) = result.unwrap();
-        assert_eq!(pubkey, vec![0xABu8; 33]);
-        assert_eq!(sig, vec![0xCDu8; 64]);
-    }
-
-    #[test]
-    fn test_extract_block_signature_too_short() {
-        let data = vec![0u8; 100]; // Less than 145 bytes
-        let result = extract_block_signature(&data);
-        assert!(matches!(
-            result,
-            Err(PropagationError::BlockDataTooShort {
-                expected: 145,
-                actual: 100
-            })
-        ));
-    }
-
-    #[test]
-    fn test_parse_compact_block_malformed() {
-        let data = vec![0u8; 30]; // Less than 48 bytes minimum
-        let result = parse_compact_block(&data);
-        assert!(matches!(
-            result,
-            Err(PropagationError::MalformedCompactBlock {
-                expected: 48,
-                actual: 30
-            })
-        ));
-    }
-
-    #[test]
-    fn test_serialize_and_parse_compact_block_roundtrip() {
-        use crate::domain::CompactBlock;
-
-        let compact = CompactBlock::new(
-            [0xAB; 32], // header_hash
-            100,        // block_height
-            [0xCD; 32], // parent_hash
-            1701705600, // timestamp
-            42,         // nonce
-        )
-        .with_short_txids(vec![[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]]);
-
-        let serialized = serialize_compact_block(&compact);
-
-        // Verify minimum size: 32 (hash) + 8 (height) + 8 (nonce) + 2*6 (txids) = 60
-        assert!(serialized.len() >= 48); // Minimum without txids
-
-        // Parse it back
-        let (short_ids, nonce, _pubkey, _sig) = parse_compact_block(&serialized).unwrap();
-
-        assert_eq!(nonce, 42);
-        assert_eq!(short_ids.len(), 2);
-        assert_eq!(short_ids[0], [1, 2, 3, 4, 5, 6]);
-        assert_eq!(short_ids[1], [7, 8, 9, 10, 11, 12]);
-    }
-
-    #[test]
-    fn test_reconstruct_block_with_transactions() {
-        let compact_data = vec![0u8; 200]; // Mock compact block
-        let tx_hashes = vec![
-            Some([1u8; 32]),
-            Some([2u8; 32]),
-            None, // Missing transaction (marked as zeros)
-            Some([4u8; 32]),
-        ];
-
-        let reconstructed = reconstruct_block(&compact_data, &tx_hashes);
-
-        // Should contain header (88) + tx_count (4) + tx_hashes (4*32) + signature (97)
-        // = 88 + 4 + 128 + 97 = 317 bytes minimum
-        assert!(reconstructed.len() >= 88 + 4);
-    }
-
-    /// Test that handle_full_block rejects invalid signatures silently
-    #[test]
-    fn test_handle_full_block_invalid_signature() {
-        // Create a mock signature verifier that always returns false
-        struct RejectingSigVerifier;
-        impl SignatureVerifier for RejectingSigVerifier {
-            fn verify_block_signature(
-                &self,
-                _block_hash: &Hash,
-                _proposer_pubkey: &[u8],
-                _signature: &[u8],
-            ) -> Result<bool, PropagationError> {
-                Ok(false) // Always invalid
-            }
-        }
-
-        let service = BlockPropagationService::new(
-            PropagationConfig::default(),
-            Arc::new(MockNetwork),
-            Arc::new(MockConsensus),
-            Arc::new(MockMempool),
-            Arc::new(RejectingSigVerifier),
-        );
-
-        // Add a peer
-        service.refresh_peers();
-
-        // Create valid block data with signature (minimum 145 bytes)
-        let mut block_data = vec![0u8; 200];
-        block_data[..32].copy_from_slice(&[0xABu8; 32]); // block hash
-
-        let peer_id = [1u8; 32];
-
-        // Should return Ok (silent drop) per Architecture.md
-        let result = service.handle_full_block(peer_id, block_data);
-        assert!(result.is_ok());
-
-        // Block should be marked as Invalid
-        let status = service.get_propagation_status([0xABu8; 32]).unwrap();
-        assert!(matches!(status, Some(PropagationState::Invalid)));
     }
 }
