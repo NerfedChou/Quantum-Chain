@@ -42,3 +42,7 @@ proptest = "1.5"
 default = []
 # Future: ASIC-resistant PoW algorithms
 asic-resistant = []
+
+[package.metadata.cargo-machete]
+# serde_bytes is used via #[serde(with = "serde_bytes")] attribute
+ignored = ["serde_bytes"]

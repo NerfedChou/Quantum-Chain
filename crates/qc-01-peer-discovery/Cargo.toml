@@ -63,3 +63,7 @@ toml = { version = "0.8", optional = true }
 [dev-dependencies]
 # Testing utilities (always available for tests)
 tokio = { workspace = true, features = ["rt", "macros", "time"] }
+
+# cargo-machete false positives: tokio is used via the network feature
+[package.metadata.cargo-machete]
+ignored = ["tokio"]
