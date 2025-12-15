@@ -114,6 +114,8 @@ pub mod ipc;
 pub mod metrics;
 pub mod ports;
 pub mod service;
+pub mod state;
+pub mod types;
 
 pub use domain::proof::FinalityProof;
 pub use domain::{
@@ -130,7 +132,8 @@ pub use ports::inbound::{AttestationResult, FinalityApi};
 pub use ports::outbound::{
     AttestationVerifier, BlockStorageGateway, MarkFinalizedRequest, ValidatorSetProvider,
 };
-pub use service::{FinalityConfig, FinalityService};
+pub use service::FinalityService;
+pub use types::FinalityConfig;
 
 // Adapter exports
 pub use adapters::BLSAttestationVerifier;

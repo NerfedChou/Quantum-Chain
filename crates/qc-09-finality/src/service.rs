@@ -24,6 +24,9 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::state::FinalityServiceState;
+use crate::types::{FinalityConfig, OffenseContext, SlashableOffense, SlashableOffenseType};
+
 /// Aggregate BLS signatures from multiple attestations
 ///
 /// In a production implementation, this would use proper BLS signature
@@ -53,146 +56,9 @@ fn aggregate_bls_signatures(attestations: &[Attestation]) -> BlsSignature {
     BlsSignature::new(aggregated)
 }
 
-/// Slashable offense detected during attestation processing
-#[derive(Clone, Debug)]
-pub struct SlashableOffense {
-    pub validator_id: ValidatorId,
-    pub offense_type: SlashableOffenseType,
-    pub attestation1: Attestation,
-    pub attestation2: Attestation,
-    pub detected_epoch: u64,
-}
 
-/// Type of slashable offense
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SlashableOffenseType {
-    /// Same target epoch, different target block
-    DoubleVote,
-    /// One attestation surrounds another
-    SurroundVote,
-}
 
-/// Finality configuration
-#[derive(Clone, Debug)]
-pub struct FinalityConfig {
-    /// Blocks per epoch (checkpoint interval)
-    pub epoch_length: u64,
-    /// Required attestation percentage for justification
-    pub justification_threshold_percent: u8,
-    /// Maximum sync attempts before halt
-    pub max_sync_attempts: u8,
-    /// Sync attempt timeout (seconds)
-    pub sync_timeout_secs: u64,
-    /// Inactivity leak start (epochs without finality)
-    pub inactivity_leak_epochs: u64,
-    /// Inactivity leak rate per epoch (basis points, 100 = 1%)
-    /// Applied to inactive validators when leak is active
-    pub inactivity_leak_rate_bps: u32,
-    /// Always re-verify signatures (zero-trust)
-    pub always_reverify_signatures: bool,
-}
 
-impl Default for FinalityConfig {
-    fn default() -> Self {
-        Self {
-            epoch_length: 32,
-            justification_threshold_percent: 67,
-            max_sync_attempts: 3,
-            sync_timeout_secs: 60,
-            inactivity_leak_epochs: 4,
-            inactivity_leak_rate_bps: 100, // 1% per epoch
-            always_reverify_signatures: true,
-        }
-    }
-}
-
-/// Internal state for finality tracking
-struct FinalityServiceState {
-    /// Circuit breaker for livelock prevention
-    circuit_breaker: CircuitBreaker,
-    /// Checkpoints by epoch
-    checkpoints: HashMap<u64, Checkpoint>,
-    /// Aggregated attestations by checkpoint
-    attestations: HashMap<CheckpointId, AggregatedAttestations>,
-    /// Finalized block hashes
-    finalized_blocks: HashMap<Hash, u64>,
-    /// Last finalized checkpoint
-    last_finalized: Option<Checkpoint>,
-    /// Last justified checkpoint
-    last_justified: Option<Checkpoint>,
-    /// Current epoch
-    current_epoch: u64,
-    /// Current head height
-    current_height: u64,
-    /// Epochs since last finality (for inactivity leak)
-    epochs_without_finality: u64,
-    /// Attestation history for slashing detection (validator_id -> attestations)
-    /// Uses VecDeque for O(1) removal from front when pruning old entries
-    attestation_history: HashMap<[u8; 32], VecDeque<Attestation>>,
-    /// Detected slashable offenses
-    slashable_offenses: Vec<SlashableOffense>,
-    /// Pending slashing events to be emitted
-    pending_slashing_events: Vec<SlashableOffenseDetectedEvent>,
-    /// Pending inactivity leak events
-    pending_inactivity_events: Vec<InactivityLeakTriggeredEvent>,
-    /// Maximum checkpoints to retain (pruning threshold)
-    max_checkpoints: usize,
-}
-
-impl FinalityServiceState {
-    fn new() -> Self {
-        Self {
-            circuit_breaker: CircuitBreaker::new(),
-            checkpoints: HashMap::new(),
-            attestations: HashMap::new(),
-            finalized_blocks: HashMap::new(),
-            last_finalized: None,
-            last_justified: None,
-            current_epoch: 0,
-            current_height: 0,
-            epochs_without_finality: 0,
-            attestation_history: HashMap::new(),
-            slashable_offenses: Vec::new(),
-            pending_slashing_events: Vec::new(),
-            pending_inactivity_events: Vec::new(),
-            max_checkpoints: 128, // Keep ~4 epochs worth at 32 blocks/epoch
-        }
-    }
-
-    /// Check if inactivity leak should be triggered
-    /// Reference: SPEC-09-FINALITY.md - inactivity_leak_epochs
-    fn is_inactivity_leak_active(&self, config: &FinalityConfig) -> bool {
-        self.epochs_without_finality >= config.inactivity_leak_epochs
-    }
-
-    /// Prune old checkpoints to prevent unbounded memory growth
-    /// Keeps only the most recent max_checkpoints entries
-    fn prune_old_checkpoints(&mut self) {
-        if self.checkpoints.len() <= self.max_checkpoints {
-            return;
-        }
-
-        // Find the minimum epoch to keep
-        let last_finalized_epoch = self.last_finalized.as_ref().map(|c| c.epoch).unwrap_or(0);
-        let min_keep_epoch = last_finalized_epoch.saturating_sub(2); // Keep 2 epochs before finalized
-
-        // Remove old checkpoints
-        self.checkpoints.retain(|epoch, _| *epoch >= min_keep_epoch);
-
-        // Also prune attestations for removed checkpoints
-        self.attestations.retain(|id, _| id.epoch >= min_keep_epoch);
-    }
-
-    /// Take and clear pending slashing events
-    fn take_slashing_events(&mut self) -> Vec<SlashableOffenseDetectedEvent> {
-        std::mem::take(&mut self.pending_slashing_events)
-    }
-
-    /// Take and clear pending inactivity events
-    fn take_inactivity_events(&mut self) -> Vec<InactivityLeakTriggeredEvent> {
-        std::mem::take(&mut self.pending_inactivity_events)
-    }
-}
 
 /// Finality Service implementation
 ///
@@ -269,21 +135,7 @@ where
         Ok(Some(stake))
     }
 
-    /// Record attestation in history for slashing detection
-    /// Uses VecDeque for O(1) removal from front when pruning
-    fn record_attestation(&self, state: &mut FinalityServiceState, attestation: &Attestation) {
-        let history = state
-            .attestation_history
-            .entry(attestation.validator_id.0)
-            .or_default();
 
-        // Keep only recent attestations (last 2 epochs worth)
-        const MAX_HISTORY: usize = 64;
-        while history.len() >= MAX_HISTORY {
-            history.pop_front(); // O(1) removal from front
-        }
-        history.push_back(attestation.clone()); // O(1) insertion at back
-    }
 
     /// Check for slashable conditions and record offense if found
     ///
@@ -309,7 +161,12 @@ where
         // Now handle the conflict with mutable access
         if let Some(conflicting) = conflict {
             let current_epoch = attestation.target_checkpoint.epoch;
-            self.record_slashable_offense(&mut state, attestation, &conflicting, current_epoch);
+            let ctx = OffenseContext {
+                attestation,
+                conflicting: &conflicting,
+                current_epoch,
+            };
+            self.record_slashable_offense(&mut state, ctx);
             return Err(FinalityError::ConflictingAttestation);
         }
 
@@ -326,10 +183,11 @@ where
     fn record_slashable_offense(
         &self,
         state: &mut FinalityServiceState,
-        attestation: &Attestation,
-        conflicting: &Attestation,
-        current_epoch: u64,
+        ctx: OffenseContext,
     ) {
+        let attestation = ctx.attestation;
+        let conflicting = ctx.conflicting;
+        let current_epoch = ctx.current_epoch;
         let offense_type =
             if attestation.target_checkpoint.epoch == conflicting.target_checkpoint.epoch {
                 SlashableOffenseType::DoubleVote
@@ -464,23 +322,114 @@ where
         self.block_storage.mark_finalized(request).await
     }
 
-    /// Get or create checkpoint for epoch
-    fn get_or_create_checkpoint(
-        &self,
-        state: &mut FinalityServiceState,
-        epoch: u64,
-        block_hash: Hash,
-        block_height: u64,
-        total_stake: u128,
-    ) -> Checkpoint {
-        state
-            .checkpoints
-            .entry(epoch)
-            .or_insert_with(|| {
-                Checkpoint::new(epoch, block_hash, block_height).with_total_stake(total_stake)
-            })
-            .clone()
+    /// Check for finalization and update state accordingly
+    async fn check_and_process_finalization(&self, current_epoch: u64) -> Option<Checkpoint> {
+        let mut state = self.state.write();
+
+        if let Some(finalized) = self.check_finalization(&mut state) {
+            // Reset inactivity counter on successful finalization
+            state.epochs_without_finality = 0;
+
+            // Update circuit breaker
+            state
+                .circuit_breaker
+                .process_event(FinalityEvent::FinalityAchieved);
+
+            // Prune old checkpoints
+            state.prune_old_checkpoints();
+
+            Some(finalized)
+        } else {
+            // Track epochs without finality
+            if state.current_epoch != current_epoch {
+                state.current_epoch = current_epoch;
+                state.epochs_without_finality += 1;
+
+                // Check if inactivity leak should trigger
+                if state.is_inactivity_leak_active(&self.config) {
+                    tracing::warn!(
+                        "INACTIVITY LEAK ACTIVE: {} epochs without finality (leak rate: {} bps)",
+                        state.epochs_without_finality,
+                        self.config.inactivity_leak_rate_bps
+                    );
+
+                    // Create inactivity leak event for enforcement
+                    let leak_event = InactivityLeakTriggeredEvent::new(
+                        current_epoch,
+                        state.epochs_without_finality,
+                        self.config.inactivity_leak_rate_bps,
+                    );
+                    state.pending_inactivity_events.push(leak_event);
+                }
+            }
+            None
+        }
     }
+
+    /// Process a batch of attestations
+    async fn process_attestation_batch(
+        &self,
+        attestations: &[Attestation],
+        validators: &ValidatorSet,
+    ) -> (usize, usize, Option<Checkpoint>) {
+        let mut accepted = 0;
+        let mut rejected = 0;
+        let mut new_justified = None;
+
+        for attestation in attestations {
+            match self.process_attestation_update(attestation, validators).await {
+                Ok(Some(cp)) => {
+                    accepted += 1;
+                    new_justified = Some(cp);
+                }
+                Ok(None) => accepted += 1,
+                Err(_) => rejected += 1,
+            }
+        }
+
+        (accepted, rejected, new_justified)
+    }
+
+    /// Process update for a single attestation
+    /// Returns: Ok(Some(Checkpoint)) if justified, Ok(None) if accepted but not justified, Err if rejected
+    async fn process_attestation_update(
+        &self,
+        attestation: &Attestation,
+        validators: &ValidatorSet,
+    ) -> Result<Option<Checkpoint>, ()> {
+        // Pre-validate
+        let stake = match self.process_single_attestation(attestation, validators).await {
+            Ok(Some(s)) => s,
+            _ => return Err(()),
+        };
+
+        // Apply to state
+        let mut state = self.state.write();
+        let (was_accepted, justified_checkpoint) =
+            state.apply_attestation(attestation, validators, stake);
+
+        if was_accepted {
+            Ok(justified_checkpoint)
+        } else {
+            Err(())
+        }
+    }
+
+    /// Handle finalization notification and failure fallback
+    async fn handle_finalization_notification(&self, finalized: &Checkpoint) {
+        if let Err(e) = self.notify_finalization(finalized).await {
+            tracing::error!("Failed to notify finalization: {:?}", e);
+
+            let mut state = self.state.write();
+            state
+                .circuit_breaker
+                .process_event(FinalityEvent::FinalityFailed);
+        }
+    }
+
+
+
+
 }
 
 #[async_trait]
@@ -506,11 +455,6 @@ where
             return Ok(AttestationResult::empty());
         }
 
-        let mut accepted = 0usize;
-        let mut rejected = 0usize;
-        let mut new_justified = None;
-        let mut new_finalized = None;
-
         // Get epoch from first attestation
         let epoch = attestations[0].target_checkpoint.epoch;
 
@@ -519,128 +463,17 @@ where
             .validator_provider
             .get_validator_set_at_epoch(epoch)
             .await?;
-        let total_stake = validators.total_stake();
 
-        // Process each attestation
-        for attestation in &attestations {
-            match self
-                .process_single_attestation(attestation, &validators)
-                .await
-            {
-                Ok(Some(stake)) => {
-                    let mut state = self.state.write();
-
-                    // Record attestation for slashing detection
-                    self.record_attestation(&mut state, attestation);
-
-                    // Get or create checkpoint
-                    let target = &attestation.target_checkpoint;
-                    let _checkpoint = self.get_or_create_checkpoint(
-                        &mut state,
-                        target.epoch,
-                        target.block_hash,
-                        0, // Height unknown from attestation
-                        total_stake,
-                    );
-
-                    // Get or create aggregated attestations
-                    let agg = state.attestations.entry(*target).or_insert_with(|| {
-                        AggregatedAttestations::new(
-                            attestation.source_checkpoint,
-                            *target,
-                            validators.len(),
-                        )
-                    });
-
-                    // Check if already attested
-                    if let Some(idx) = validators.get_index(&attestation.validator_id) {
-                        if !agg.has_attested(idx) {
-                            agg.add_attestation(attestation.clone(), idx, stake);
-
-                            // Update checkpoint stake and check justification
-                            let target_epoch = target.epoch;
-                            let (justified, cp_clone) =
-                                if let Some(cp) = state.checkpoints.get_mut(&target_epoch) {
-                                    cp.add_attestation_stake(stake);
-                                    let is_justified = cp.try_justify();
-                                    (is_justified, Some(cp.clone()))
-                                } else {
-                                    (false, None)
-                                };
-
-                            if justified {
-                                if let Some(cp) = cp_clone {
-                                    state.last_justified = Some(cp.clone());
-                                    new_justified = Some(cp);
-                                }
-                            }
-
-                            accepted += 1;
-                        } else {
-                            rejected += 1; // Duplicate attestation
-                        }
-                    } else {
-                        rejected += 1;
-                    }
-                }
-                Ok(None) => rejected += 1,
-                Err(_) => rejected += 1,
-            }
-        }
+        // Process batch
+        let (accepted, rejected, new_justified) =
+            self.process_attestation_batch(&attestations, &validators).await;
 
         // Check for finalization
-        {
-            let mut state = self.state.write();
-            if let Some(finalized) = self.check_finalization(&mut state) {
-                new_finalized = Some(finalized);
-
-                // Reset inactivity counter on successful finalization
-                state.epochs_without_finality = 0;
-
-                // Update circuit breaker
-                state
-                    .circuit_breaker
-                    .process_event(FinalityEvent::FinalityAchieved);
-
-                // Prune old checkpoints to prevent unbounded memory growth
-                state.prune_old_checkpoints();
-            } else {
-                // Track epochs without finality
-                let current_epoch = epoch;
-                if state.current_epoch != current_epoch {
-                    state.current_epoch = current_epoch;
-                    state.epochs_without_finality += 1;
-
-                    // Check if inactivity leak should trigger
-                    if state.is_inactivity_leak_active(&self.config) {
-                        tracing::warn!(
-                            "INACTIVITY LEAK ACTIVE: {} epochs without finality (leak rate: {} bps)",
-                            state.epochs_without_finality,
-                            self.config.inactivity_leak_rate_bps
-                        );
-
-                        // Create inactivity leak event for enforcement
-                        let leak_event = InactivityLeakTriggeredEvent::new(
-                            current_epoch,
-                            state.epochs_without_finality,
-                            self.config.inactivity_leak_rate_bps,
-                        );
-                        state.pending_inactivity_events.push(leak_event);
-                    }
-                }
-            }
-        }
+        let new_finalized = self.check_and_process_finalization(epoch).await;
 
         // Notify block storage if finalized
         if let Some(ref finalized) = new_finalized {
-            if let Err(e) = self.notify_finalization(finalized).await {
-                tracing::error!("Failed to notify finalization: {:?}", e);
-
-                let mut state = self.state.write();
-                state
-                    .circuit_breaker
-                    .process_event(FinalityEvent::FinalityFailed);
-            }
+            self.handle_finalization_notification(finalized).await;
         }
 
         // Collect pending events
@@ -658,6 +491,8 @@ where
             inactivity_events,
         })
     }
+
+
 
     async fn is_finalized(&self, block_hash: Hash) -> bool {
         self.state.read().finalized_blocks.contains_key(&block_hash)
@@ -829,61 +664,76 @@ mod tests {
         }
     }
 
-    fn create_test_service(
-    ) -> FinalityService<MockBlockStorage, MockVerifier, MockValidatorProvider> {
-        FinalityService::new(
+    fn create_test_service() -> (
+        FinalityService<MockBlockStorage, MockVerifier, MockValidatorProvider>,
+        Arc<MockBlockStorage>,
+        Arc<MockVerifier>,
+    ) {
+        let block_storage = Arc::new(MockBlockStorage::new());
+        let verifier = Arc::new(MockVerifier::new(true));
+        
+        let service = FinalityService::new(
             FinalityConfig::default(),
-            Arc::new(MockBlockStorage::new()),
-            Arc::new(MockVerifier::new(true)),
+            block_storage.clone(),
+            verifier.clone(),
             Arc::new(MockValidatorProvider::new(100, 100)),
-        )
+        );
+        (service, block_storage, verifier)
     }
 
-    #[tokio::test]
-    async fn test_circuit_breaker_halted_blocks_processing() {
-        let service = create_test_service();
+    fn create_test_attestation(epoch: u64, _block_height: u64) -> Attestation {
+        let source_checkpoint = CheckpointId {
+            epoch,
+            block_hash: [0; 32],
+        };
+        let target_checkpoint = CheckpointId {
+            epoch: epoch + 1,
+            block_hash: [0; 32],
+        };
+        
+        Attestation {
+            source_checkpoint,
+            target_checkpoint,
+            signature: crate::domain::BlsSignature::new(vec![0; 96]),
+            validator_id: crate::domain::ValidatorId([0; 32]),
+            slot: 0,
+        }
+    }
 
-        // Force halted state
-        {
-            let mut state = service.state.write();
+    async fn setup_halted_state(
+        service: &FinalityService<MockBlockStorage, MockVerifier, MockValidatorProvider>,
+    ) {
+        let mut state = service.state.write();
+        state
+            .circuit_breaker
+            .process_event(FinalityEvent::FinalityFailed);
+        // Do it enough times to trip (default might be 10 or more)
+        for _ in 0..20 {
             state
                 .circuit_breaker
                 .process_event(FinalityEvent::FinalityFailed);
             state
                 .circuit_breaker
                 .process_event(FinalityEvent::SyncFailed);
-            state
-                .circuit_breaker
-                .process_event(FinalityEvent::SyncFailed);
-            state
-                .circuit_breaker
-                .process_event(FinalityEvent::SyncFailed);
         }
+        assert!(state.circuit_breaker.is_halted());
+    }
 
-        let result = service.process_attestations(vec![]).await;
+    #[tokio::test]
+    async fn test_circuit_breaker_halted_blocks_processing() {
+        let (service, _store, _verifier) = create_test_service();
+        setup_halted_state(&service).await;
+
+        let attestation = create_test_attestation(1, 1);
+        let result = service.process_attestations(vec![attestation]).await;
+
         assert!(matches!(result, Err(FinalityError::SystemHalted)));
     }
 
     #[tokio::test]
     async fn test_reset_from_halted() {
-        let service = create_test_service();
-
-        // Force halted state
-        {
-            let mut state = service.state.write();
-            state
-                .circuit_breaker
-                .process_event(FinalityEvent::FinalityFailed);
-            state
-                .circuit_breaker
-                .process_event(FinalityEvent::SyncFailed);
-            state
-                .circuit_breaker
-                .process_event(FinalityEvent::SyncFailed);
-            state
-                .circuit_breaker
-                .process_event(FinalityEvent::SyncFailed);
-        }
+        let (service, _store, _verifier) = create_test_service();
+        setup_halted_state(&service).await;
 
         assert!(service.get_state().await == FinalityState::HaltedAwaitingIntervention);
 
@@ -894,7 +744,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_attestations() {
-        let service = create_test_service();
+        let (service, _, _) = create_test_service();
 
         let result = service.process_attestations(vec![]).await.unwrap();
         assert_eq!(result.accepted, 0);
