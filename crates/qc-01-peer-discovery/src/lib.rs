@@ -84,11 +84,6 @@ pub mod ipc;
 ))]
 pub mod adapters;
 
-/// Test utilities (FixedTimeSource, etc.)
-/// Requires feature: `test-utils`
-#[cfg(feature = "test-utils")]
-pub mod test_utils;
-
 // =============================================================================
 // CORE RE-EXPORTS (Always Available)
 // =============================================================================
@@ -148,8 +143,8 @@ pub use domain::{
 
 // Port traits
 pub use ports::{
-    ConfigProvider, NetworkError, NetworkSocket, NodeIdValidator, PeerDiscoveryApi, RateLimiter,
-    RandomSource, SecureHasher, TimeSource, VerificationHandler,
+    ConfigProvider, NetworkError, NetworkSocket, NodeIdValidator, PeerDiscoveryApi, RandomSource,
+    RateLimiter, SecureHasher, TimeSource, VerificationHandler,
 };
 
 // Service
@@ -208,9 +203,7 @@ pub use adapters::BootstrapHandler;
 #[cfg(feature = "network")]
 pub use adapters::{ConfigError, MessageType, TomlConfigProvider, UdpNetworkSocket};
 
-// =============================================================================
-// TEST UTILITIES (Requires `test-utils` feature)
-// =============================================================================
-
+/// Centralized testing utilities and mocks.
+/// Requires feature: `test-utils`
 #[cfg(feature = "test-utils")]
-pub use test_utils::FixedTimeSource;
+pub mod testing;

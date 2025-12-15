@@ -39,20 +39,8 @@ impl Default for InMemoryEventBus {
 impl EventBus for InMemoryEventBus {
     async fn publish_block_validated(
         &self,
-        block_hash: Hash,
-        block_height: u64,
-        block: ValidatedBlock,
-        consensus_proof: ValidationProof,
-        validated_at: u64,
+        event: BlockValidatedEvent,
     ) -> Result<(), String> {
-        let event = BlockValidatedEvent {
-            block_hash,
-            block_height,
-            block,
-            consensus_proof,
-            validated_at,
-        };
-
         self.events.write().push(event);
         Ok(())
     }
@@ -89,19 +77,17 @@ mod tests {
             }),
         };
 
-        let result = bus
-            .publish_block_validated(
-                [1u8; 32],
-                1,
-                block,
-                ValidationProof::PoS(PoSProof {
-                    attestations: vec![],
-                    epoch: 1,
-                    slot: 0,
-                }),
-                1000,
-            )
-            .await;
+        let event = BlockValidatedEvent::new(
+            block,
+            ValidationProof::PoS(PoSProof {
+                attestations: vec![],
+                epoch: 1,
+                slot: 0,
+            }),
+            1000,
+        );
+
+        let result = bus.publish_block_validated(event).await;
 
         assert!(result.is_ok());
         assert_eq!(bus.event_count(), 1);

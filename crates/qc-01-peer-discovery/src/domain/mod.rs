@@ -15,23 +15,20 @@
 pub mod address_manager;
 pub mod connection_slots;
 pub mod enr;
-pub mod entities;
-pub mod errors;
 pub mod feeler;
 pub mod handshake;
 pub mod peer_score;
 pub mod routing_table;
 pub mod services;
-pub mod value_objects;
+/// Core domain types (entities, values, errors)
+pub mod types;
 
 pub use address_manager::*;
 pub use connection_slots::*;
 pub use enr::*;
-pub use entities::*;
-pub use errors::*;
 pub use feeler::*;
 pub use handshake::*;
 pub use peer_score::*;
 pub use routing_table::*;
 pub use services::*;
-pub use value_objects::*;
+pub use types::*;

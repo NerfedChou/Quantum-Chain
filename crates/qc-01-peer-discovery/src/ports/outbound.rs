@@ -264,12 +264,8 @@ pub trait EnrSignatureVerifier: Send + Sync {
     /// # Returns
     ///
     /// `true` if signature is valid for the message and public key.
-    fn verify_signature(
-        &self,
-        message: &[u8],
-        signature: &[u8; 64],
-        public_key: &[u8; 33],
-    ) -> bool;
+    fn verify_signature(&self, message: &[u8], signature: &[u8; 64], public_key: &[u8; 33])
+        -> bool;
 
     /// Compute signing message hash for ENR.
     ///

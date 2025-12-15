@@ -86,11 +86,7 @@ pub trait PeerDiscoveryApi {
     /// Per SPEC-01 Section 2.2, `BanReason::InvalidSignature` is intentionally
     /// excluded to prevent IP spoofing attacks. Invalid signatures result in
     /// silent drops, not bans.
-    fn ban_peer(
-        &mut self,
-        node_id: NodeId,
-        details: BanDetails,
-    ) -> Result<(), PeerDiscoveryError>;
+    fn ban_peer(&mut self, node_id: NodeId, details: BanDetails) -> Result<(), PeerDiscoveryError>;
 
     /// Check if a peer is currently banned.
     ///

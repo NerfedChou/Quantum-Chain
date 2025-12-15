@@ -24,7 +24,7 @@ ARG GPU_BACKEND=none
 WORKDIR /usr/src/quantum-chain
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
     librocksdb-dev \
