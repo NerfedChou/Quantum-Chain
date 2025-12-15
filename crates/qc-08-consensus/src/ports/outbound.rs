@@ -18,14 +18,7 @@ pub trait EventBus: Send + Sync {
     /// - Subsystem 3 (Tx Indexing) to compute MerkleRoot
     /// - Subsystem 4 (State Mgmt) to compute StateRoot
     /// - Subsystem 2 (Block Storage) to begin assembly
-    async fn publish_block_validated(
-        &self,
-        block_hash: Hash,
-        block_height: u64,
-        block: ValidatedBlock,
-        consensus_proof: ValidationProof,
-        validated_at: u64,
-    ) -> Result<(), String>;
+    async fn publish_block_validated(&self, event: crate::events::BlockValidatedEvent) -> Result<(), String>;
 }
 
 /// Mempool interface for block building

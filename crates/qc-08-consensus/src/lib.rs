@@ -107,6 +107,8 @@ pub mod ipc;
 pub mod metrics;
 pub mod ports;
 pub mod service;
+pub mod state;
+pub mod validation;
 
 // Re-export main types
 pub use adapters::InMemoryEventBus;

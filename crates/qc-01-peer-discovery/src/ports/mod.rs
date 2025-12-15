@@ -21,5 +21,5 @@ pub mod outbound;
 pub use inbound::{PeerDiscoveryApi, VerificationHandler};
 pub use outbound::{
     ConfigProvider, EnrSignatureVerifier, NetworkError, NetworkSocket, NodeIdValidator,
-    RateLimiter, RandomSource, SecureHasher, TimeSource,
+    RandomSource, RateLimiter, SecureHasher, TimeSource,
 };
