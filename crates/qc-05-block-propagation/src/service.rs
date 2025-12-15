@@ -155,7 +155,6 @@ where
             .find(|s| s.peer_id == *peer_id)
             .cloned()
     }
-
     /// Update peer state.
     fn update_peer_state<F>(&self, peer_id: &PeerId, f: F)
     where
@@ -167,61 +166,75 @@ where
         }
     }
 
+    /// Validate sender exists and update rate limits
+    fn validate_sender(&self, peer_id: [u8; 32]) -> Result<(PeerId, PeerPropagationState), PropagationError> {
+        let peer = PeerId::new(peer_id);
+        
+        let peer_state = self
+            .find_peer_state(&peer)
+            .ok_or(PropagationError::UnknownPeer(peer_id))?;
+
+        if !check_rate_limit(&peer_state, &self.config) {
+            return Err(PropagationError::RateLimited { peer_id });
+        }
+
+        Ok((peer, peer_state))
+    }
+
+    /// Common block validation (Size, Hash, Invariants) via check_all_invariants
+    fn validate_block_preliminaries(
+        &self,
+        block_data: &[u8],
+        peer_state: &PeerPropagationState,
+    ) -> Result<Hash, PropagationError> {
+        // Size check (fast fail)
+        if block_data.len() > self.config.max_block_size_bytes {
+            return Err(PropagationError::BlockTooLarge {
+                size: block_data.len(),
+                max: self.config.max_block_size_bytes,
+            });
+        }
+
+        // Extract hash
+        let block_hash = extract_block_hash(block_data)?;
+
+        // Deep invariant check (includes duplication, size, rate limit double-check)
+        if let Err(violation) = check_all_invariants(
+            &self.seen_cache,
+            &block_hash,
+            block_data.len(),
+            peer_state,
+            &self.config,
+        ) {
+            return match violation {
+                InvariantViolation::DuplicateBlock => Err(PropagationError::DuplicateBlock(block_hash)),
+                InvariantViolation::RateLimitExceeded => Err(PropagationError::RateLimited { 
+                    peer_id: peer_state.peer_id.0 
+                }),
+                InvariantViolation::BlockTooLarge => Err(PropagationError::BlockTooLarge {
+                    size: block_data.len(),
+                    max: self.config.max_block_size_bytes,
+                }),
+            };
+        }
+
+        Ok(block_hash)
+    }
+
     /// Helper to validate peer, rate limit, unique hash, and invariants for compact blocks
     fn validate_and_register_compact_block(
         &self,
         peer_id: [u8; 32],
         compact_block_data: &[u8],
     ) -> Result<(PeerId, Hash), PropagationError> {
-        let peer = PeerId::new(peer_id);
+        // 1. Validate Sender
+        let (peer, peer_state) = self.validate_sender(peer_id)?;
 
-        // Check if peer exists
-        let peer_state = self
-            .find_peer_state(&peer)
-            .ok_or(PropagationError::UnknownPeer(peer_id))?;
+        // 2. Validate Block (Size, Hash, Invariants)
+        let block_hash = self.validate_block_preliminaries(compact_block_data, &peer_state)?;
 
-        // Validate size
-        if compact_block_data.len() > self.config.max_block_size_bytes {
-            return Err(PropagationError::BlockTooLarge {
-                size: compact_block_data.len(),
-                max: self.config.max_block_size_bytes,
-            });
-        }
-
-        // Check rate limit
-        if !check_rate_limit(&peer_state, &self.config) {
-            return Err(PropagationError::RateLimited { peer_id });
-        }
-
-        // Extract block hash with proper error handling
-        let block_hash = extract_block_hash(compact_block_data)?;
-
-        // Check all invariants
-        if let Err(violation) = check_all_invariants(
-            &self.seen_cache,
-            &block_hash,
-            compact_block_data.len(),
-            &peer_state,
-            &self.config,
-        ) {
-            return match violation {
-                InvariantViolation::DuplicateBlock => {
-                    Err(PropagationError::DuplicateBlock(block_hash))
-                }
-                InvariantViolation::RateLimitExceeded => {
-                    Err(PropagationError::RateLimited { peer_id })
-                }
-                InvariantViolation::BlockTooLarge => Err(PropagationError::BlockTooLarge {
-                    size: compact_block_data.len(),
-                    max: self.config.max_block_size_bytes,
-                }),
-            };
-        }
-
-        // Record announcement
+        // 3. Record announcement & Update Cache
         self.update_peer_state(&peer, |s| s.record_announcement());
-
-        // Mark as received
         self.seen_cache.mark_seen(block_hash, Some(peer));
         self.seen_cache
             .update_state(&block_hash, PropagationState::CompactReceived);
@@ -387,27 +400,16 @@ where
         block_hash: Hash,
         _block_height: u64,
     ) -> Result<(), PropagationError> {
-        let peer = PeerId::new(peer_id);
+        // 1. Validate Sender
+        let (peer, _) = self.validate_sender(peer_id)?;
 
-        // Check if peer exists
-        let peer_state = self
-            .find_peer_state(&peer)
-            .ok_or(PropagationError::UnknownPeer(peer_id))?;
-
-        // Check rate limit
-        if !check_rate_limit(&peer_state, &self.config) {
-            return Err(PropagationError::RateLimited { peer_id });
-        }
-
-        // Check deduplication
+        // 2. Check Deduplication
         if self.seen_cache.has_seen(&block_hash) {
             return Err(PropagationError::DuplicateBlock(block_hash));
         }
 
-        // Record announcement
+        // 3. Record & Update
         self.update_peer_state(&peer, |s| s.record_announcement());
-
-        // Mark block as announced
         self.seen_cache.mark_seen(block_hash, Some(peer));
         self.seen_cache
             .update_state(&block_hash, PropagationState::Announced);
@@ -436,63 +438,31 @@ where
         peer_id: [u8; 32],
         block_data: Vec<u8>,
     ) -> Result<(), PropagationError> {
-        let peer = PeerId::new(peer_id);
+        // 1. Validate Sender
+        let (peer, peer_state) = self.validate_sender(peer_id)?;
 
-        // Check if peer exists
-        let peer_state = self
-            .find_peer_state(&peer)
-            .ok_or(PropagationError::UnknownPeer(peer_id))?;
+        // 2. Validate Block & Invariants
+        let block_hash = self.validate_block_preliminaries(&block_data, &peer_state)?;
 
-        // Validate size
-        if !validate_block_size(block_data.len(), &self.config) {
-            return Err(PropagationError::BlockTooLarge {
-                size: block_data.len(),
-                max: self.config.max_block_size_bytes,
-            });
-        }
-
-        // Check rate limit
-        if !check_rate_limit(&peer_state, &self.config) {
-            return Err(PropagationError::RateLimited { peer_id });
-        }
-
-        // Extract block hash with proper error handling
-        let block_hash = extract_block_hash(&block_data)?;
-
-        // Check deduplication
-        if !self.seen_cache.can_process(&block_hash) {
-            return Err(PropagationError::DuplicateBlock(block_hash));
-        }
-
-        // Record announcement
+        // 3. Record Announcement
         self.update_peer_state(&peer, |s| s.record_announcement());
 
-        // Mark as seen (but not complete until signature verified)
+        // 4. Mark as seen (Partial)
         self.seen_cache.mark_seen(block_hash, Some(peer));
 
-        // SECURITY (SPEC-05 Appendix B.2): Verify block signature before forwarding to Consensus
-        // This prevents attackers from flooding Consensus with invalid blocks
+        // 5. Verify Signature (SECURITY)
         let (proposer_pubkey, signature) = extract_block_signature(&block_data)?;
-
-        let sig_valid =
-            self.sig_verifier
-                .verify_block_signature(&block_hash, &proposer_pubkey, &signature)?;
+        let sig_valid = self.sig_verifier
+            .verify_block_signature(&block_hash, &proposer_pubkey, &signature)?;
 
         if !sig_valid {
-            // Silent drop per Architecture.md - IP spoofing defense
-            // Do NOT ban peer since the block could have been spoofed
-            self.seen_cache
-                .update_state(&block_hash, PropagationState::Invalid);
-            return Ok(());
+            self.seen_cache.update_state(&block_hash, PropagationState::Invalid);
+            return Ok(()); // Silent drop
         }
 
-        // Mark as complete after signature verification
-        self.seen_cache
-            .update_state(&block_hash, PropagationState::Complete);
-
-        // Submit to consensus for validation
-        self.consensus
-            .submit_block_for_validation(block_hash, block_data, peer)?;
+        // 6. Complete
+        self.seen_cache.update_state(&block_hash, PropagationState::Complete);
+        self.consensus.submit_block_for_validation(block_hash, block_data, peer)?;
 
         Ok(())
     }

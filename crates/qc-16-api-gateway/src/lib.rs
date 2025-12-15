@@ -162,6 +162,7 @@ pub mod middleware;
 pub mod ports;
 pub mod rpc;
 pub mod service;
+pub mod router;
 pub mod ws;
 
 // Re-exports for public API (reduces cascade - use crate::X instead of crate::domain::X)
