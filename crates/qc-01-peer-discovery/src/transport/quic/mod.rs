@@ -20,258 +20,27 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 #[cfg(feature = "quic")]
 use std::sync::Arc;
-use std::time::Duration;
+
+mod config;
+mod connection;
+mod error;
+mod replay;
+#[cfg(feature = "quic")]
+mod verifier;
+
+pub use config::QuicConfig;
+pub use connection::QuicConnectionState;
+pub use error::QuicError;
+pub use replay::ReplayProtection;
+#[cfg(feature = "quic")]
+use verifier::SkipServerVerification;
 
 // =============================================================================
-// CONFIGURATION
+// TESTS
 // =============================================================================
 
-/// QUIC connection configuration.
-#[derive(Clone, Debug)]
-pub struct QuicConfig {
-    /// Bind address for the QUIC endpoint
-    pub bind_addr: SocketAddr,
-    /// Connection timeout
-    pub connect_timeout: Duration,
-    /// Idle timeout before connection close
-    pub idle_timeout: Duration,
-    /// Maximum concurrent bidirectional streams per connection
-    pub max_streams: u32,
-    /// Enable 0-RTT (with replay protection)
-    pub enable_0rtt: bool,
-    /// Maximum datagram size (MTU - headers)
-    pub max_datagram_size: u16,
-    /// Keep-alive interval (0 to disable)
-    pub keep_alive_interval: Option<Duration>,
-}
-
-impl Default for QuicConfig {
-    fn default() -> Self {
-        Self {
-            bind_addr: "0.0.0.0:0".parse().expect("valid default bind addr"),
-            connect_timeout: Duration::from_secs(10),
-            idle_timeout: Duration::from_secs(30),
-            max_streams: 100,
-            enable_0rtt: true,
-            max_datagram_size: 1350,
-            keep_alive_interval: Some(Duration::from_secs(15)),
-        }
-    }
-}
-
-impl QuicConfig {
-    /// Create config for testing with shorter timeouts.
-    #[cfg(test)]
-    pub fn for_testing() -> Self {
-        Self {
-            bind_addr: "127.0.0.1:0".parse().expect("valid test bind addr"),
-            connect_timeout: Duration::from_secs(2),
-            idle_timeout: Duration::from_secs(5),
-            max_streams: 10,
-            enable_0rtt: false, // Simpler for tests
-            max_datagram_size: 1350,
-            keep_alive_interval: None,
-        }
-    }
-}
-
-// =============================================================================
-// 0-RTT REPLAY PROTECTION
-// =============================================================================
-
-/// 0-RTT replay protection using idempotency tokens.
-///
-/// Prevents replay attacks on 0-RTT data by tracking seen tokens
-/// within a sliding time window.
-#[derive(Clone, Debug)]
-pub struct ReplayProtection {
-    /// Idempotency tokens seen in current window
-    seen_tokens: std::collections::HashSet<[u8; 32]>,
-    /// Window start time
-    window_start: std::time::Instant,
-    /// Window duration
-    window_duration: Duration,
-}
-
-impl ReplayProtection {
-    /// Create new replay protection with specified window.
-    pub fn new(window_duration: Duration) -> Self {
-        Self {
-            seen_tokens: std::collections::HashSet::new(),
-            window_start: std::time::Instant::now(),
-            window_duration,
-        }
-    }
-
-    /// Check if a 0-RTT token is valid (not replayed).
-    ///
-    /// Returns `true` if token is fresh, `false` if replayed.
-    pub fn check_token(&mut self, token: &[u8; 32]) -> bool {
-        // Rotate window if expired
-        if self.window_start.elapsed() > self.window_duration {
-            self.seen_tokens.clear();
-            self.window_start = std::time::Instant::now();
-        }
-
-        // Check if seen before
-        if self.seen_tokens.contains(token) {
-            return false;
-        }
-
-        self.seen_tokens.insert(*token);
-        true
-    }
-
-    /// Clear all tokens (e.g., on key rotation).
-    pub fn clear(&mut self) {
-        self.seen_tokens.clear();
-        self.window_start = std::time::Instant::now();
-    }
-
-    /// Get number of tracked tokens.
-    pub fn token_count(&self) -> usize {
-        self.seen_tokens.len()
-    }
-}
-
-impl Default for ReplayProtection {
-    fn default() -> Self {
-        Self::new(Duration::from_secs(60))
-    }
-}
-
-// =============================================================================
-// CONNECTION STATE
-// =============================================================================
-
-/// Connection state for a QUIC peer.
-#[derive(Clone, Debug)]
-pub struct QuicConnectionState {
-    /// Remote peer address
-    pub remote_addr: SocketAddr,
-    /// Connection ID (first 16 bytes of QUIC connection ID)
-    pub connection_id: [u8; 16],
-    /// Is connection fully established (handshake complete)
-    pub established: bool,
-    /// Smoothed RTT estimate
-    pub rtt_estimate: Duration,
-    /// Total bytes sent
-    pub bytes_sent: u64,
-    /// Total bytes received
-    pub bytes_received: u64,
-    /// When connection was established
-    pub connected_at: std::time::Instant,
-    /// Number of active streams
-    pub active_streams: u32,
-}
-
-impl QuicConnectionState {
-    /// Create new connection state.
-    pub fn new(remote_addr: SocketAddr, connection_id: [u8; 16]) -> Self {
-        Self {
-            remote_addr,
-            connection_id,
-            established: false,
-            rtt_estimate: Duration::from_millis(100), // Initial estimate
-            bytes_sent: 0,
-            bytes_received: 0,
-            connected_at: std::time::Instant::now(),
-            active_streams: 0,
-        }
-    }
-
-    /// Check if connection is healthy (not stale).
-    pub fn is_healthy(&self, max_idle: Duration) -> bool {
-        self.established && self.connected_at.elapsed() < max_idle
-    }
-}
-
-// =============================================================================
-// TRANSPORT ERRORS
-// =============================================================================
-
-/// Errors that can occur in QUIC transport operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum QuicError {
-    /// Failed to bind to the specified address.
-    BindFailed {
-        /// The address we tried to bind to.
-        addr: String,
-        /// Error description.
-        reason: String,
-    },
-    /// Connection attempt timed out.
-    ConnectionTimeout {
-        /// Remote address.
-        remote: String,
-    },
-    /// Connection was refused by peer.
-    ConnectionRefused {
-        /// Remote address.
-        remote: String,
-    },
-    /// TLS handshake failed.
-    TlsError {
-        /// Error description.
-        reason: String,
-    },
-    /// Stream creation failed.
-    StreamError {
-        /// Error description.
-        reason: String,
-    },
-    /// Send operation failed.
-    SendFailed {
-        /// Error description.
-        reason: String,
-    },
-    /// Receive operation failed.
-    RecvFailed {
-        /// Error description.
-        reason: String,
-    },
-    /// Connection was closed.
-    ConnectionClosed {
-        /// Reason for closure.
-        reason: String,
-    },
-    /// Certificate generation failed.
-    CertificateError {
-        /// Error description.
-        reason: String,
-    },
-    /// Endpoint not initialized.
-    NotInitialized,
-}
-
-impl std::fmt::Display for QuicError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BindFailed { addr, reason } => {
-                write!(f, "failed to bind to {}: {}", addr, reason)
-            }
-            Self::ConnectionTimeout { remote } => {
-                write!(f, "connection to {} timed out", remote)
-            }
-            Self::ConnectionRefused { remote } => {
-                write!(f, "connection to {} refused", remote)
-            }
-            Self::TlsError { reason } => write!(f, "TLS error: {}", reason),
-            Self::StreamError { reason } => write!(f, "stream error: {}", reason),
-            Self::SendFailed { reason } => write!(f, "send failed: {}", reason),
-            Self::RecvFailed { reason } => write!(f, "receive failed: {}", reason),
-            Self::ConnectionClosed { reason } => {
-                write!(f, "connection closed: {}", reason)
-            }
-            Self::CertificateError { reason } => {
-                write!(f, "certificate error: {}", reason)
-            }
-            Self::NotInitialized => write!(f, "QUIC endpoint not initialized"),
-        }
-    }
-}
-
-impl std::error::Error for QuicError {}
+#[cfg(test)]
+mod tests;
 
 // =============================================================================
 // QUIC TRANSPORT (Async Implementation)
@@ -293,6 +62,7 @@ pub struct QuicTransport {
     /// 0-RTT replay protection
     replay_protection: ReplayProtection,
     /// Server certificate (for accepting connections)
+    #[allow(dead_code)] // Used in future for cert rotation
     server_cert: Option<Vec<u8>>,
 }
 
@@ -594,61 +364,6 @@ impl QuicTransport {
     }
 }
 
-/// Skip TLS certificate verification for P2P connections.
-///
-/// In a P2P network, identity is verified via NodeId (public key hash),
-/// not TLS certificates. This allows connections without CA infrastructure.
-#[cfg(feature = "quic")]
-#[derive(Debug)]
-struct SkipServerVerification;
-
-#[cfg(feature = "quic")]
-impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::pki_types::CertificateDer<'_>,
-        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
-        _server_name: &rustls::pki_types::ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: rustls::pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        // Skip verification - identity verified via NodeId
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        vec![
-            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
-            rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
-            rustls::SignatureScheme::ED25519,
-            rustls::SignatureScheme::RSA_PSS_SHA256,
-            rustls::SignatureScheme::RSA_PSS_SHA384,
-            rustls::SignatureScheme::RSA_PSS_SHA512,
-            rustls::SignatureScheme::RSA_PKCS1_SHA256,
-            rustls::SignatureScheme::RSA_PKCS1_SHA384,
-            rustls::SignatureScheme::RSA_PKCS1_SHA512,
-        ]
-    }
-}
-
 // =============================================================================
 // FALLBACK (No quinn feature)
 // =============================================================================
@@ -686,10 +401,3 @@ impl QuicTransport {
         self.replay_protection.check_token(token)
     }
 }
-
-// =============================================================================
-// TESTS
-// =============================================================================
-
-#[cfg(test)]
-mod tests;

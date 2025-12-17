@@ -1,28 +1,43 @@
 //! # Domain Layer
 //!
 //! Pure domain logic for the Block Storage subsystem.
-//! This layer contains NO external dependencies - only pure Rust types and logic.
 //!
 //! ## Modules
 //!
-//! - `entities` - Core domain entities (StoredBlock, BlockIndex, StorageMetadata)
+//! - `storage` - Core storage entities (StoredBlock, BlockIndex, StorageMetadata)
 //! - `assembler` - Stateful Assembler for V2.3 Choreography
-//! - `value_objects` - Configuration and immutable value types
-//! - `errors` - Domain error types
-//! - `compression` - Dictionary-based Zstd compression (Phase 3)
-//! - `repair` - Self-healing index for disaster recovery (Phase 4)
-//! - `mmr` - Merkle Mountain Range for light client proofs (Phase 3)
-//! - `pruning` - Smart pruning with anchor blocks (SPEC 5.2)
-//! - `snapshot` - State snapshot export/import (SPEC 6.1)
-//! - `metrics` - Compaction and storage metrics (SPEC 4.3)
+//! - `integrity` - Error types and data integrity checking
+//! - `compression` - Dictionary-based Zstd compression (requires `compression` feature)
+//! - `metrics` - Compaction and storage metrics
+//! - `mmr` - Merkle Mountain Range for light client proofs
+//! - `pruning` - Smart pruning with anchor blocks
+//! - `repair` - Self-healing index for disaster recovery
+//! - `snapshot` - State snapshot export/import
+//! - `types` - Configuration and value objects
 
 pub mod assembler;
+#[cfg(feature = "compression")]
 pub mod compression;
-pub mod entities;
-pub mod errors;
+pub mod integrity;
 pub mod metrics;
 pub mod mmr;
 pub mod pruning;
 pub mod repair;
 pub mod snapshot;
-pub mod value_objects;
+pub mod storage;
+pub mod types;
+
+// Re-export core types for convenience
+pub use assembler::{AssemblyConfig, BlockAssemblyBuffer, PendingBlockAssembly};
+pub use integrity::{FSError, KVStoreError, SerializationError, StorageError};
+pub use storage::{BlockIndex, BlockIndexEntry, StorageMetadata, StoredBlock, Timestamp};
+pub use types::{CompactionStrategy, KeyPrefix, StorageConfig, TransactionLocation};
+
+// Legacy aliases for backward compatibility
+pub mod errors {
+    pub use super::integrity::*;
+}
+
+pub mod value_objects {
+    pub use super::types::*;
+}
