@@ -1,22 +1,13 @@
 //! # Envelope Tests
 
 use super::*;
+use crate::test_utils::MessageBuilder;
 
 #[test]
 fn test_envelope_version_validation() {
     let mut validator = EnvelopeValidator::new(subsystem_ids::BLOCK_STORAGE, [0u8; 32]);
 
-    let msg = AuthenticatedMessage {
-        version: 99, // Invalid version
-        correlation_id: [0; 16],
-        reply_to: None,
-        sender_id: subsystem_ids::CONSENSUS,
-        recipient_id: subsystem_ids::BLOCK_STORAGE,
-        timestamp: current_timestamp(),
-        nonce: 1,
-        signature: [0; 32],
-        payload: (),
-    };
+    let msg = MessageBuilder::new().version(99).build();
 
     let result = validator.validate(&msg);
     assert!(matches!(
@@ -29,17 +20,9 @@ fn test_envelope_version_validation() {
 fn test_envelope_recipient_validation() {
     let mut validator = EnvelopeValidator::new(subsystem_ids::BLOCK_STORAGE, [0u8; 32]);
 
-    let msg = AuthenticatedMessage {
-        version: 1,
-        correlation_id: [0; 16],
-        reply_to: None,
-        sender_id: subsystem_ids::CONSENSUS,
-        recipient_id: subsystem_ids::MEMPOOL, // Wrong recipient
-        timestamp: current_timestamp(),
-        nonce: 1,
-        signature: [0; 32],
-        payload: (),
-    };
+    let msg = MessageBuilder::new()
+        .recipient(subsystem_ids::MEMPOOL)
+        .build();
 
     let result = validator.validate(&msg);
     assert!(matches!(result, Err(EnvelopeError::WrongRecipient { .. })));
@@ -49,17 +32,9 @@ fn test_envelope_recipient_validation() {
 fn test_envelope_expired_message() {
     let mut validator = EnvelopeValidator::new(subsystem_ids::BLOCK_STORAGE, [0u8; 32]);
 
-    let msg = AuthenticatedMessage {
-        version: 1,
-        correlation_id: [0; 16],
-        reply_to: None,
-        sender_id: subsystem_ids::CONSENSUS,
-        recipient_id: subsystem_ids::BLOCK_STORAGE,
-        timestamp: current_timestamp() - 120, // 2 minutes old
-        nonce: 1,
-        signature: [0; 32],
-        payload: (),
-    };
+    let msg = MessageBuilder::new()
+        .timestamp(current_timestamp() - 120)
+        .build();
 
     let result = validator.validate(&msg);
     assert!(matches!(result, Err(EnvelopeError::MessageExpired { .. })));
@@ -69,31 +44,11 @@ fn test_envelope_expired_message() {
 fn test_envelope_nonce_reuse() {
     let mut validator = EnvelopeValidator::new(subsystem_ids::BLOCK_STORAGE, [0u8; 32]);
 
-    let msg1 = AuthenticatedMessage {
-        version: 1,
-        correlation_id: [0; 16],
-        reply_to: None,
-        sender_id: subsystem_ids::CONSENSUS,
-        recipient_id: subsystem_ids::BLOCK_STORAGE,
-        timestamp: current_timestamp(),
-        nonce: 12345,
-        signature: [0; 32],
-        payload: (),
-    };
+    let msg1 = MessageBuilder::new().nonce(12345).build();
 
     assert!(validator.validate(&msg1).is_ok());
 
-    let msg2 = AuthenticatedMessage {
-        version: 1,
-        correlation_id: [1; 16],
-        reply_to: None,
-        sender_id: subsystem_ids::CONSENSUS,
-        recipient_id: subsystem_ids::BLOCK_STORAGE,
-        timestamp: current_timestamp(),
-        nonce: 12345, // Same nonce!
-        signature: [0; 32],
-        payload: (),
-    };
+    let msg2 = MessageBuilder::new().nonce(12345).build();
 
     let result = validator.validate(&msg2);
     assert!(matches!(result, Err(EnvelopeError::NonceReused { .. })));
@@ -103,17 +58,9 @@ fn test_envelope_nonce_reuse() {
 fn test_envelope_reply_to_mismatch() {
     let mut validator = EnvelopeValidator::new(subsystem_ids::BLOCK_STORAGE, [0u8; 32]);
 
-    let msg = AuthenticatedMessage {
-        version: 1,
-        correlation_id: [0; 16],
-        reply_to: Some(Topic::new(subsystem_ids::MEMPOOL, "responses")), // Mismatch!
-        sender_id: subsystem_ids::CONSENSUS,
-        recipient_id: subsystem_ids::BLOCK_STORAGE,
-        timestamp: current_timestamp(),
-        nonce: 1,
-        signature: [0; 32],
-        payload: (),
-    };
+    let msg = MessageBuilder::new()
+        .reply_to(Topic::new(subsystem_ids::MEMPOOL, "responses"))
+        .build();
 
     let result = validator.validate(&msg);
     assert!(matches!(result, Err(EnvelopeError::ReplyToMismatch { .. })));
@@ -123,17 +70,10 @@ fn test_envelope_reply_to_mismatch() {
 fn test_envelope_valid_message() {
     let mut validator = EnvelopeValidator::new(subsystem_ids::BLOCK_STORAGE, [0u8; 32]);
 
-    let msg = AuthenticatedMessage {
-        version: 1,
-        correlation_id: [0; 16],
-        reply_to: Some(Topic::new(subsystem_ids::CONSENSUS, "responses")),
-        sender_id: subsystem_ids::CONSENSUS,
-        recipient_id: subsystem_ids::BLOCK_STORAGE,
-        timestamp: current_timestamp(),
-        nonce: 99999,
-        signature: [0; 32],
-        payload: (),
-    };
+    let msg = MessageBuilder::new()
+        .reply_to(Topic::new(subsystem_ids::CONSENSUS, "responses"))
+        .nonce(99999)
+        .build();
 
     assert!(validator.validate(&msg).is_ok());
 }

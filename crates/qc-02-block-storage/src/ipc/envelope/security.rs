@@ -35,28 +35,32 @@ pub const MAX_NONCE_CACHE_SIZE: usize = 10000;
 /// Nonce cleanup interval in seconds
 pub const NONCE_CLEANUP_INTERVAL_SECS: u64 = 30;
 
+/// Context for signature computation to reduce argument count
+pub struct SignatureContext<'a> {
+    pub shared_secret: &'a [u8; 32],
+    pub version: u8,
+    pub correlation_id: &'a [u8; 16],
+    pub sender_id: u8,
+    pub recipient_id: u8,
+    pub timestamp: u64,
+    pub nonce: u64,
+}
+
 /// Compute HMAC signature for message fields.
-pub fn compute_message_signature(
-    shared_secret: &[u8; 32],
-    version: u8,
-    correlation_id: &[u8; 16],
-    sender_id: u8,
-    recipient_id: u8,
-    timestamp: u64,
-    nonce: u64,
-) -> [u8; 32] {
+pub fn compute_message_signature(ctx: SignatureContext) -> [u8; 32] {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
 
-    let mut mac = HmacSha256::new_from_slice(shared_secret).expect("HMAC key size is always valid");
+    let mut mac =
+        HmacSha256::new_from_slice(ctx.shared_secret).expect("HMAC key size is always valid");
 
-    mac.update(&version.to_le_bytes());
-    mac.update(correlation_id);
-    mac.update(&[sender_id]);
-    mac.update(&[recipient_id]);
-    mac.update(&timestamp.to_le_bytes());
-    mac.update(&nonce.to_le_bytes());
+    mac.update(&ctx.version.to_le_bytes());
+    mac.update(ctx.correlation_id);
+    mac.update(&[ctx.sender_id]);
+    mac.update(&[ctx.recipient_id]);
+    mac.update(&ctx.timestamp.to_le_bytes());
+    mac.update(&ctx.nonce.to_le_bytes());
 
     let result = mac.finalize();
     let bytes = result.into_bytes();

@@ -21,5 +21,5 @@ pub use message::{
     current_timestamp, generate_correlation_id, AuthenticatedMessage, Topic, MAX_MESSAGE_AGE_SECS,
     MAX_SUPPORTED_VERSION, MIN_SUPPORTED_VERSION, PROTOCOL_VERSION,
 };
-pub use security::subsystem_ids;
+pub use security::{compute_message_signature, subsystem_ids, SignatureContext};
 pub use validator::EnvelopeValidator;

@@ -48,52 +48,66 @@ impl EnvelopeValidator {
     pub fn validate<T>(&mut self, msg: &AuthenticatedMessage<T>) -> Result<(), EnvelopeError> {
         let now = current_timestamp();
 
-        // 1. Version check
-        if msg.version < MIN_SUPPORTED_VERSION || msg.version > MAX_SUPPORTED_VERSION {
+        self.validate_version(msg.version)?;
+        self.validate_recipient(msg.recipient_id)?;
+        self.validate_timestamp(msg.timestamp, now)?;
+        self.validate_nonce(msg.nonce, now)?;
+
+        if !self.verify_signature(msg) {
+            return Err(EnvelopeError::InvalidSignature);
+        }
+
+        self.validate_reply_to(msg)?;
+
+        Ok(())
+    }
+
+    fn validate_version(&self, version: u8) -> Result<(), EnvelopeError> {
+        if version < MIN_SUPPORTED_VERSION || version > MAX_SUPPORTED_VERSION {
             return Err(EnvelopeError::UnsupportedVersion {
-                version: msg.version,
+                version,
                 min: MIN_SUPPORTED_VERSION,
                 max: MAX_SUPPORTED_VERSION,
             });
         }
+        Ok(())
+    }
 
-        // 2. Recipient check
-        if msg.recipient_id != self.our_subsystem_id {
+    fn validate_recipient(&self, recipient_id: u8) -> Result<(), EnvelopeError> {
+        if recipient_id != self.our_subsystem_id {
             return Err(EnvelopeError::WrongRecipient {
                 expected: self.our_subsystem_id,
-                actual: msg.recipient_id,
+                actual: recipient_id,
             });
         }
+        Ok(())
+    }
 
-        // 3. Timestamp checks
-        if msg.timestamp > now {
-            return Err(EnvelopeError::MessageFromFuture {
-                timestamp: msg.timestamp,
-                now,
-            });
+    fn validate_timestamp(&self, timestamp: u64, now: u64) -> Result<(), EnvelopeError> {
+        if timestamp > now {
+            return Err(EnvelopeError::MessageFromFuture { timestamp, now });
         }
 
-        let age = now.saturating_sub(msg.timestamp);
+        let age = now.saturating_sub(timestamp);
         if age > MAX_MESSAGE_AGE_SECS {
             return Err(EnvelopeError::MessageExpired {
                 age_secs: age,
                 max_age: MAX_MESSAGE_AGE_SECS,
             });
         }
+        Ok(())
+    }
 
-        // 4. Nonce check (with periodic cleanup)
+    fn validate_nonce(&mut self, nonce: u64, now: u64) -> Result<(), EnvelopeError> {
         self.cleanup_old_nonces(now);
-        if self.seen_nonces.contains(&msg.nonce) {
-            return Err(EnvelopeError::NonceReused { nonce: msg.nonce });
+        if self.seen_nonces.contains(&nonce) {
+            return Err(EnvelopeError::NonceReused { nonce });
         }
-        self.seen_nonces.insert(msg.nonce);
+        self.seen_nonces.insert(nonce);
+        Ok(())
+    }
 
-        // 5. Signature verification
-        if !self.verify_signature(msg) {
-            return Err(EnvelopeError::InvalidSignature);
-        }
-
-        // 6. Reply-to validation (prevents forwarding attacks)
+    fn validate_reply_to<T>(&self, msg: &AuthenticatedMessage<T>) -> Result<(), EnvelopeError> {
         if let Some(ref reply_to) = msg.reply_to {
             if reply_to.subsystem_id != msg.sender_id {
                 return Err(EnvelopeError::ReplyToMismatch {
@@ -102,7 +116,6 @@ impl EnvelopeValidator {
                 });
             }
         }
-
         Ok(())
     }
 
@@ -125,17 +138,19 @@ impl EnvelopeValidator {
             return true;
         }
 
-        use super::security::compute_message_signature;
+        use super::security::{compute_message_signature, SignatureContext};
 
-        let computed = compute_message_signature(
-            &self.shared_secret,
-            msg.version,
-            &msg.correlation_id,
-            msg.sender_id,
-            msg.recipient_id,
-            msg.timestamp,
-            msg.nonce,
-        );
+        let ctx = SignatureContext {
+            shared_secret: &self.shared_secret,
+            version: msg.version,
+            correlation_id: &msg.correlation_id,
+            sender_id: msg.sender_id,
+            recipient_id: msg.recipient_id,
+            timestamp: msg.timestamp,
+            nonce: msg.nonce,
+        };
+
+        let computed = compute_message_signature(ctx);
 
         // Constant-time comparison
         computed == msg.signature

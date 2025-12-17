@@ -7,15 +7,17 @@ use crate::adapters::{
 };
 use crate::ports::inbound::{BlockAssemblerApi, BlockStorageApi};
 use crate::ports::outbound::KeyValueStore;
-use shared_types::{Hash, ValidatedBlock};
+use shared_types::Hash;
 
-fn make_test_service() -> BlockStorageService<
+type TestService = BlockStorageService<
     InMemoryKVStore,
     MockFileSystemAdapter,
     DefaultChecksumProvider,
     SystemTimeSource,
     BincodeBlockSerializer,
-> {
+>;
+
+fn make_test_service() -> TestService {
     let deps = BlockStorageDependencies {
         kv_store: InMemoryKVStore::new(),
         fs_adapter: MockFileSystemAdapter::new(50),
@@ -24,6 +26,19 @@ fn make_test_service() -> BlockStorageService<
         serializer: BincodeBlockSerializer,
     };
     BlockStorageService::new(deps, StorageConfig::default())
+}
+
+fn write_test_block(service: &mut TestService, height: u64, parent_hash: Hash) -> Hash {
+    let block = make_test_block(height, parent_hash);
+    service.write_block(block, MERKLE_ROOT, STATE_ROOT).unwrap()
+}
+
+fn write_block_chain(service: &mut TestService, count: u64) -> Hash {
+    let mut parent_hash = ZERO_HASH;
+    for height in 0..count {
+        parent_hash = write_test_block(service, height, parent_hash);
+    }
+    parent_hash
 }
 
 use crate::test_utils::{make_test_block, ZERO_HASH};
@@ -35,17 +50,11 @@ const STATE_ROOT: [u8; 32] = [0xBB; 32];
 fn test_write_and_read_block() {
     let mut service = make_test_service();
 
-    let block = make_test_block(0, ZERO_HASH);
-    let merkle_root = MERKLE_ROOT;
-    let state_root = STATE_ROOT;
-
-    let hash = service
-        .write_block(block.clone(), merkle_root, state_root)
-        .unwrap();
+    let hash = write_test_block(&mut service, 0, ZERO_HASH);
 
     let stored = service.read_block(&hash).unwrap();
-    assert_eq!(stored.merkle_root, merkle_root);
-    assert_eq!(stored.state_root, state_root);
+    assert_eq!(stored.merkle_root, MERKLE_ROOT);
+    assert_eq!(stored.state_root, STATE_ROOT);
     assert_eq!(stored.block.header.height, 0);
 }
 
@@ -82,11 +91,7 @@ fn test_finalization_monotonicity() {
     let mut service = make_test_service();
 
     // Write 10 blocks
-    let mut parent_hash = ZERO_HASH;
-    for height in 0..10 {
-        let block = make_test_block(height, parent_hash);
-        parent_hash = service.write_block(block, ZERO_HASH, ZERO_HASH).unwrap();
-    }
+    write_block_chain(&mut service, 10);
 
     // Finalize height 5
     service.mark_finalized(5).unwrap();
@@ -142,17 +147,13 @@ fn test_choreography_assembly() {
 #[test]
 fn test_write_includes_all_required_entries() {
     let mut service = make_test_service();
-    let block = make_test_block(0, ZERO_HASH);
-    let merkle_root = MERKLE_ROOT;
-    let state_root = STATE_ROOT;
-
-    let hash = service.write_block(block, merkle_root, state_root).unwrap();
+    let hash = write_test_block(&mut service, 0, ZERO_HASH);
 
     assert!(service.block_exists(&hash));
     assert!(service.block_exists_at_height(0));
     let stored = service.read_block(&hash).unwrap();
-    assert_eq!(stored.merkle_root, merkle_root);
-    assert_eq!(stored.state_root, state_root);
+    assert_eq!(stored.merkle_root, MERKLE_ROOT);
+    assert_eq!(stored.state_root, STATE_ROOT);
 }
 
 // =========================================================================
@@ -183,9 +184,7 @@ fn test_write_succeeds_when_disk_at_5_percent() {
 #[test]
 fn test_valid_checksum_passes_verification() {
     let mut service = make_test_service();
-    let block = make_test_block(0, ZERO_HASH);
-
-    let hash = service.write_block(block, MERKLE_ROOT, STATE_ROOT).unwrap();
+    let hash = write_test_block(&mut service, 0, ZERO_HASH);
 
     let result = service.read_block(&hash);
     assert!(result.is_ok());
@@ -208,8 +207,7 @@ fn test_genesis_block_has_no_parent_requirement() {
 fn test_write_succeeds_with_parent_present() {
     let mut service = make_test_service();
 
-    let genesis = make_test_block(0, ZERO_HASH);
-    let genesis_hash = service.write_block(genesis, ZERO_HASH, ZERO_HASH).unwrap();
+    let genesis_hash = write_test_block(&mut service, 0, ZERO_HASH);
 
     let child = make_test_block(1, genesis_hash);
     let result = service.write_block(child, ZERO_HASH, ZERO_HASH);
@@ -225,11 +223,7 @@ fn test_write_succeeds_with_parent_present() {
 fn test_finalization_rejects_same_height() {
     let mut service = make_test_service();
 
-    let mut parent_hash = ZERO_HASH;
-    for height in 0..6 {
-        let block = make_test_block(height, parent_hash);
-        parent_hash = service.write_block(block, ZERO_HASH, ZERO_HASH).unwrap();
-    }
+    write_block_chain(&mut service, 6);
 
     service.mark_finalized(3).unwrap();
 
@@ -244,8 +238,7 @@ fn test_finalization_rejects_same_height() {
 fn test_finalization_requires_block_exists() {
     let mut service = make_test_service();
 
-    let genesis = make_test_block(0, ZERO_HASH);
-    service.write_block(genesis, ZERO_HASH, ZERO_HASH).unwrap();
+    write_test_block(&mut service, 0, ZERO_HASH);
 
     let result = service.mark_finalized(100);
     assert!(matches!(result, Err(StorageError::HeightNotFound { .. })));
@@ -261,11 +254,7 @@ fn test_finalization_requires_block_exists() {
 fn test_read_block_range_returns_sequential_blocks() {
     let mut service = make_test_service();
 
-    let mut parent_hash = ZERO_HASH;
-    for height in 0..21 {
-        let block = make_test_block(height, parent_hash);
-        parent_hash = service.write_block(block, ZERO_HASH, ZERO_HASH).unwrap();
-    }
+    write_block_chain(&mut service, 21);
 
     let blocks = service.read_block_range(5, 10).unwrap();
 
@@ -279,11 +268,7 @@ fn test_read_block_range_returns_sequential_blocks() {
 fn test_read_block_range_respects_limit_cap() {
     let mut service = make_test_service();
 
-    let mut parent_hash = ZERO_HASH;
-    for height in 0..150 {
-        let block = make_test_block(height, parent_hash);
-        parent_hash = service.write_block(block, ZERO_HASH, ZERO_HASH).unwrap();
-    }
+    write_block_chain(&mut service, 150);
 
     let blocks = service.read_block_range(0, 500).unwrap();
 
@@ -294,11 +279,7 @@ fn test_read_block_range_respects_limit_cap() {
 fn test_read_block_range_returns_partial_if_chain_end() {
     let mut service = make_test_service();
 
-    let mut parent_hash = ZERO_HASH;
-    for height in 0..10 {
-        let block = make_test_block(height, parent_hash);
-        parent_hash = service.write_block(block, ZERO_HASH, ZERO_HASH).unwrap();
-    }
+    write_block_chain(&mut service, 10);
 
     let blocks = service.read_block_range(5, 20).unwrap();
 
@@ -309,8 +290,7 @@ fn test_read_block_range_returns_partial_if_chain_end() {
 fn test_read_block_range_fails_on_invalid_start() {
     let mut service = make_test_service();
 
-    let genesis = make_test_block(0, ZERO_HASH);
-    service.write_block(genesis, ZERO_HASH, ZERO_HASH).unwrap();
+    write_test_block(&mut service, 0, ZERO_HASH);
 
     let result = service.read_block_range(100, 10);
     assert!(matches!(result, Err(StorageError::HeightNotFound { .. })));
@@ -382,11 +362,9 @@ fn test_get_latest_height_updates_after_write() {
 
     assert_eq!(service.get_latest_height().unwrap(), 0);
 
-    let genesis = make_test_block(0, ZERO_HASH);
-    let genesis_hash = service.write_block(genesis, ZERO_HASH, ZERO_HASH).unwrap();
+    let genesis_hash = write_test_block(&mut service, 0, ZERO_HASH);
 
-    let block1 = make_test_block(1, genesis_hash);
-    service.write_block(block1, ZERO_HASH, ZERO_HASH).unwrap();
+    write_test_block(&mut service, 1, genesis_hash);
 
     assert_eq!(service.get_latest_height().unwrap(), 1);
 }
@@ -396,8 +374,7 @@ fn test_duplicate_block_write_rejected() {
     let mut service = make_test_service();
 
     let block = make_test_block(0, ZERO_HASH);
-
-    let _hash = service
+    service
         .write_block(block.clone(), MERKLE_ROOT, STATE_ROOT)
         .unwrap();
 
