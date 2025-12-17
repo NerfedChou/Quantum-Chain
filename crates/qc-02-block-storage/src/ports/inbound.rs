@@ -6,8 +6,8 @@
 //!
 //! These are the public APIs this library exposes to the application.
 
-use crate::domain::entities::{StorageMetadata, StoredBlock, Timestamp};
 use crate::domain::errors::StorageError;
+use crate::domain::storage::{StorageMetadata, StoredBlock, Timestamp};
 use crate::domain::value_objects::TransactionLocation;
 use shared_types::{Hash, ValidatedBlock};
 
@@ -159,10 +159,9 @@ pub trait BlockAssemblerApi {
     ///
     /// ## Authorization
     ///
-    /// Only accepts events from Subsystem 8 (Consensus).
+    /// Caller (Adapter) must verify authorization before calling.
     fn on_block_validated(
         &mut self,
-        sender_id: u8,
         block: ValidatedBlock,
         now: Timestamp,
     ) -> Result<(), StorageError>;
@@ -171,10 +170,9 @@ pub trait BlockAssemblerApi {
     ///
     /// ## Authorization
     ///
-    /// Only accepts events from Subsystem 3 (Transaction Indexing).
+    /// Caller (Adapter) must verify authorization before calling.
     fn on_merkle_root_computed(
         &mut self,
-        sender_id: u8,
         block_hash: Hash,
         merkle_root: Hash,
         now: Timestamp,
@@ -184,10 +182,9 @@ pub trait BlockAssemblerApi {
     ///
     /// ## Authorization
     ///
-    /// Only accepts events from Subsystem 4 (State Management).
+    /// Caller (Adapter) must verify authorization before calling.
     fn on_state_root_computed(
         &mut self,
-        sender_id: u8,
         block_hash: Hash,
         state_root: Hash,
         now: Timestamp,
